@@ -27,8 +27,12 @@ function clip(text) {
   return `${text.slice(0, limit)}\n…`;
 }
 
-function commandValue(text) {
-  return text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A').replace(/,/g, '%2C');
+function commandMessage(text) {
+  return text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+function commandProperty(text) {
+  return commandMessage(text).replace(/,/g, '%2C').replace(/:/g, '%3A');
 }
 
 const lines = ['## Venom', ''];
@@ -80,9 +84,9 @@ if (failures.length > 0) {
     lines.push(`**${failure.suiteName} / ${failure.caseName}** (${where})`, '');
     lines.push('```', message, '```', '');
     if (process.env.GITHUB_ACTIONS === 'true') {
-      const title = commandValue(`${failure.suiteName} / ${failure.caseName}`);
+      const title = commandProperty(`${failure.suiteName} / ${failure.caseName}`);
       const file = failure.className ? ` file=tests/venom/${failure.className}` : '';
-      process.stderr.write(`::error${file},title=${title}::${commandValue(message)}\n`);
+      process.stderr.write(`::error${file},title=${title}::${commandMessage(message)}\n`);
     }
   }
   if (failures.length > shown.length) {
