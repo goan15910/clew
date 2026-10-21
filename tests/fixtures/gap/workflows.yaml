@@ -1,0 +1,11 @@
+id: gapFlows
+workflows:
+  - id: W1
+    title: Go
+    expect: accepted
+    start: a
+    nodes:
+      - { id: a, state: editing }
+      - { id: b, state: closed }
+    edges:
+      - { from: a, event: submit, to: b, text: "Go" }

@@ -1,0 +1,68 @@
+name: chart analyze
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: clean chart exits 0
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart analyze examples/todo/b-full.yaml"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "todoTask: 7 reachable, 0 unreachable, 0 dead ends"'
+
+- name: clean chart json
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart analyze examples/todo/b-full.yaml --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual chart.analyze
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.clean ShouldBeTrue
+    - result.systemoutjson.chartId ShouldEqual todoTask
+    - result.systemoutjson.structure.unreachable ShouldHaveLength 0
+    - result.systemoutjson.structure.deadEnds ShouldHaveLength 0
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: unreachable states and dead ends exit 1
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart analyze tests/fixtures/charts/dead-end.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.clean ShouldBeFalse
+    - result.systemoutjson.chartId ShouldEqual deadEnd
+    - result.systemoutjson.structure.reachable ShouldContain start
+    - result.systemoutjson.structure.reachable ShouldContain done
+    - result.systemoutjson.structure.unreachable ShouldContain stuck
+    - result.systemoutjson.structure.unreachable ShouldContain island
+    - result.systemoutjson.structure.deadEnds ShouldContain stuck
+    - result.systemoutjson.structure.deadEnds ShouldContain island
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: invalid chart is exit 2 and has no structure
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart analyze tests/fixtures/charts/misspelled-state.yaml --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "unknown state"
+    - result.systemoutjson.command ShouldEqual chart.analyze
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual invalid-chart
+    - result.systemout ShouldNotContainSubstring "\"structure\""
+
+- name: unreadable chart is exit 2
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart analyze tests/fixtures/charts/missing.yaml --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "cannot read"
+    - result.systemoutjson.fault ShouldEqual unreadable
+    - result.systemoutjson.ok ShouldBeFalse

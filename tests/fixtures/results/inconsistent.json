@@ -1,0 +1,9 @@
+{
+  "command": "verify",
+  "ok": true,
+  "candidate": "odd",
+  "chartId": "todoTask",
+  "workflowSetId": "todoFlows",
+  "summary": { "passed": 1, "failed": 0, "total": 1 },
+  "flows": [{ "id": "W1", "pass": false, "reason": "no" }]
+}

@@ -1,0 +1,96 @@
+name: chart check
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: valid chart exits 0
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check examples/todo/b-full.yaml"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "todoTask: schema valid, graph valid (7 states, 13 transitions)"'
+
+- name: valid chart json
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check examples/todo/b-full.yaml --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual chart.check
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.graphChecked ShouldBeTrue
+    - result.systemoutjson.chart.id ShouldEqual todoTask
+    - result.systemoutjson.chart.initial ShouldEqual draft
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: unknown target state is a graph failure
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/misspelled-state.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.graphChecked ShouldBeTrue
+    - result.systemoutjson.issues ShouldHaveLength 1
+    - result.systemoutjson.issues.issues0.kind ShouldEqual graph
+    - result.systemoutjson.issues.issues0.path ShouldEqual transitions.0.to
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "unknown state"
+
+- name: effect sets an undeclared field
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/undeclared-effect-field.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.graphChecked ShouldBeTrue
+    - result.systemoutjson.issues.issues0.kind ShouldEqual graph
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "not declared on target state"
+
+- name: legacy workflowState is a schema failure with a migration hint
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/legacy-chart.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.graphChecked ShouldBeFalse
+    - result.systemoutjson.issues.issues0.kind ShouldEqual schema
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "workflowState was removed"
+
+- name: missing file is exit 2 on stderr and json
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/missing.yaml --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "cannot read"
+    - result.systemoutjson.command ShouldEqual chart.check
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.graphChecked ShouldBeFalse
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: invalid yaml is exit 2
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/not-yaml.txt --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "invalid YAML"
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: missing argument is exit 2 on stderr
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "missing required argument"
+    - result.systemout ShouldBeEmpty

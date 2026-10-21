@@ -1,0 +1,7 @@
+# Same workflow set as the to-do example, pointed at a chart id that file does not have.
+chart: notTodoTask
+workflowSet: todoFlows
+states:
+  - { chart: draft, workflow: editing }
+events:
+  - { chart: SUBMIT, workflow: submit }

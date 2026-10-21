@@ -1,0 +1,65 @@
+name: json chaining
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: workflows check json selects verify then compare
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      cd '{{.root}}'
+      {{.clew}} workflows check examples/todo/workflows.yaml --json > '{{.dir}}/selection.json'
+      status=$?
+      cat '{{.dir}}/selection.json'
+      exit $status
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual workflows.check
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.workflowSet.workflows ShouldHaveLength 8
+  - type: exec
+    script: |
+      cd '{{.root}}'
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --select '{{.dir}}/selection.json' --json > '{{.dir}}/b-full.json'
+      status=$?
+      cat '{{.dir}}/b-full.json'
+      exit $status
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual verify
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.candidate ShouldEqual b-full
+    - result.systemoutjson.summary.passed ShouldEqual 8
+    - result.systemoutjson.summary.total ShouldEqual 8
+    - result.systemoutjson.selected ShouldHaveLength 8
+  - type: exec
+    script: |
+      cd '{{.root}}'
+      {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/a-basic.json'
+      status=$?
+      cat '{{.dir}}/a-basic.json'
+      exit $status
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.candidate ShouldEqual a-basic
+    - result.systemoutjson.summary.failed ShouldEqual 3
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare '{{.dir}}/a-basic.json' '{{.dir}}/b-full.json' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual compare
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.winner ShouldEqual b-full
+    - result.systemoutjson.candidates.candidates0.name ShouldEqual b-full
+    - result.systemoutjson.candidates.candidates1.failures.failures0.id ShouldEqual W6

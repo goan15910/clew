@@ -1,0 +1,39 @@
+name: venom
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  venom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Venom v1.3.0
+        run: bash scripts/install-venom.sh
+      - name: Run Venom
+        run: |
+          bin/venom run tests/venom \
+            --format=xml \
+            --output-dir=venom-results \
+            --html-report \
+            --var "root=${GITHUB_WORKSPACE}" \
+            --var "clew=node_modules/.bin/tsx src/cli.ts"
+      - name: Publish the job summary
+        if: always()
+        run: node scripts/venom-step-summary.mjs venom-results >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the Venom HTML report and JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: venom-report
+          path: |
+            venom-results/*.xml
+            venom-results/*.html
+          if-no-files-found: error

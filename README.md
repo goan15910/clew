@@ -33,6 +33,17 @@ Errors go to stderr. `--json` prints one result document on stdout.
 
 The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8. The workflow set and the chart use different names; `mapping.yaml` is the correspondence.
 
+## Tests
+
+Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
+
+```bash
+bash scripts/install-venom.sh
+bin/venom run tests/venom --format=xml --output-dir=venom-results --html-report --var "root=$PWD" --var "clew=node_modules/.bin/tsx src/cli.ts"
+```
+
+Venom is pinned to v1.3.0. GitHub Actions runs the same command on pull requests and on `main`. A failing case is an annotation on the Actions run, and the same text is in the job summary. The HTML report and JUnit XML are the `venom-report` artifact.
+
 ## Architecture
 
 The CLI is the composition root. It parses arguments, wires adapters into the use cases, and maps each result to stdout, stderr, and an exit code. Use cases depend only on domain objects and ports. Adapters implement those ports. Dependencies point inward.
