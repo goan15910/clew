@@ -1,0 +1,20 @@
+digraph G {
+  rankdir=LR; pad=0.3; nodesep=0.25; ranksep=0.35; newrank=true;
+  labelloc=t; fontname="Helvetica"; fontsize=18; label=<<B>W6: Restore a deleted task</B>>;
+  node [shape=box style="rounded,filled" fillcolor="#f6f8fa" color="#57606a" fontname="Helvetica" fontsize=12 height=0.4];
+  edge [fontname="Helvetica" fontsize=10 color="#57606a"];
+  subgraph cluster_0 { style="rounded" color="#cf222e" penwidth=1.5; label=""; 
+    w0_h [shape=plaintext style="" label=<<FONT COLOR="#cf222e"><B>W6 FAIL</B></FONT><BR/><FONT POINT-SIZE="10">Restore a deleted task</FONT>>];
+    w0_s0 [label="Draft"];
+    w0_h -> w0_s0 [style=invis];
+    w0_s1 [label="Todo"];
+    w0_s0 -> w0_s1 [label=<<B>SUBMIT</B>>];
+    w0_s2 [label="Deleted"];
+    w0_s1 -> w0_s2 [label=<<B>DELETE</B>>];
+    w0_s3 [shape=box style="filled,dashed" fillcolor="#ffebe9" color="#cf222e" fontcolor="#cf222e" label="REFUSED"];
+    w0_s2 -> w0_s3 [label=<<B>RESTORE</B>> color="#cf222e" fontcolor="#cf222e" style=dashed];
+    w0_why [shape=note style=filled fillcolor="#fff8c5" color="#bf8700" fontsize=10 label="step 3 'Restore it from the trash': Deleted does not accept RESTORE (it is a final state)"];
+    w0_s3 -> w0_why [style=dotted arrowhead=none];
+  }
+  { rank=same; w0_h }
+}

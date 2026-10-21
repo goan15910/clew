@@ -1,0 +1,71 @@
+# Stage 2 output (agent translation of inputs/workflows.en.md). EXAMPLE DATA.
+# Each step maps one plain-English sentence to one machine event.
+# expect: "accepted" = the whole sequence must be possible and end in `end`.
+# expect: "rejected" = the system must refuse the sequence at step `rejectAt`.
+machineId: todoTask
+workflows:
+  - id: W1
+    title: Create and complete a task
+    expect: accepted
+    end: done
+    steps:
+      - { text: "Add the draft to my list", event: SUBMIT }
+      - { text: "Start working on it", event: START }
+      - { text: "Mark it done", event: COMPLETE }
+  - id: W2
+    title: Snooze and resume
+    expect: accepted
+    end: done
+    steps:
+      - { text: "Add the task", event: SUBMIT }
+      - { text: "Start it", event: START }
+      - { text: "Snooze until tomorrow", event: SNOOZE }
+      - { text: "Resume it", event: RESUME }
+      - { text: "Finish it", event: COMPLETE }
+  - id: W3
+    title: Reopen a done task
+    expect: accepted
+    end: todo
+    steps:
+      - { text: "Add the task", event: SUBMIT }
+      - { text: "Start it", event: START }
+      - { text: "Finish it", event: COMPLETE }
+      - { text: "Reopen it", event: REOPEN }
+  - id: W4
+    title: Archive a done task
+    expect: accepted
+    end: archived
+    steps:
+      - { text: "Add the task", event: SUBMIT }
+      - { text: "Start it", event: START }
+      - { text: "Finish it", event: COMPLETE }
+      - { text: "Archive it", event: ARCHIVE }
+  - id: W5
+    title: Delete a draft
+    expect: accepted
+    end: deleted
+    steps:
+      - { text: "Delete the draft", event: DELETE }
+  - id: W6
+    title: Restore a deleted task
+    expect: accepted
+    end: todo
+    steps:
+      - { text: "Add the task", event: SUBMIT }
+      - { text: "Delete it by mistake", event: DELETE }
+      - { text: "Restore it from the trash", event: RESTORE }
+  - id: W7
+    title: Complete without starting
+    expect: accepted
+    end: done
+    steps:
+      - { text: "Add the task", event: SUBMIT }
+      - { text: "Tick it done straight away", event: COMPLETE }
+  - id: W8
+    title: "Rule: unfinished task cannot be archived"
+    expect: rejected
+    rejectAt: 3
+    steps:
+      - { text: "Add the task", event: SUBMIT }
+      - { text: "Start it", event: START }
+      - { text: "Try to archive it before it is done", event: ARCHIVE }

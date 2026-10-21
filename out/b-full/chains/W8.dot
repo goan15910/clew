@@ -1,0 +1,18 @@
+digraph G {
+  rankdir=LR; pad=0.3; nodesep=0.25; ranksep=0.35; newrank=true;
+  labelloc=t; fontname="Helvetica"; fontsize=18; label=<<B>W8: Rule: unfinished task cannot be archived</B>>;
+  node [shape=box style="rounded,filled" fillcolor="#f6f8fa" color="#57606a" fontname="Helvetica" fontsize=12 height=0.4];
+  edge [fontname="Helvetica" fontsize=10 color="#57606a"];
+  subgraph cluster_0 { style="rounded" color="#1a7f37" penwidth=1.5; label=""; 
+    w0_h [shape=plaintext style="" label=<<FONT COLOR="#1a7f37"><B>W8 PASS</B></FONT><BR/><FONT POINT-SIZE="10">Rule: unfinished task cannot be archived</FONT>>];
+    w0_s0 [label="Draft"];
+    w0_h -> w0_s0 [style=invis];
+    w0_s1 [label="Todo"];
+    w0_s0 -> w0_s1 [label=<<B>SUBMIT</B>>];
+    w0_s2 [label="In Progress"];
+    w0_s1 -> w0_s2 [label=<<B>START</B>>];
+    w0_s3 [shape=box style="filled,dashed" fillcolor="#dafbe1" color="#1a7f37" fontcolor="#1a7f37" label="refused (as required)"];
+    w0_s2 -> w0_s3 [label=<<B>ARCHIVE</B>> color="#1a7f37" fontcolor="#1a7f37" style=dashed];
+  }
+  { rank=same; w0_h }
+}

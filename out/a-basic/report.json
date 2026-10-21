@@ -1,0 +1,477 @@
+{
+  "candidate": "a-basic",
+  "machine": "candidates/a-basic.machine.ts",
+  "schemaValid": true,
+  "contract": {
+    "id": "todoTask",
+    "initial": "draft",
+    "states": [
+      {
+        "id": "draft",
+        "label": "Draft",
+        "workflowState": "editing",
+        "data": "title set, not in list",
+        "final": false
+      },
+      {
+        "id": "todo",
+        "label": "Todo",
+        "workflowState": "open",
+        "data": "listed, started_at = null",
+        "final": false
+      },
+      {
+        "id": "inProgress",
+        "label": "In Progress",
+        "workflowState": "active",
+        "data": "started_at set",
+        "final": false
+      },
+      {
+        "id": "snoozed",
+        "label": "Snoozed",
+        "workflowState": "paused",
+        "data": "wake_at set, hidden",
+        "final": false
+      },
+      {
+        "id": "done",
+        "label": "Done",
+        "workflowState": "closed",
+        "data": "completed_at set",
+        "final": false
+      },
+      {
+        "id": "archived",
+        "label": "Archived",
+        "workflowState": "kept",
+        "data": "listed = false, read-only",
+        "final": true
+      },
+      {
+        "id": "deleted",
+        "label": "Deleted",
+        "workflowState": "gone",
+        "data": "row removed",
+        "final": true
+      }
+    ],
+    "transitions": [
+      {
+        "from": "draft",
+        "event": "SUBMIT",
+        "to": "todo",
+        "actor": "user",
+        "guard": "title not empty",
+        "effect": "listed = true"
+      },
+      {
+        "from": "draft",
+        "event": "DELETE",
+        "to": "deleted",
+        "actor": "user",
+        "effect": "row removed"
+      },
+      {
+        "from": "todo",
+        "event": "START",
+        "to": "inProgress",
+        "actor": "user",
+        "effect": "started_at = now"
+      },
+      {
+        "from": "todo",
+        "event": "SNOOZE",
+        "to": "snoozed",
+        "actor": "user",
+        "effect": "wake_at = chosen time"
+      },
+      {
+        "from": "todo",
+        "event": "DELETE",
+        "to": "deleted",
+        "actor": "user",
+        "effect": "row removed"
+      },
+      {
+        "from": "inProgress",
+        "event": "SNOOZE",
+        "to": "snoozed",
+        "actor": "user",
+        "effect": "wake_at = chosen time"
+      },
+      {
+        "from": "inProgress",
+        "event": "COMPLETE",
+        "to": "done",
+        "actor": "user",
+        "effect": "completed_at = now"
+      },
+      {
+        "from": "inProgress",
+        "event": "ARCHIVE",
+        "to": "archived",
+        "actor": "user",
+        "effect": "listed = false"
+      },
+      {
+        "from": "snoozed",
+        "event": "RESUME",
+        "to": "inProgress",
+        "actor": "user or timer",
+        "effect": "wake_at = null"
+      },
+      {
+        "from": "done",
+        "event": "REOPEN",
+        "to": "todo",
+        "actor": "user",
+        "effect": "completed_at = null"
+      },
+      {
+        "from": "done",
+        "event": "ARCHIVE",
+        "to": "archived",
+        "actor": "user",
+        "effect": "listed = false"
+      }
+    ]
+  },
+  "structure": {
+    "reachable": [
+      "draft",
+      "todo",
+      "deleted",
+      "inProgress",
+      "snoozed",
+      "done",
+      "archived"
+    ],
+    "unreachable": [],
+    "deadEnds": [],
+    "shortestPaths": {
+      "draft": [],
+      "todo": [
+        "SUBMIT"
+      ],
+      "deleted": [
+        "DELETE"
+      ],
+      "inProgress": [
+        "SUBMIT",
+        "START"
+      ],
+      "snoozed": [
+        "SUBMIT",
+        "SNOOZE"
+      ],
+      "done": [
+        "SUBMIT",
+        "START",
+        "COMPLETE"
+      ],
+      "archived": [
+        "SUBMIT",
+        "START",
+        "ARCHIVE"
+      ]
+    }
+  },
+  "unusedTransitions": [
+    "todo --SNOOZE--> snoozed"
+  ],
+  "summary": {
+    "passed": 5,
+    "total": 8
+  },
+  "workflows": [
+    {
+      "id": "W1",
+      "title": "Create and complete a task",
+      "expect": "accepted",
+      "pass": true,
+      "trace": [
+        {
+          "n": 1,
+          "text": "Add the draft to my list",
+          "event": "SUBMIT",
+          "from": "draft",
+          "to": "todo",
+          "accepted": true
+        },
+        {
+          "n": 2,
+          "text": "Start working on it",
+          "event": "START",
+          "from": "todo",
+          "to": "inProgress",
+          "accepted": true
+        },
+        {
+          "n": 3,
+          "text": "Mark it done",
+          "event": "COMPLETE",
+          "from": "inProgress",
+          "to": "done",
+          "accepted": true
+        }
+      ],
+      "finalState": "done",
+      "reason": "path found by @xstate/graph getPathsFromEvents, ends in Done",
+      "provedBy": "@xstate/graph getPathsFromEvents"
+    },
+    {
+      "id": "W2",
+      "title": "Snooze and resume",
+      "expect": "accepted",
+      "pass": true,
+      "trace": [
+        {
+          "n": 1,
+          "text": "Add the task",
+          "event": "SUBMIT",
+          "from": "draft",
+          "to": "todo",
+          "accepted": true
+        },
+        {
+          "n": 2,
+          "text": "Start it",
+          "event": "START",
+          "from": "todo",
+          "to": "inProgress",
+          "accepted": true
+        },
+        {
+          "n": 3,
+          "text": "Snooze until tomorrow",
+          "event": "SNOOZE",
+          "from": "inProgress",
+          "to": "snoozed",
+          "accepted": true
+        },
+        {
+          "n": 4,
+          "text": "Resume it",
+          "event": "RESUME",
+          "from": "snoozed",
+          "to": "inProgress",
+          "accepted": true
+        },
+        {
+          "n": 5,
+          "text": "Finish it",
+          "event": "COMPLETE",
+          "from": "inProgress",
+          "to": "done",
+          "accepted": true
+        }
+      ],
+      "finalState": "done",
+      "reason": "path found by @xstate/graph getPathsFromEvents, ends in Done",
+      "provedBy": "@xstate/graph getPathsFromEvents"
+    },
+    {
+      "id": "W3",
+      "title": "Reopen a done task",
+      "expect": "accepted",
+      "pass": true,
+      "trace": [
+        {
+          "n": 1,
+          "text": "Add the task",
+          "event": "SUBMIT",
+          "from": "draft",
+          "to": "todo",
+          "accepted": true
+        },
+        {
+          "n": 2,
+          "text": "Start it",
+          "event": "START",
+          "from": "todo",
+          "to": "inProgress",
+          "accepted": true
+        },
+        {
+          "n": 3,
+          "text": "Finish it",
+          "event": "COMPLETE",
+          "from": "inProgress",
+          "to": "done",
+          "accepted": true
+        },
+        {
+          "n": 4,
+          "text": "Reopen it",
+          "event": "REOPEN",
+          "from": "done",
+          "to": "todo",
+          "accepted": true
+        }
+      ],
+      "finalState": "todo",
+      "reason": "path found by @xstate/graph getPathsFromEvents, ends in Todo",
+      "provedBy": "@xstate/graph getPathsFromEvents"
+    },
+    {
+      "id": "W4",
+      "title": "Archive a done task",
+      "expect": "accepted",
+      "pass": true,
+      "trace": [
+        {
+          "n": 1,
+          "text": "Add the task",
+          "event": "SUBMIT",
+          "from": "draft",
+          "to": "todo",
+          "accepted": true
+        },
+        {
+          "n": 2,
+          "text": "Start it",
+          "event": "START",
+          "from": "todo",
+          "to": "inProgress",
+          "accepted": true
+        },
+        {
+          "n": 3,
+          "text": "Finish it",
+          "event": "COMPLETE",
+          "from": "inProgress",
+          "to": "done",
+          "accepted": true
+        },
+        {
+          "n": 4,
+          "text": "Archive it",
+          "event": "ARCHIVE",
+          "from": "done",
+          "to": "archived",
+          "accepted": true
+        }
+      ],
+      "finalState": "archived",
+      "reason": "path found by @xstate/graph getPathsFromEvents, ends in Archived",
+      "provedBy": "@xstate/graph getPathsFromEvents"
+    },
+    {
+      "id": "W5",
+      "title": "Delete a draft",
+      "expect": "accepted",
+      "pass": true,
+      "trace": [
+        {
+          "n": 1,
+          "text": "Delete the draft",
+          "event": "DELETE",
+          "from": "draft",
+          "to": "deleted",
+          "accepted": true
+        }
+      ],
+      "finalState": "deleted",
+      "reason": "path found by @xstate/graph getPathsFromEvents, ends in Deleted",
+      "provedBy": "@xstate/graph getPathsFromEvents"
+    },
+    {
+      "id": "W6",
+      "title": "Restore a deleted task",
+      "expect": "accepted",
+      "pass": false,
+      "reason": "step 3 \"Restore it from the trash\": Deleted does not accept RESTORE (it is a final state)",
+      "trace": [
+        {
+          "n": 1,
+          "text": "Add the task",
+          "event": "SUBMIT",
+          "from": "draft",
+          "to": "todo",
+          "accepted": true
+        },
+        {
+          "n": 2,
+          "text": "Delete it by mistake",
+          "event": "DELETE",
+          "from": "todo",
+          "to": "deleted",
+          "accepted": true
+        },
+        {
+          "n": 3,
+          "text": "Restore it from the trash",
+          "event": "RESTORE",
+          "from": "deleted",
+          "to": null,
+          "accepted": false
+        }
+      ],
+      "finalState": "deleted",
+      "provedBy": "replay"
+    },
+    {
+      "id": "W7",
+      "title": "Complete without starting",
+      "expect": "accepted",
+      "pass": false,
+      "reason": "step 2 \"Tick it done straight away\": Todo does not accept COMPLETE (it accepts START, SNOOZE, DELETE)",
+      "trace": [
+        {
+          "n": 1,
+          "text": "Add the task",
+          "event": "SUBMIT",
+          "from": "draft",
+          "to": "todo",
+          "accepted": true
+        },
+        {
+          "n": 2,
+          "text": "Tick it done straight away",
+          "event": "COMPLETE",
+          "from": "todo",
+          "to": null,
+          "accepted": false
+        }
+      ],
+      "finalState": "todo",
+      "provedBy": "replay"
+    },
+    {
+      "id": "W8",
+      "title": "Rule: unfinished task cannot be archived",
+      "expect": "rejected",
+      "pass": false,
+      "reason": "should have been refused at step 3 (ARCHIVE) but the model allows the whole sequence, ending in Archived",
+      "trace": [
+        {
+          "n": 1,
+          "text": "Add the task",
+          "event": "SUBMIT",
+          "from": "draft",
+          "to": "todo",
+          "accepted": true
+        },
+        {
+          "n": 2,
+          "text": "Start it",
+          "event": "START",
+          "from": "todo",
+          "to": "inProgress",
+          "accepted": true
+        },
+        {
+          "n": 3,
+          "text": "Try to archive it before it is done",
+          "event": "ARCHIVE",
+          "from": "inProgress",
+          "to": "archived",
+          "accepted": true
+        }
+      ],
+      "finalState": "archived",
+      "provedBy": "replay"
+    }
+  ]
+}

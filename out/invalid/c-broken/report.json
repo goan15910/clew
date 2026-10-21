@@ -1,0 +1,9 @@
+{
+  "candidate": "c-broken",
+  "schemaValid": false,
+  "schemaErrors": [
+    "transitions.2.actor (todo --START-->): Invalid input: expected string, received undefined",
+    "transitions.3.event (todo --complete-->): events are UPPER_SNAKE_CASE",
+    "transitions.7.event (inProgress --complete-->): events are UPPER_SNAKE_CASE"
+  ]
+}

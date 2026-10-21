@@ -1,0 +1,15 @@
+{
+  "winner": "b-full",
+  "candidates": [
+    {
+      "name": "b-full",
+      "passed": 8,
+      "total": 8
+    },
+    {
+      "name": "a-basic",
+      "passed": 5,
+      "total": 8
+    }
+  ]
+}

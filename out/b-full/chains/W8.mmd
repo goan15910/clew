@@ -1,0 +1,6 @@
+flowchart LR
+  %% W8 PASS: Rule: unfinished task cannot be archived
+  s0["Draft"]
+  s0 -- SUBMIT --> s1["Todo"]
+  s1 -- START --> s2["In Progress"]
+  s2 -. ARCHIVE .-> s3{{"refused"}}

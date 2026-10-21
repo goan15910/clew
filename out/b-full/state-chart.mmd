@@ -1,0 +1,23 @@
+stateDiagram-v2
+  direction LR
+  draft: Draft
+  todo: Todo
+  inProgress: In Progress
+  snoozed: Snoozed
+  done: Done
+  archived: Archived
+  deleted: Deleted
+  [*] --> draft
+  draft --> todo: SUBMIT
+  draft --> deleted: DELETE
+  todo --> inProgress: START
+  todo --> done: COMPLETE
+  todo --> snoozed: SNOOZE
+  todo --> deleted: DELETE
+  inProgress --> snoozed: SNOOZE
+  inProgress --> done: COMPLETE
+  snoozed --> inProgress: RESUME
+  done --> todo: REOPEN
+  done --> archived: ARCHIVE
+  archived --> done: UNARCHIVE
+  deleted --> todo: RESTORE

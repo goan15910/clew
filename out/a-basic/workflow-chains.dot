@@ -1,0 +1,1181 @@
+digraph root {
+	graph [bb="0,0,1423,500"];
+	node [label="\N"];
+	subgraph T {
+		graph [bb="",
+			pad=0.2
+		];
+		node [fontname="",
+			fontsize="",
+			height="",
+			label="\N",
+			pos="",
+			shape="",
+			width=""
+		];
+		t	[fontname=Helvetica,
+			fontsize=20,
+			height=0.5,
+			label=<<B>Workflow proofs: candidate a-basic (5/8 pass)</B>>,
+			pos="267,482",
+			shape=plaintext,
+			width=7.4028];
+	}
+	subgraph G {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [color="#57606a",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h	[height=0.41667,
+				label=<<FONT COLOR="#1a7f37"><B>W1 PASS</B></FONT><BR/><FONT POINT-SIZE="10">Create and complete a task</FONT>>,
+				pos="92,429",
+				shape=plaintext,
+				style="",
+				width=2.1111];
+		}
+		subgraph cluster_0 {
+			graph [bb="8,406,665,452",
+				color="#1a7f37",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h;
+			w0_s0	[height=0.40278,
+				label=Draft,
+				pos="222,429",
+				width=0.75];
+			w0_h -> w0_s0	[pos="e,194.73,429 168.2,429 173.82,429 179.32,429 184.53,429",
+				style=invis];
+			w0_s1	[height=0.40278,
+				label=Todo,
+				pos="346,429",
+				width=0.75];
+			w0_s0 -> w0_s1	[label=<<B>SUBMIT</B>>,
+				lp="284,434.5",
+				pos="e,318.87,429 249.17,429 266.54,429 289.57,429 308.7,429"];
+			w0_s2	[height=0.40278,
+				label="In Progress",
+				pos="476,429",
+				width=1.1389];
+			w0_s1 -> w0_s2	[label=<<B>START</B>>,
+				lp="404,434.5",
+				pos="e,434.7,429 373.21,429 388.01,429 407,429 424.57,429"];
+			w0_s3	[height=0.40278,
+				label=Done,
+				pos="630,429",
+				width=0.75];
+			w0_s2 -> w0_s3	[label=<<B>COMPLETE</B>>,
+				lp="560,434.5",
+				pos="e,602.85,429 517.33,429 540.72,429 569.93,429 592.61,429"];
+		}
+	}
+	subgraph G_gv1 {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [color="#57606a",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv1	[height=0.41667,
+				label=<<FONT COLOR="#1a7f37"><B>W2 PASS</B></FONT><BR/><FONT POINT-SIZE="10">Snooze and resume</FONT>>,
+				pos="73,371",
+				shape=plaintext,
+				style="",
+				width=1.5694];
+		}
+		subgraph cluster_0_gv1 {
+			graph [bb="8,348,922,394",
+				color="#1a7f37",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv1;
+			w0_s0_gv1	[height=0.40278,
+				label=Draft,
+				pos="183,371",
+				width=0.75];
+			w0_h_gv1 -> w0_s0_gv1	[pos="e,155.9,371 129.02,371 134.74,371 140.44,371 145.87,371",
+				style=invis];
+			w0_s1_gv1	[height=0.40278,
+				label=Todo,
+				pos="307,371",
+				width=0.75];
+			w0_s0_gv1 -> w0_s1_gv1	[label=<<B>SUBMIT</B>>,
+				lp="245,376.5",
+				pos="e,279.87,371 210.17,371 227.54,371 250.57,371 269.7,371"];
+			w0_s2_gv1	[height=0.40278,
+				label="In Progress",
+				pos="437,371",
+				width=1.1389];
+			w0_s1_gv1 -> w0_s2_gv1	[label=<<B>START</B>>,
+				lp="365,376.5",
+				pos="e,395.7,371 334.21,371 349.01,371 368,371 385.57,371"];
+			w0_s3_gv1	[height=0.40278,
+				label=Snoozed,
+				pos="585,371",
+				width=0.94444];
+			w0_s2_gv1 -> w0_s3_gv1	[label=<<B>SNOOZE</B>>,
+				lp="514.5,376.5",
+				pos="e,550.75,371 478.28,371 497.6,371 520.77,371 540.49,371"];
+			w0_s4	[height=0.40278,
+				label="In Progress",
+				pos="733,371",
+				width=1.1389];
+			w0_s3_gv1 -> w0_s4	[label=<<B>RESUME</B>>,
+				lp="655.5,376.5",
+				pos="e,691.99,371 619.13,371 637.63,371 661.05,371 681.76,371"];
+			w0_s5	[height=0.40278,
+				label=Done,
+				pos="887,371",
+				width=0.75];
+			w0_s4 -> w0_s5	[label=<<B>COMPLETE</B>>,
+				lp="817,376.5",
+				pos="e,859.85,371 774.33,371 797.72,371 826.93,371 849.61,371"];
+		}
+	}
+	subgraph G_gv2 {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [color="#57606a",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv2	[height=0.41667,
+				label=<<FONT COLOR="#1a7f37"><B>W3 PASS</B></FONT><BR/><FONT POINT-SIZE="10">Reopen a done task</FONT>>,
+				pos="73,313",
+				shape=plaintext,
+				style="",
+				width=1.5694];
+		}
+		subgraph cluster_0_gv2 {
+			graph [bb="8,290,752,336",
+				color="#1a7f37",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv2;
+			w0_s0_gv2	[height=0.40278,
+				label=Draft,
+				pos="183,313",
+				width=0.75];
+			w0_h_gv2 -> w0_s0_gv2	[pos="e,155.9,313 129.02,313 134.74,313 140.44,313 145.87,313",
+				style=invis];
+			w0_s1_gv2	[height=0.40278,
+				label=Todo,
+				pos="307,313",
+				width=0.75];
+			w0_s0_gv2 -> w0_s1_gv2	[label=<<B>SUBMIT</B>>,
+				lp="245,318.5",
+				pos="e,279.87,313 210.17,313 227.54,313 250.57,313 269.7,313"];
+			w0_s2_gv2	[height=0.40278,
+				label="In Progress",
+				pos="437,313",
+				width=1.1389];
+			w0_s1_gv2 -> w0_s2_gv2	[label=<<B>START</B>>,
+				lp="365,318.5",
+				pos="e,395.7,313 334.21,313 349.01,313 368,313 385.57,313"];
+			w0_s3_gv2	[height=0.40278,
+				label=Done,
+				pos="591,313",
+				width=0.75];
+			w0_s2_gv2 -> w0_s3_gv2	[label=<<B>COMPLETE</B>>,
+				lp="521,318.5",
+				pos="e,563.85,313 478.33,313 501.72,313 530.93,313 553.61,313"];
+			w0_s4_gv1	[height=0.40278,
+				label=Todo,
+				pos="717,313",
+				width=0.75];
+			w0_s3_gv2 -> w0_s4_gv1	[label=<<B>REOPEN</B>>,
+				lp="654,318.5",
+				pos="e,689.74,313 618.3,313 636.13,313 659.95,313 679.61,313"];
+		}
+	}
+	subgraph G_gv3 {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [color="#57606a",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv3	[height=0.41667,
+				label=<<FONT COLOR="#1a7f37"><B>W4 PASS</B></FONT><BR/><FONT POINT-SIZE="10">Archive a done task</FONT>>,
+				pos="73,255",
+				shape=plaintext,
+				style="",
+				width=1.5694];
+		}
+		subgraph cluster_0_gv3 {
+			graph [bb="8,232,769,278",
+				color="#1a7f37",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv3;
+			w0_s0_gv3	[height=0.40278,
+				label=Draft,
+				pos="183,255",
+				width=0.75];
+			w0_h_gv3 -> w0_s0_gv3	[pos="e,155.9,255 129.02,255 134.74,255 140.44,255 145.87,255",
+				style=invis];
+			w0_s1_gv3	[height=0.40278,
+				label=Todo,
+				pos="307,255",
+				width=0.75];
+			w0_s0_gv3 -> w0_s1_gv3	[label=<<B>SUBMIT</B>>,
+				lp="245,260.5",
+				pos="e,279.87,255 210.17,255 227.54,255 250.57,255 269.7,255"];
+			w0_s2_gv3	[height=0.40278,
+				label="In Progress",
+				pos="437,255",
+				width=1.1389];
+			w0_s1_gv3 -> w0_s2_gv3	[label=<<B>START</B>>,
+				lp="365,260.5",
+				pos="e,395.7,255 334.21,255 349.01,255 368,255 385.57,255"];
+			w0_s3_gv3	[height=0.40278,
+				label=Done,
+				pos="591,255",
+				width=0.75];
+			w0_s2_gv3 -> w0_s3_gv3	[label=<<B>COMPLETE</B>>,
+				lp="521,260.5",
+				pos="e,563.85,255 478.33,255 501.72,255 530.93,255 553.61,255"];
+			w0_s4_gv2	[height=0.40278,
+				label=Archived,
+				pos="727,255",
+				width=0.94444];
+			w0_s3_gv3 -> w0_s4_gv2	[label=<<B>ARCHIVE</B>>,
+				lp="655.5,260.5",
+				pos="e,692.77,255 618.15,255 636.48,255 661.4,255 682.67,255"];
+		}
+	}
+	subgraph G_gv4 {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [color="#57606a",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv4	[height=0.41667,
+				label=<<FONT COLOR="#1a7f37"><B>W5 PASS</B></FONT><BR/><FONT POINT-SIZE="10">Delete a draft</FONT>>,
+				pos="58,197",
+				shape=plaintext,
+				style="",
+				width=1.1528];
+		}
+		subgraph cluster_0_gv4 {
+			graph [bb="8,174,319,220",
+				color="#1a7f37",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [color="#57606a",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv4;
+			w0_s0_gv4	[height=0.40278,
+				label=Draft,
+				pos="153,197",
+				width=0.75];
+			w0_h_gv4 -> w0_s0_gv4	[pos="e,125.93,197 99.238,197 104.76,197 110.39,197 115.82,197",
+				style=invis];
+			w0_s1_gv4	[height=0.40278,
+				label=Deleted,
+				pos="280,197",
+				width=0.875];
+			w0_s0_gv4 -> w0_s1_gv4	[label=<<B>DELETE</B>>,
+				lp="214,202.5",
+				pos="e,247.6,197 180.1,197 196.7,197 218.56,197 237.46,197"];
+		}
+	}
+	subgraph G_gv5 {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontcolor="",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [arrowhead="",
+			color="#57606a",
+			fontcolor="",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [arrowhead="",
+				color="#57606a",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv5	[height=0.41667,
+				label=<<FONT COLOR="#cf222e"><B>W6 FAIL</B></FONT><BR/><FONT POINT-SIZE="10">Restore a deleted task</FONT>>,
+				pos="80,139",
+				shape=plaintext,
+				style="",
+				width=1.7639];
+		}
+		subgraph cluster_0_gv5 {
+			graph [bb="8,116,1101,162",
+				color="#cf222e",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [arrowhead="",
+				color="#57606a",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv5;
+			w0_s0_gv5	[height=0.40278,
+				label=Draft,
+				pos="197,139",
+				width=0.75];
+			w0_h_gv5 -> w0_s0_gv5	[pos="e,169.75,139 143.32,139 148.85,139 154.32,139 159.51,139",
+				style=invis];
+			w0_s1_gv5	[height=0.40278,
+				label=Todo,
+				pos="321,139",
+				width=0.75];
+			w0_s0_gv5 -> w0_s1_gv5	[label=<<B>SUBMIT</B>>,
+				lp="259,144.5",
+				pos="e,293.87,139 224.17,139 241.54,139 264.57,139 283.7,139"];
+			w0_s2_gv4	[height=0.40278,
+				label=Deleted,
+				pos="448,139",
+				width=0.875];
+			w0_s1_gv5 -> w0_s2_gv4	[label=<<B>DELETE</B>>,
+				lp="382,144.5",
+				pos="e,415.6,139 348.1,139 364.7,139 386.56,139 405.46,139"];
+			w0_s3_gv4	[color="#cf222e",
+				fillcolor="#ffebe9",
+				fontcolor="#cf222e",
+				height=0.40278,
+				label=REFUSED,
+				pos="593,139",
+				style="filled,dashed",
+				width=1.0184];
+			w0_s2_gv4 -> w0_s3_gv4	[color="#cf222e",
+				fontcolor="#cf222e",
+				label=<<B>RESTORE</B>>,
+				lp="518,144.5",
+				pos="e,556.98,139 479.28,139 498.98,139 524.86,139 546.86,139",
+				style=dashed];
+			w0_why	[color="#bf8700",
+				fillcolor="#fff8c5",
+				fontsize=10,
+				height=0.40278,
+				label="step 3 'Restore it from the trash': Deleted does not accept RESTORE (it is a final state)",
+				pos="875,139",
+				shape=note,
+				style=filled,
+				width=6.0694];
+			w0_s3_gv4 -> w0_why	[arrowhead=none,
+				pos="629.12,139 637.11,139 646.17,139 655.97,139",
+				style=dotted];
+		}
+	}
+	subgraph G_gv6 {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontcolor="",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [arrowhead="",
+			color="#57606a",
+			fontcolor="",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [arrowhead="",
+				color="#57606a",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv6	[height=0.41667,
+				label=<<FONT COLOR="#cf222e"><B>W7 FAIL</B></FONT><BR/><FONT POINT-SIZE="10">Complete without starting</FONT>>,
+				pos="88,81",
+				shape=plaintext,
+				style="",
+				width=2];
+		}
+		subgraph cluster_0_gv6 {
+			graph [bb="8,58,1085,104",
+				color="#cf222e",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [arrowhead="",
+				color="#57606a",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				pos="",
+				style=""
+			];
+			w0_h_gv6;
+			w0_s0_gv6	[height=0.40278,
+				label=Draft,
+				pos="214,81",
+				width=0.75];
+			w0_h_gv6 -> w0_s0_gv6	[pos="e,186.83,81 160.05,81 165.71,81 171.26,81 176.52,81",
+				style=invis];
+			w0_s1_gv6	[height=0.40278,
+				label=Todo,
+				pos="338,81",
+				width=0.75];
+			w0_s0_gv6 -> w0_s1_gv6	[label=<<B>SUBMIT</B>>,
+				lp="276,86.5",
+				pos="e,310.87,81 241.17,81 258.54,81 281.57,81 300.7,81"];
+			w0_s2_gv5	[color="#cf222e",
+				fillcolor="#ffebe9",
+				fontcolor="#cf222e",
+				height=0.40278,
+				label=REFUSED,
+				pos="487,81",
+				style="filled,dashed",
+				width=1.0184];
+			w0_s1_gv6 -> w0_s2_gv5	[color="#cf222e",
+				fontcolor="#cf222e",
+				label=<<B>COMPLETE</B>>,
+				lp="408,86.5",
+				pos="e,450.83,81 365.28,81 386.16,81 415.87,81 440.58,81",
+				style=dashed];
+			w0_why_gv1	[color="#bf8700",
+				fillcolor="#fff8c5",
+				fontsize=10,
+				height=0.40278,
+				label="step 2 'Tick it done straight away': Todo does not accept COMPLETE (it accepts START, SNOOZE, DELETE)",
+				pos="814,81",
+				shape=note,
+				style=filled,
+				width=7.3194];
+			w0_s2_gv5 -> w0_why_gv1	[arrowhead=none,
+				pos="523.04,81 530.98,81 540.02,81 549.88,81",
+				style=dotted];
+		}
+	}
+	subgraph G_gv7 {
+		graph [bb="",
+			color="",
+			label="",
+			newrank=true,
+			nodesep=0.25,
+			pad=0.3,
+			penwidth="",
+			rank="",
+			rankdir=LR,
+			ranksep=0.35,
+			style=""
+		];
+		node [color="#57606a",
+			fillcolor="#f6f8fa",
+			fontcolor="",
+			fontname=Helvetica,
+			fontsize=12,
+			height=0.4,
+			label="\N",
+			pos="",
+			shape=box,
+			style="rounded,filled",
+			width=""
+		];
+		edge [arrowhead="",
+			color="#57606a",
+			fontcolor="",
+			fontname=Helvetica,
+			fontsize=10,
+			label="",
+			lp="",
+			penwidth="",
+			pos="",
+			style=""
+		];
+		{
+			graph [bb="",
+				color="",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth="",
+				rank=same,
+				rankdir=LR,
+				ranksep=0.35,
+				style=""
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [arrowhead="",
+				color="#57606a",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				penwidth="",
+				pos="",
+				style=""
+			];
+			w0_h_gv7	[height=0.41667,
+				label=<<FONT COLOR="#cf222e"><B>W8 FAIL</B></FONT><BR/><FONT POINT-SIZE="10">Rule: unfinished task cannot be archived</FONT>>,
+				pos="124,23",
+				shape=plaintext,
+				style="",
+				width=2.9861];
+		}
+		subgraph cluster_0_gv7 {
+			graph [bb="8,0,1423,46",
+				color="#cf222e",
+				label="",
+				newrank=true,
+				nodesep=0.25,
+				pad=0.3,
+				penwidth=1.5,
+				rank="",
+				rankdir=LR,
+				ranksep=0.35,
+				style=rounded
+			];
+			node [color="#57606a",
+				fillcolor="#f6f8fa",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=12,
+				height=0.4,
+				label="\N",
+				pos="",
+				shape=box,
+				style="rounded,filled",
+				width=""
+			];
+			edge [arrowhead="",
+				color="#57606a",
+				fontcolor="",
+				fontname=Helvetica,
+				fontsize=10,
+				label="",
+				lp="",
+				penwidth="",
+				pos="",
+				style=""
+			];
+			w0_h_gv7;
+			w0_s0_gv7	[height=0.40278,
+				label=Draft,
+				pos="285,23",
+				width=0.75];
+			w0_h_gv7 -> w0_s0_gv7	[pos="e,257.81,23 231.33,23 237.06,23 242.58,23 247.74,23",
+				style=invis];
+			w0_s1_gv7	[height=0.40278,
+				label=Todo,
+				pos="409,23",
+				width=0.75];
+			w0_s0_gv7 -> w0_s1_gv7	[label=<<B>SUBMIT</B>>,
+				lp="347,28.5",
+				pos="e,381.87,23 312.17,23 329.54,23 352.57,23 371.7,23"];
+			w0_s2_gv6	[height=0.40278,
+				label="In Progress",
+				pos="539,23",
+				width=1.1389];
+			w0_s1_gv7 -> w0_s2_gv6	[label=<<B>START</B>>,
+				lp="467,28.5",
+				pos="e,497.7,23 436.21,23 451.01,23 470,23 487.57,23"];
+			w0_s3_gv5	[color="#cf222e",
+				fillcolor="#ffebe9",
+				fontcolor="#cf222e",
+				height=0.40278,
+				label="Archived (should be refused)",
+				pos="749,23",
+				width=2.6111];
+			w0_s2_gv6 -> w0_s3_gv5	[color="#cf222e",
+				fontcolor="#cf222e",
+				label=<<B>ARCHIVE</B>>,
+				lp="617.5,28.5",
+				penwidth=2,
+				pos="e,654.57,23 580.1,23 598.61,23 621.53,23 644.43,23"];
+			w0_why_gv2	[color="#bf8700",
+				fillcolor="#fff8c5",
+				fontsize=10,
+				height=0.40278,
+				label="should have been refused at step 3 (ARCHIVE) but the model allows the whole sequence, ending in Archived",
+				pos="1143,23",
+				shape=note,
+				style=filled,
+				width=7.5694];
+			w0_s3_gv5 -> w0_why_gv2	[arrowhead=none,
+				pos="843.28,23 851.76,23 860.6,23 869.69,23",
+				style=dotted];
+		}
+	}
+}
