@@ -1,0 +1,82 @@
+# Candidate b-full. Trash can be restored, a todo can be completed directly,
+# archive is only from Done, and an archived task can come back.
+id: todoTask
+initial: draft
+guards:
+  - { name: titleNotEmpty, reads: title }
+  - { name: completedAtSet, reads: completed_at }
+effects:
+  - { name: markListed, sets: listed }
+  - { name: clearListed, sets: listed }
+  - { name: stampStarted, sets: started_at }
+  - { name: stampCompleted, sets: completed_at }
+  - { name: clearCompleted, sets: completed_at }
+  - { name: setWakeAt, sets: wake_at }
+  - { name: clearWakeAt, sets: wake_at }
+  - { name: stampDeleted, sets: deleted_at }
+  - { name: clearDeleted, sets: deleted_at }
+states:
+  - id: draft
+    label: Draft
+    workflowState: editing
+    data:
+      title: string
+      listed: boolean
+  - id: todo
+    label: Todo
+    workflowState: open
+    data:
+      title: string
+      listed: boolean
+      started_at: timestamp
+      completed_at: timestamp
+      deleted_at: timestamp
+  - id: inProgress
+    label: In Progress
+    workflowState: active
+    data:
+      title: string
+      started_at: timestamp
+      wake_at: timestamp
+  - id: snoozed
+    label: Snoozed
+    workflowState: paused
+    data:
+      title: string
+      wake_at: timestamp
+      listed: boolean
+  - id: done
+    label: Done
+    workflowState: closed
+    data:
+      title: string
+      completed_at: timestamp
+      listed: boolean
+  - id: archived
+    label: Archived
+    workflowState: kept
+    data:
+      title: string
+      listed: boolean
+      completed_at: timestamp
+  - id: deleted
+    label: Deleted
+    workflowState: in trash
+    data:
+      title: string
+      deleted_at: timestamp
+      listed: boolean
+transitions:
+  - { from: draft, event: SUBMIT, to: todo, actor: user, guard: titleNotEmpty, effect: markListed }
+  - { from: draft, event: DELETE, to: deleted, actor: user, effect: stampDeleted }
+  - { from: todo, event: START, to: inProgress, actor: user, effect: stampStarted }
+  - { from: todo, event: COMPLETE, to: done, actor: user, effect: stampCompleted }
+  - { from: todo, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
+  - { from: todo, event: DELETE, to: deleted, actor: user, effect: stampDeleted }
+  - { from: inProgress, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
+  - { from: inProgress, event: COMPLETE, to: done, actor: user, effect: stampCompleted }
+  - { from: snoozed, event: RESUME, to: inProgress, actor: "user or timer", effect: clearWakeAt }
+  - { from: done, event: REOPEN, to: todo, actor: user, effect: clearCompleted }
+  - { from: done, event: ARCHIVE, to: archived, actor: user, guard: completedAtSet, effect: clearListed }
+  - { from: archived, event: UNARCHIVE, to: done, actor: user, effect: markListed }
+  - { from: deleted, event: RESTORE, to: todo, actor: user, effect: clearDeleted }

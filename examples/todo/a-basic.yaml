@@ -1,0 +1,75 @@
+# Candidate a-basic. Weaker on purpose: delete is permanent, a task must be
+# started before it can be completed, and archive is allowed from In Progress.
+id: todoTask
+initial: draft
+guards:
+  - { name: titleNotEmpty, reads: title }
+effects:
+  - { name: markListed, sets: listed }
+  - { name: clearListed, sets: listed }
+  - { name: stampStarted, sets: started_at }
+  - { name: stampCompleted, sets: completed_at }
+  - { name: clearCompleted, sets: completed_at }
+  - { name: setWakeAt, sets: wake_at }
+  - { name: clearWakeAt, sets: wake_at }
+  - { name: removeRow, sets: removed }
+states:
+  - id: draft
+    label: Draft
+    workflowState: editing
+    data:
+      title: string
+      listed: boolean
+  - id: todo
+    label: Todo
+    workflowState: open
+    data:
+      title: string
+      listed: boolean
+      started_at: timestamp
+      completed_at: timestamp
+  - id: inProgress
+    label: In Progress
+    workflowState: active
+    data:
+      title: string
+      started_at: timestamp
+      wake_at: timestamp
+  - id: snoozed
+    label: Snoozed
+    workflowState: paused
+    data:
+      title: string
+      wake_at: timestamp
+      listed: boolean
+  - id: done
+    label: Done
+    workflowState: closed
+    data:
+      title: string
+      completed_at: timestamp
+  - id: archived
+    label: Archived
+    workflowState: kept
+    final: true
+    data:
+      title: string
+      listed: boolean
+  - id: deleted
+    label: Deleted
+    workflowState: gone
+    final: true
+    data:
+      removed: boolean
+transitions:
+  - { from: draft, event: SUBMIT, to: todo, actor: user, guard: titleNotEmpty, effect: markListed }
+  - { from: draft, event: DELETE, to: deleted, actor: user, effect: removeRow }
+  - { from: todo, event: START, to: inProgress, actor: user, effect: stampStarted }
+  - { from: todo, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
+  - { from: todo, event: DELETE, to: deleted, actor: user, effect: removeRow }
+  - { from: inProgress, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
+  - { from: inProgress, event: COMPLETE, to: done, actor: user, effect: stampCompleted }
+  - { from: inProgress, event: ARCHIVE, to: archived, actor: user, effect: clearListed }
+  - { from: snoozed, event: RESUME, to: inProgress, actor: "user or timer", effect: clearWakeAt }
+  - { from: done, event: REOPEN, to: todo, actor: user, effect: clearCompleted }
+  - { from: done, event: ARCHIVE, to: archived, actor: user, effect: clearListed }

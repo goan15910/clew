@@ -1,6 +1,6 @@
 # 🧶 Clew
 
-Agents turn plain-English workflows into XState machines. Clew checks each machine against the contract, structural checks, and traversal proofs. The exported visuals are the human-facing contract and proof.
+Agents turn plain-English workflows into XState machines. Clew checks each model against structural checks and traversal proofs. The exported visuals are the human-facing contract and proof.
 
 Clew is the ball of thread Ariadne gave Theseus: a proven path through the maze.
 
@@ -10,17 +10,51 @@ Image export needs Graphviz (`dot`, `gvpack`, `neato`).
 
 ```bash
 npm install
-npm run clew -- verify <machine.ts> <workflows.yaml> [--out dir] [--highlight W2]
-npm run clew -- compare <workflows.yaml> <machine.ts>... [--out dir] [--highlight W2]
+npm run clew -- verify <model.yaml> <workflows.yaml> [--out dir] [--highlight W2] [--json]
+npm run clew -- compare <workflows.yaml> <model.yaml>... [--out dir] [--highlight W2] [--json]
 ```
 
-Exit code is 0 only when every workflow passes (`verify`) or a candidate passes all of them (`compare`).
+`clew verify --help` and `clew compare --help` list the typed options. There are no prompts.
+
+Exit codes:
+
+- `0` — every workflow passes (`verify`), or a candidate passes all of them (`compare`)
+- `1` — a workflow failed
+- `2` — the model or the input is invalid
+
+Errors go to stderr. `--json` prints the result document on stdout.
+
+The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8.
 
 ## Your files
 
-Pass the paths to your own machine module and workflows file.
+Pass the paths to your own model and workflows file.
 
-**Machine.** A TypeScript module that default-exports an XState v5 machine (`createMachine`). Use a flat machine. On each state, `meta` has `label`, `workflowState`, and `data`. On each transition, `meta` has `actor` and `effect` (`guard` is optional). Events are `UPPER_SNAKE_CASE`, every target state exists, and a final state has no outgoing transitions.
+**Model.** A YAML file. Clew validates it with Zod once, then builds a flat XState machine with `createMachine`. Guards and effects are named declarations, not code. Nested and parallel states are out of scope.
+
+```yaml
+id: todoTask
+initial: draft
+guards:
+  - { name: titleNotEmpty, reads: title }
+effects:
+  - { name: markListed, sets: listed }
+states:
+  - id: draft
+    label: Draft
+    workflowState: editing
+    data:
+      title: string
+  - id: todo
+    label: Todo
+    workflowState: open
+    data:
+      listed: boolean
+transitions:
+  - { from: draft, event: SUBMIT, to: todo, actor: user, guard: titleNotEmpty, effect: markListed }
+```
+
+State ids are camelCase. Events are `UPPER_SNAKE_CASE`. Each state declares `data` fields as `string`, `boolean`, `number`, or `timestamp`. A guard may only read a field declared on the source state. An effect may only set a field declared on the target state. The initial state and every transition target are checked when the file is loaded. `final: true` marks a state that must not have outgoing transitions.
 
 **Workflows.** A YAML file of event sequences:
 
@@ -42,16 +76,18 @@ workflows:
       - { text: "Try the forbidden step", event: ARCHIVE }
 ```
 
-`expect` is **accepted → final state** (`end`: the sequence must be possible and finish in that state) or **rejected at step N** (`rejectAt`: the machine must refuse the sequence at that step).
+`expect` is **accepted → final state** (`end`: the sequence must be possible and finish in that state) or **rejected at step N** (`rejectAt`: the model must refuse the sequence at that step).
 
 `--highlight W2` draws that workflow's path on the state chart. Reports and charts are written to the directory you pass with `--out`.
 
 ## Layout
 
-- `src/contract.ts` — reads a machine into a flat contract and validates it with Zod
+- `src/model.ts` — YAML schema, `loadModel()`, and the XState-backed `Model`
 - `src/verify.ts` — reachability, dead ends, and workflow traversal (`@xstate/graph`)
-- `src/render.ts` — Graphviz and Mermaid export
-- `src/cli.ts` — `clew verify` and `clew compare`
+- `src/render.ts` — Graphviz and Mermaid text
+- `src/cli.ts` — `clew verify` and `clew compare`, file output, and Graphviz
+- `examples/todo/` — ported to-do candidates and the eight workflows
+- `examples/invalid/` — a misspelled state id, and an effect that sets an undeclared field
 - `docs/assets/` — illustration SVGs
 
 ## Visuals

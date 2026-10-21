@@ -1,0 +1,20 @@
+# Invalid: ARCHIVE targets "archive", which is not a declared state id.
+id: todoTask
+initial: draft
+guards: []
+effects:
+  - { name: clearListed, sets: listed }
+states:
+  - id: draft
+    label: Draft
+    workflowState: editing
+    data:
+      title: string
+  - id: archived
+    label: Archived
+    workflowState: kept
+    final: true
+    data:
+      listed: boolean
+transitions:
+  - { from: draft, event: ARCHIVE, to: archive, actor: user, effect: clearListed }
