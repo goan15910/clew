@@ -1,70 +1,113 @@
-# Event sequences for the to-do task.
-# expect: accepted — the sequence must be possible and end in `end`.
-# expect: rejected — the model must refuse the sequence at step `rejectAt`.
-machineId: todoTask
+# Named linked lists. Each workflow is one sub-graph. State and event names are the
+# workflow vocabulary; examples/todo/mapping.yaml translates them onto a chart.
+# expect: accepted — every edge must be possible and land on `to`.
+# expect: rejected — the chart must refuse the edge at `rejectAt`.
+id: todoFlows
 workflows:
   - id: W1
     title: Create and complete a task
     expect: accepted
-    end: done
-    steps:
-      - { text: "Add the draft to my list", event: SUBMIT }
-      - { text: "Start working on it", event: START }
-      - { text: "Mark it done", event: COMPLETE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: working, state: active }
+      - { id: finished, state: closed }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add the draft to my list" }
+      - { from: listed, event: start, to: working, text: "Start working on it" }
+      - { from: working, event: complete, to: finished, text: "Mark it done" }
   - id: W2
     title: Snooze and resume
     expect: accepted
-    end: done
-    steps:
-      - { text: "Add the task", event: SUBMIT }
-      - { text: "Start it", event: START }
-      - { text: "Snooze until tomorrow", event: SNOOZE }
-      - { text: "Resume it", event: RESUME }
-      - { text: "Finish it", event: COMPLETE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: working, state: active }
+      - { id: snoozed, state: paused }
+      - { id: resumed, state: active }
+      - { id: finished, state: closed }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add the task" }
+      - { from: listed, event: start, to: working, text: "Start it" }
+      - { from: working, event: snooze, to: snoozed, text: "Snooze until tomorrow" }
+      - { from: snoozed, event: resume, to: resumed, text: "Resume it" }
+      - { from: resumed, event: complete, to: finished, text: "Finish it" }
   - id: W3
     title: Reopen a done task
     expect: accepted
-    end: todo
-    steps:
-      - { text: "Add the task", event: SUBMIT }
-      - { text: "Start it", event: START }
-      - { text: "Finish it", event: COMPLETE }
-      - { text: "Reopen it", event: REOPEN }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: working, state: active }
+      - { id: finished, state: closed }
+      - { id: reopened, state: open }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add the task" }
+      - { from: listed, event: start, to: working, text: "Start it" }
+      - { from: working, event: complete, to: finished, text: "Finish it" }
+      - { from: finished, event: reopen, to: reopened, text: "Reopen it" }
   - id: W4
     title: Archive a done task
     expect: accepted
-    end: archived
-    steps:
-      - { text: "Add the task", event: SUBMIT }
-      - { text: "Start it", event: START }
-      - { text: "Finish it", event: COMPLETE }
-      - { text: "Archive it", event: ARCHIVE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: working, state: active }
+      - { id: finished, state: closed }
+      - { id: kept, state: kept }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add the task" }
+      - { from: listed, event: start, to: working, text: "Start it" }
+      - { from: working, event: complete, to: finished, text: "Finish it" }
+      - { from: finished, event: archive, to: kept, text: "Archive it" }
   - id: W5
     title: Delete a draft
     expect: accepted
-    end: deleted
-    steps:
-      - { text: "Delete the draft", event: DELETE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: gone, state: gone }
+    edges:
+      - { from: edit, event: delete, to: gone, text: "Delete the draft" }
   - id: W6
     title: Restore a deleted task
     expect: accepted
-    end: todo
-    steps:
-      - { text: "Add the task", event: SUBMIT }
-      - { text: "Delete it by mistake", event: DELETE }
-      - { text: "Restore it from the trash", event: RESTORE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: gone, state: gone }
+      - { id: restored, state: open }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add the task" }
+      - { from: listed, event: delete, to: gone, text: "Delete it by mistake" }
+      - { from: gone, event: restore, to: restored, text: "Restore it from the trash" }
   - id: W7
     title: Complete without starting
     expect: accepted
-    end: done
-    steps:
-      - { text: "Add the task", event: SUBMIT }
-      - { text: "Tick it done straight away", event: COMPLETE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: finished, state: closed }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add the task" }
+      - { from: listed, event: complete, to: finished, text: "Tick it done straight away" }
   - id: W8
-    title: "Rule: unfinished task cannot be archived"
+    title: Unfinished task cannot be archived
     expect: rejected
     rejectAt: 3
-    steps:
-      - { text: "Add the task", event: SUBMIT }
-      - { text: "Start it", event: START }
-      - { text: "Try to archive it before it is done", event: ARCHIVE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: working, state: active }
+      - { id: kept, state: kept }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add the task" }
+      - { from: listed, event: start, to: working, text: "Start it" }
+      - { from: working, event: archive, to: kept, text: "Try to archive it before it is done" }

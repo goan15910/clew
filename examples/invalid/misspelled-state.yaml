@@ -7,12 +7,10 @@ effects:
 states:
   - id: draft
     label: Draft
-    workflowState: editing
     data:
       title: string
   - id: archived
     label: Archived
-    workflowState: kept
     final: true
     data:
       listed: boolean

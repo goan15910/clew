@@ -18,13 +18,11 @@ effects:
 states:
   - id: draft
     label: Draft
-    workflowState: editing
     data:
       title: string
       listed: boolean
   - id: todo
     label: Todo
-    workflowState: open
     data:
       title: string
       listed: boolean
@@ -33,35 +31,30 @@ states:
       deleted_at: timestamp
   - id: inProgress
     label: In Progress
-    workflowState: active
     data:
       title: string
       started_at: timestamp
       wake_at: timestamp
   - id: snoozed
     label: Snoozed
-    workflowState: paused
     data:
       title: string
       wake_at: timestamp
       listed: boolean
   - id: done
     label: Done
-    workflowState: closed
     data:
       title: string
       completed_at: timestamp
       listed: boolean
   - id: archived
     label: Archived
-    workflowState: kept
     data:
       title: string
       listed: boolean
       completed_at: timestamp
   - id: deleted
     label: Deleted
-    workflowState: in trash
     data:
       title: string
       deleted_at: timestamp

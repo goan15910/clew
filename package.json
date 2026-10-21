@@ -1,7 +1,7 @@
 {
   "name": "clew",
   "version": "1.0.0",
-  "description": "Turn plain-English workflows into XState machines and prove them.",
+  "description": "Check state charts and workflow sets, and prove each named flow.",
   "main": "index.js",
   "scripts": {
     "clew": "tsx src/cli.ts",

@@ -1,30 +1,37 @@
 # 🧶 Clew
 
-Agents turn plain-English workflows into XState machines. Clew checks each model against structural checks and traversal proofs. The exported visuals are the human-facing contract and proof.
+Agents turn plain-English workflows into XState machines. Clew checks a state chart, checks a workflow set, and proves each named flow. The exported visuals are the human-facing contract and proof.
 
 Clew is the ball of thread Ariadne gave Theseus: a proven path through the maze.
 
+The command contract, JSON shapes, and file format are in [docs/agent-cli.md](docs/agent-cli.md).
+
 ## Quick start
 
-Image export needs Graphviz (`dot`, `gvpack`, `neato`).
+Image export needs Graphviz (`dot`, `gvpack`, `neato`). Reports and charts are written only when you pass `--out`.
 
 ```bash
 npm install
-npm run clew -- verify <model.yaml> <workflows.yaml> [--out dir] [--highlight W2] [--json]
-npm run clew -- compare <workflows.yaml> <model.yaml>... [--out dir] [--highlight W2] [--json]
+npm run --silent clew -- chart check <chart.yaml> [--json]
+npm run --silent clew -- chart analyze <chart.yaml> [--json]
+npm run --silent clew -- workflows check <workflows.yaml> [--json]
+npm run --silent clew -- verify <chart.yaml> <workflows.yaml> <mapping.yaml> [--flow W8] [--select file] [--out dir] [--highlight W2] [--json]
+npm run --silent clew -- compare <verify.json>... [--out dir] [--json]
 ```
 
-`clew verify --help` and `clew compare --help` list the typed options. There are no prompts.
+`--silent` keeps npm's own banner off stdout, so a `--json` document stays one JSON value.
+
+`clew --help` lists the commands. There are no prompts, and Clew does not read stdin.
 
 Exit codes:
 
-- `0` — every workflow passes (`verify`), or a candidate passes all of them (`compare`)
-- `1` — a workflow failed
-- `2` — the model or the input is invalid
+- `0` — the check passed, the analysis is clean, every selected flow passed, or compare has a winner
+- `1` — schema or graph invalid, the analysis found an unreachable state or a dead end, a flow failed, or compare has no winner
+- `2` — unreadable input, bad arguments, or a verify/analyze precondition failed
 
-Errors go to stderr. `--json` prints the result document on stdout.
+Errors go to stderr. `--json` prints one result document on stdout.
 
-The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8.
+The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8. The workflow set and the chart use different names; `mapping.yaml` is the correspondence.
 
 ## Architecture
 
@@ -32,9 +39,9 @@ The CLI is the composition root. It parses arguments, wires adapters into the us
 
 ```mermaid
 flowchart BT
-  domain["Domain — model, workflows, verification results"]
-  application["Application — verify, compare, and ports"]
-  adapters["Adapters — YAML + Zod, XState, reports, DOT / Mermaid / Graphviz"]
+  domain["Domain — chart, workflow set, mapping, verification"]
+  application["Application — check, analyze, verify, compare"]
+  adapters["Adapters — YAML + Zod, JSON selection, XState, reports, DOT / Mermaid / Graphviz"]
   cli["CLI"]
   application --> domain
   adapters --> application
@@ -45,15 +52,13 @@ flowchart BT
 
 An arrow means "depends on".
 
-The domain holds states, transitions, typed data fields, guards, effects, workflows and steps, and the verification results: trace, workflow result, structural findings, and comparison. Invariants live there. It does not import XState, Zod, YAML, the file system, or Graphviz. Zod runs only while reading a YAML file or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports: model loading, workflow loading, traversal, report writing, and diagram rendering.
+The domain holds states, transitions, typed data fields, guards, effects, named workflow lists, the mapping between the two vocabularies, and the verification results. Invariants live there. It does not import XState, Zod, YAML, the file system, or Graphviz. Zod runs only while reading a YAML file, a JSON selection, or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports.
 
 `npm run check:dependencies` fails when an import points the wrong way. `npm run check` runs that together with `tsc --noEmit`.
 
 ## Your files
 
-Pass the paths to your own model and workflows file.
-
-**Model.** A YAML file. Clew validates it with Zod once, then builds a flat XState machine with `createMachine`. Guards and effects are named declarations, not code. Nested and parallel states are out of scope.
+**Chart.** A YAML file. Clew validates it with Zod once, then builds a flat XState machine with `createMachine`. Guards and effects are named declarations, not code. Nested and parallel states are out of scope. The chart does not name workflow states.
 
 ```yaml
 id: todoTask
@@ -65,12 +70,10 @@ effects:
 states:
   - id: draft
     label: Draft
-    workflowState: editing
     data:
       title: string
   - id: todo
     label: Todo
-    workflowState: open
     data:
       listed: boolean
 transitions:
@@ -79,29 +82,37 @@ transitions:
 
 State ids are camelCase. Events are `UPPER_SNAKE_CASE`. Each state declares `data` fields as `string`, `boolean`, `number`, or `timestamp`. A guard may only read a field declared on the source state. An effect may only set a field declared on the target state. The initial state and every transition target are checked when the file is loaded. `final: true` marks a state that must not have outgoing transitions.
 
-**Workflows.** A YAML file of event sequences:
+**Workflow set.** A YAML file of named linked lists. Each workflow is one disconnected sub-graph. Node `state` and edge `event` use the workflow vocabulary, not chart ids.
 
 ```yaml
-machineId: myMachine
+id: todoFlows
 workflows:
   - id: W1
     title: Happy path
     expect: accepted
-    end: done
-    steps:
-      - { text: "Start the work", event: START }
-  - id: W2
-    title: A step the machine must refuse
-    expect: rejected
-    rejectAt: 2
-    steps:
-      - { text: "Start", event: START }
-      - { text: "Try the forbidden step", event: ARCHIVE }
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: finished, state: closed }
+    edges:
+      - { from: edit, event: submit, to: finished, text: "Finish the work" }
 ```
 
-`expect` is **accepted → final state** (`end`: the sequence must be possible and finish in that state) or **rejected at step N** (`rejectAt`: the model must refuse the sequence at that step).
+`expect: rejected` sets `rejectAt` to the edge the chart must refuse. The full rules are in [docs/agent-cli.md](docs/agent-cli.md).
 
-`--highlight W2` draws that workflow's path on the state chart. Reports and charts are written to the directory you pass with `--out`.
+**Mapping.** A third YAML file, passed only to `verify`. It pairs chart states with workflow states and chart events with workflow events, and it names which chart and workflow set it applies to.
+
+```yaml
+chart: todoTask
+workflowSet: todoFlows
+states:
+  - { chart: draft, workflow: editing }
+  - { chart: done, workflow: closed }
+events:
+  - { chart: SUBMIT, workflow: submit }
+```
+
+`--highlight W2` draws that workflow's path on the state chart when you also pass `--out`. `--select` takes the JSON from `workflows check` (or `{ "flows": ["W1"] }`) and verifies only those named sub-graphs.
 
 ## Visuals
 

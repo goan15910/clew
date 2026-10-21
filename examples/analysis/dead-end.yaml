@@ -1,0 +1,23 @@
+# Valid chart with an unreachable island and a non-final state that has no way out.
+id: deadEnd
+initial: start
+guards: []
+effects:
+  - { name: markDone, sets: done }
+states:
+  - id: start
+    label: Start
+    data: {}
+  - id: done
+    label: Done
+    final: true
+    data:
+      done: boolean
+  - id: stuck
+    label: Stuck
+    data: {}
+  - id: island
+    label: Island
+    data: {}
+transitions:
+  - { from: start, event: FINISH, to: done, actor: user, effect: markDone }

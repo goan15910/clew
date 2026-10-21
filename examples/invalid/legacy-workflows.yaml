@@ -1,0 +1,9 @@
+# Old shape. machineId is not compared, and steps/end are not a linked list.
+machineId: todoTask
+workflows:
+  - id: W1
+    title: Create and complete a task
+    expect: accepted
+    end: done
+    steps:
+      - { text: "Add the draft to my list", event: SUBMIT }

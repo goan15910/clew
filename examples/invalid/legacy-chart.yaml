@@ -1,0 +1,19 @@
+# Old shape. workflowState is not the chart-to-workflow mapping.
+id: todoTask
+initial: draft
+guards: []
+effects:
+  - { name: markListed, sets: listed }
+states:
+  - id: draft
+    label: Draft
+    workflowState: editing
+    data:
+      title: string
+  - id: todo
+    label: Todo
+    final: true
+    data:
+      listed: boolean
+transitions:
+  - { from: draft, event: SUBMIT, to: todo, actor: user, effect: markListed }
