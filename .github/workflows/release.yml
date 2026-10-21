@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Require the tag to match package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package.json version ${pkg}" >&2
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - run: npm test
+      - name: Pack and smoke-install
+        run: scripts/smoke-install.sh
+      - name: Write SHA256 checksums
+        run: sha256sum clew-*.tgz > SHA256SUMS
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            ${{ github.workspace }}/clew-*.tgz
+            ${{ github.workspace }}/SHA256SUMS
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tarball="clew-${version}.tgz"
+          node --input-type=commonjs <<'NODE'
+          const { writeFileSync } = require('node:fs');
+          const tag = process.env.GITHUB_REF_NAME;
+          const repo = process.env.GITHUB_REPOSITORY;
+          const version = tag.slice(1);
+          const file = `clew-${version}.tgz`;
+          const notes = [
+            'Install Clew from this release. The package is not published to the npm registry.',
+            '',
+            '```bash',
+            `npm install -g https://github.com/${repo}/releases/download/${tag}/${file}`,
+            '```',
+            '',
+            'Check the tarball with `sha256sum -c SHA256SUMS`.',
+            '',
+            'Chart images (`clew verify --out`) need Graphviz (`dot`, `gvpack`, `neato`) on PATH.',
+            '',
+          ].join('\n');
+          writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, notes);
+          NODE
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "$tarball" \
+            SHA256SUMS
