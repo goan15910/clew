@@ -1,4 +1,4 @@
-# Clew
+# 🧶 Clew
 
 Agents turn plain-English workflows into XState machines. Clew checks each machine against the contract, structural checks, and traversal proofs. The exported visuals are the human-facing contract and proof.
 
@@ -67,3 +67,9 @@ W2, Snooze and resume:
 ![W2 Snooze and resume, path highlighted](docs/assets/w2-snooze-and-resume.svg)
 
 *W2 "Snooze and resume": traversal path highlighted.*
+
+Workflow proofs:
+
+![Workflow proofs, W1 through W8](docs/assets/workflow-proofs.svg)
+
+*W1–W8, with W8 refused as required.*
