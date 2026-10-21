@@ -5,8 +5,6 @@
   "main": "index.js",
   "scripts": {
     "clew": "tsx src/cli.ts",
-    "demo": "tsx src/cli.ts compare inputs/workflows.yaml candidates/a-basic.machine.ts candidates/b-full.machine.ts --out out --highlight W2",
-    "demo:invalid": "tsx src/cli.ts verify examples-invalid/c-broken.machine.ts inputs/workflows.yaml --out out/invalid/c-broken; tsx src/cli.ts verify examples-invalid/d-bad-target.machine.ts inputs/workflows.yaml --out out/invalid/d-bad-target",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],

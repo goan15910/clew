@@ -10,18 +10,41 @@ Image export needs Graphviz (`dot`, `gvpack`, `neato`).
 
 ```bash
 npm install
-npm run demo
-npm run demo:invalid
-```
-
-`npm run demo` compares two candidate to-do machines against `inputs/workflows.yaml` and writes reports and charts under `out/`. `npm run demo:invalid` runs the same checks on two machines the contract must reject (`out/invalid/`).
-
-```bash
 npm run clew -- verify <machine.ts> <workflows.yaml> [--out dir] [--highlight W2]
 npm run clew -- compare <workflows.yaml> <machine.ts>... [--out dir] [--highlight W2]
 ```
 
 Exit code is 0 only when every workflow passes (`verify`) or a candidate passes all of them (`compare`).
+
+## Your files
+
+Pass the paths to your own machine module and workflows file.
+
+**Machine.** A TypeScript module that default-exports an XState v5 machine (`createMachine`). Use a flat machine. On each state, `meta` has `label`, `workflowState`, and `data`. On each transition, `meta` has `actor` and `effect` (`guard` is optional). Events are `UPPER_SNAKE_CASE`, every target state exists, and a final state has no outgoing transitions.
+
+**Workflows.** A YAML file of event sequences:
+
+```yaml
+machineId: myMachine
+workflows:
+  - id: W1
+    title: Happy path
+    expect: accepted
+    end: done
+    steps:
+      - { text: "Start the work", event: START }
+  - id: W2
+    title: A step the machine must refuse
+    expect: rejected
+    rejectAt: 2
+    steps:
+      - { text: "Start", event: START }
+      - { text: "Try the forbidden step", event: ARCHIVE }
+```
+
+`expect` is **accepted → final state** (`end`: the sequence must be possible and finish in that state) or **rejected at step N** (`rejectAt`: the machine must refuse the sequence at that step).
+
+`--highlight W2` draws that workflow's path on the state chart. Reports and charts are written to the directory you pass with `--out`.
 
 ## Layout
 
@@ -29,31 +52,18 @@ Exit code is 0 only when every workflow passes (`verify`) or a candidate passes 
 - `src/verify.ts` — reachability, dead ends, and workflow traversal (`@xstate/graph`)
 - `src/render.ts` — Graphviz and Mermaid export
 - `src/cli.ts` — `clew verify` and `clew compare`
-- `inputs/` — plain-English workflows (`workflows.en.md`) and the machine-facing `workflows.yaml`
-- `candidates/` — example machines (`a-basic`, `b-full`)
-- `examples-invalid/` — machines the contract must reject
-- `out/` — reports and visuals from the demo
+- `docs/assets/` — illustration SVGs
 
-## `workflows.yaml` `expect`
+## Visuals
 
-Each workflow is a sequence of events plus an expectation:
+Overall state chart:
 
-- **accepted → final state** (`end`): the sequence must be possible and finish in that state
-- **rejected at step N** (`rejectAt`): the machine must refuse the sequence at that step
+![Overall state chart](docs/assets/state-chart.svg)
 
-## Demo
+*Overall state chart.*
 
-| Candidate | Result | Failed |
-|---|---|---|
-| b-full | 8/8 | none |
-| a-basic | 5/8 | W6, W7, W8 |
+W2, Snooze and resume:
 
-**Winner: b-full.** a-basic cannot restore a deleted task (W6), cannot complete without starting (W7), and archives an unfinished task that the rule says to refuse (W8).
+![W2 Snooze and resume, path highlighted](docs/assets/w2-snooze-and-resume.svg)
 
-State chart for b-full:
-
-![b-full state chart](out/b-full/state-chart.png)
-
-Workflow chains for b-full (8/8 pass):
-
-![b-full workflow chains](out/b-full/workflow-chains.png)
+*W2 "Snooze and resume": traversal path highlighted.*

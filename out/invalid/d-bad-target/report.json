@@ -1,7 +1,0 @@
-{
-  "candidate": "d-bad-target",
-  "schemaValid": false,
-  "schemaErrors": [
-    "XState rejected the machine: Invalid transition definition for state node 'todoTask.done': Child state 'archive' does not exist on 'todoTask'"
-  ]
-}

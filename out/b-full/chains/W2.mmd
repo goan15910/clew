@@ -1,8 +1,0 @@
-flowchart LR
-  %% W2 PASS: Snooze and resume
-  s0["Draft"]
-  s0 -- SUBMIT --> s1["Todo"]
-  s1 -- START --> s2["In Progress"]
-  s2 -- SNOOZE --> s3["Snoozed"]
-  s3 -- RESUME --> s4["In Progress"]
-  s4 -- COMPLETE --> s5["Done"]
