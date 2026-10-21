@@ -1,0 +1,20 @@
+# Invalid: setPriority sets `priority`, which the target state todo does not declare.
+id: todoTask
+initial: draft
+guards: []
+effects:
+  - { name: setPriority, sets: priority }
+states:
+  - id: draft
+    label: Draft
+    workflowState: editing
+    data:
+      title: string
+  - id: todo
+    label: Todo
+    workflowState: open
+    data:
+      title: string
+      listed: boolean
+transitions:
+  - { from: draft, event: SUBMIT, to: todo, actor: user, effect: setPriority }
