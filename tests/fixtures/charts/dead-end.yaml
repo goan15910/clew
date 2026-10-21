@@ -1,4 +1,5 @@
-# Valid chart with an unreachable island and a non-final state that has no way out.
+# Valid chart. stuck and island are not reachable from start.
+# Neither is final and neither has an outgoing transition, so both are dead ends.
 id: deadEnd
 initial: start
 guards: []

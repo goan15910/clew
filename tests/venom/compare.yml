@@ -1,0 +1,116 @@
+name: compare
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: prepare
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      cd '{{.root}}'
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/b-full.json'
+      status=$?
+      if [ "$status" -ne 0 ]; then exit "$status"; fi
+      cp examples/todo/b-full.yaml '{{.dir}}/alt-full.yaml'
+      {{.clew}} verify '{{.dir}}/alt-full.yaml' examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/alt-full.json'
+      status=$?
+      if [ "$status" -ne 0 ]; then exit "$status"; fi
+      {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/a-basic.json'
+      status=$?
+      if [ "$status" -ne 1 ]; then exit "$status"; fi
+      exit 0
+    assertions:
+    - result.code ShouldEqual 0
+
+- name: higher pass count wins
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare '{{.prepare.dir}}/a-basic.json' '{{.prepare.dir}}/b-full.json'"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "winner: b-full"'
+    - result.systemout ShouldContainSubstring "a-basic  5/8  failed W6, W7, W8"
+
+- name: higher pass count wins as json
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare '{{.prepare.dir}}/a-basic.json' '{{.prepare.dir}}/b-full.json' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual compare
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.winner ShouldEqual b-full
+    - result.systemoutjson.candidates.candidates0.name ShouldEqual b-full
+    - result.systemoutjson.candidates.candidates0.passed ShouldEqual 8
+    - result.systemoutjson.candidates.candidates1.name ShouldEqual a-basic
+    - result.systemoutjson.candidates.candidates1.passed ShouldEqual 5
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: no winner exits 1 with empty stderr
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare '{{.prepare.dir}}/a-basic.json' --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.winner ShouldBeEmpty
+    - result.systemoutjson.candidates.candidates0.name ShouldEqual a-basic
+
+- name: tie keeps argument order
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare '{{.prepare.dir}}/alt-full.json' '{{.prepare.dir}}/b-full.json' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.winner ShouldEqual alt-full
+    - result.systemoutjson.candidates.candidates0.name ShouldEqual alt-full
+    - result.systemoutjson.candidates.candidates1.name ShouldEqual b-full
+
+- name: duplicate candidate name is exit 2
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare '{{.prepare.dir}}/b-full.json' '{{.prepare.dir}}/b-full.json' --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "duplicate candidate name"
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual invalid-result
+    - result.systemoutjson.winner ShouldBeEmpty
+
+- name: document that is not a verify result
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare tests/fixtures/results/not-verify.json --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldNotBeEmpty
+    - result.systemoutjson.fault ShouldEqual invalid-result
+    - result.systemoutjson.ok ShouldBeFalse
+
+- name: inconsistent verify document
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare tests/fixtures/results/inconsistent.json --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "does not match its flow results"
+    - result.systemoutjson.fault ShouldEqual invalid-result
+
+- name: missing argument is exit 2 on stderr
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} compare --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "missing required argument"
+    - result.systemout ShouldBeEmpty

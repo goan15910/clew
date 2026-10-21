@@ -5,3 +5,5 @@ out/
 *.tsbuildinfo
 *.log
 .DS_Store
+bin/venom
+venom-results/

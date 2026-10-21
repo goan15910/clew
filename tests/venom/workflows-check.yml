@@ -1,0 +1,72 @@
+name: workflows check
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: valid set exits 0
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check examples/todo/workflows.yaml"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "todoFlows: schema valid, graph valid (8 workflows: W1, W2, W3, W4, W5, W6, W7, W8)"'
+
+- name: valid set json is a selection document
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check examples/todo/workflows.yaml --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual workflows.check
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.graphChecked ShouldBeTrue
+    - result.systemoutjson.id ShouldEqual todoFlows
+    - result.systemoutjson.workflowSet.workflows ShouldHaveLength 8
+    - result.systemoutjson.workflowSet.workflows.workflows0.id ShouldEqual W1
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: branching list is a graph failure
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check tests/fixtures/workflows/branching.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.graphChecked ShouldBeTrue
+    - result.systemoutjson.issues.issues0.kind ShouldEqual graph
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "2 outgoing edges"
+
+- name: legacy machineId and steps are a schema failure
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check tests/fixtures/workflows/legacy.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.graphChecked ShouldBeFalse
+    - result.systemout ShouldContainSubstring "machineId was removed"
+    - result.systemout ShouldContainSubstring "steps and end were removed"
+
+- name: missing file is exit 2
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check tests/fixtures/workflows/missing.yaml --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "cannot read"
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.graphChecked ShouldBeFalse
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: invalid yaml is exit 2
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check tests/fixtures/charts/not-yaml.txt --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "invalid YAML"
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input

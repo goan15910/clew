@@ -1,0 +1,16 @@
+id: gapChart
+initial: start
+guards: []
+effects:
+  - { name: markDone, sets: done }
+states:
+  - id: start
+    label: Start
+    data: {}
+  - id: done
+    label: Done
+    final: true
+    data:
+      done: boolean
+transitions:
+  - { from: start, event: GO, to: done, actor: user, effect: markDone }
