@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "clew": "tsx src/cli.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:dependencies": "tsx scripts/check-dependencies.ts",
+    "check": "tsc --noEmit && tsx scripts/check-dependencies.ts"
   },
   "keywords": [],
   "author": "",

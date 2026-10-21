@@ -26,6 +26,29 @@ Errors go to stderr. `--json` prints the result document on stdout.
 
 The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8.
 
+## Architecture
+
+The CLI is the composition root. It parses arguments, wires adapters into the use cases, and maps each result to stdout, stderr, and an exit code. Use cases depend only on domain objects and ports. Adapters implement those ports. Dependencies point inward.
+
+```mermaid
+flowchart BT
+  domain["Domain — model, workflows, verification results"]
+  application["Application — verify, compare, and ports"]
+  adapters["Adapters — YAML + Zod, XState, reports, DOT / Mermaid / Graphviz"]
+  cli["CLI"]
+  application --> domain
+  adapters --> application
+  adapters --> domain
+  cli --> application
+  cli --> adapters
+```
+
+An arrow means "depends on".
+
+The domain holds states, transitions, typed data fields, guards, effects, workflows and steps, and the verification results: trace, workflow result, structural findings, and comparison. Invariants live there. It does not import XState, Zod, YAML, the file system, or Graphviz. Zod runs only while reading a YAML file or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports: model loading, workflow loading, traversal, report writing, and diagram rendering.
+
+`npm run check:dependencies` fails when an import points the wrong way. `npm run check` runs that together with `tsc --noEmit`.
+
 ## Your files
 
 Pass the paths to your own model and workflows file.

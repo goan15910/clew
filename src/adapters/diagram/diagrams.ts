@@ -1,6 +1,6 @@
-// Graphviz DOT and Mermaid text. File output and `dot` live in cli.ts.
-import type { Model, State } from './model.js';
-import type { WorkflowResult } from './verify.js';
+// DOT and Mermaid text. File output and the `dot` binary live in the Graphviz adapter.
+import type { Model, State } from '../../domain/model.js';
+import type { WorkflowResult } from '../../domain/verification.js';
 
 const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const FONT = 'Helvetica';
