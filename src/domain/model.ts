@@ -1,5 +1,6 @@
 // A flat workflow model: states, transitions, typed fields, guards, and effects.
 // Cross-field invariants are checked here. Zod does not belong in this layer.
+import type { Issue } from './issue.js';
 
 export const FIELD_TYPES = ['string', 'boolean', 'number', 'timestamp'] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
@@ -19,7 +20,6 @@ export interface StateField {
 export interface State {
   id: string;
   label: string;
-  workflowState: string;
   final: boolean;
   data: readonly StateField[];
 }
@@ -52,7 +52,6 @@ export interface ModelDraft {
   states: readonly {
     id: string;
     label: string;
-    workflowState: string;
     final: boolean;
     data: Readonly<Record<string, FieldType>>;
   }[];
@@ -64,11 +63,6 @@ export interface ModelDraft {
     guard?: string;
     effect: string;
   }[];
-}
-
-export interface InvariantIssue {
-  path: (string | number)[];
-  message: string;
 }
 
 /** The checked model. Traversal is a separate port, so this object stays free of the engine. */
@@ -85,7 +79,6 @@ export interface ModelDocument {
   states: {
     id: string;
     label: string;
-    workflowState: string;
     final: boolean;
     data: { name: string; type: FieldType }[];
   }[];
@@ -99,8 +92,8 @@ export interface ModelDocument {
   }[];
 }
 
-export function modelInvariantIssues(file: ModelDraft): InvariantIssue[] {
-  const issues: InvariantIssue[] = [];
+export function modelInvariantIssues(file: ModelDraft): Issue[] {
+  const issues: Issue[] = [];
   const stateIndex = new Map<string, number>();
   for (let index = 0; index < file.states.length; index += 1) {
     const state = file.states[index]!;
@@ -237,7 +230,6 @@ class FlatModel implements Model {
       states.push({
         id: state.id,
         label: state.label,
-        workflowState: state.workflowState,
         final: state.final,
         data: fieldsOf(state.data),
       });
@@ -294,7 +286,6 @@ export function modelDocument(model: Model): ModelDocument {
     states.push({
       id: state.id,
       label: state.label,
-      workflowState: state.workflowState,
       final: state.final,
       data,
     });

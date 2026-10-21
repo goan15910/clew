@@ -1,0 +1,23 @@
+# Invalid graph: `edit` has two outgoing edges, so `choice` is not a linked list.
+id: branched
+workflows:
+  - id: choice
+    title: Two ways out of the draft
+    expect: accepted
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+      - { id: gone, state: gone }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add it" }
+      - { from: edit, event: delete, to: gone, text: "Delete it" }
+  - id: straight
+    title: A list that would be valid on its own
+    expect: accepted
+    start: edit
+    nodes:
+      - { id: edit, state: editing }
+      - { id: listed, state: open }
+    edges:
+      - { from: edit, event: submit, to: listed, text: "Add it" }

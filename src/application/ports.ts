@@ -1,45 +1,59 @@
 // Ports the use cases need. Adapters implement these; the use cases do not import adapters.
-import type { Comparison } from '../domain/comparison.js';
+import type { Mapping } from '../domain/mapping.js';
 import type { Model } from '../domain/model.js';
 import type { Traversal } from '../domain/traversal.js';
 import type { WorkflowResult } from '../domain/verification.js';
-import type { Workflow } from '../domain/workflow.js';
-import type { InvalidModelReport, VerificationReport } from './report-document.js';
+import type { WorkflowSet } from '../domain/workflow.js';
+import type { CompareDocument, LocatedError, ParsedVerifyResult, VerifyDocument } from './documents.js';
+
+export type FileLoad<T> =
+  | { ok: true; value: T }
+  | { ok: false; fault: 'unreadable' | 'schema' | 'graph'; errors: LocatedError[] };
 
 export interface ModelLoader {
-  load(file: string): { ok: true; model: Model } | { ok: false; errors: string[] };
+  load(file: string): FileLoad<Model>;
 }
 
-export interface WorkflowLoader {
-  load(file: string): { ok: true; machineId: string; workflows: Workflow[] } | { ok: false; errors: string[] };
+export interface WorkflowSetLoader {
+  load(file: string): FileLoad<WorkflowSet>;
+}
+
+export interface MappingLoader {
+  load(file: string): FileLoad<Mapping>;
+}
+
+export interface SelectionLoader {
+  load(file: string): { ok: true; flows: readonly string[] } | { ok: false; errors: LocatedError[] };
+}
+
+export interface VerifyResultLoader {
+  load(file: string): { ok: true; result: ParsedVerifyResult } | { ok: false; errors: LocatedError[] };
 }
 
 export interface TraversalEngine {
   open(model: Model): Traversal;
 }
 
-export interface ComparisonRun {
-  name: string;
-  schemaValid: boolean;
-  passed: number;
-  total: number;
-  failures: readonly { id: string; reason: string }[];
-}
-
 export interface ReportWriter {
-  writeVerification(report: VerificationReport, model: Model, outDir: string): void;
-  writeInvalidModel(report: InvalidModelReport, outDir: string): void;
-  writeComparison(comparison: Comparison, runs: readonly ComparisonRun[], outDir: string): void;
+  writeVerification(document: VerifyDocument, model: Model, outDir: string): void;
+  writeComparison(document: CompareDocument, outDir: string): void;
 }
 
 export interface DiagramRenderer {
   render(model: Model, name: string, results: readonly WorkflowResult[], passed: number, outDir: string, highlight: string | undefined): void;
 }
 
-export interface Ports {
+export interface VerifyPorts {
   models: ModelLoader;
-  workflows: WorkflowLoader;
+  workflows: WorkflowSetLoader;
+  mappings: MappingLoader;
+  selections: SelectionLoader;
   engine: TraversalEngine;
   reports: ReportWriter;
   diagrams: DiagramRenderer;
+}
+
+export interface ComparePorts {
+  results: VerifyResultLoader;
+  reports: ReportWriter;
 }

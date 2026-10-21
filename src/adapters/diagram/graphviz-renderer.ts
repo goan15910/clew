@@ -6,6 +6,15 @@ import type { Model } from '../../domain/model.js';
 import type { WorkflowResult } from '../../domain/verification.js';
 import { chainMermaid, chartMermaid, chainsDot, chartDot, proofColumnDots } from './diagrams.js';
 
+function requireGraphviz(bin: string): void {
+  try {
+    execFileSync(bin, ['-V'], { stdio: 'ignore' });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Graphviz \`${bin}\` is not runnable (${detail}). Install Graphviz, or omit --out.`);
+  }
+}
+
 function renderDot(dot: string, base: string) {
   writeFileSync(`${base}.dot`, dot);
   execFileSync('dot', ['-Tsvg', `${base}.dot`, '-o', `${base}.svg`]);
@@ -50,6 +59,9 @@ function writeCharts(model: Model, name: string, results: readonly WorkflowResul
 
 export const graphvizDiagramRenderer: DiagramRenderer = {
   render(model, name, results, passed, outDir, highlight) {
+    requireGraphviz('dot');
+    requireGraphviz('gvpack');
+    requireGraphviz('neato');
     writeCharts(model, name, results, passed, outDir, highlight);
   },
 };
