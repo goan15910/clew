@@ -80,16 +80,6 @@ workflows:
 
 `--highlight W2` draws that workflow's path on the state chart. Reports and charts are written to the directory you pass with `--out`.
 
-## Layout
-
-- `src/model.ts` — YAML schema, `loadModel()`, and the XState-backed `Model`
-- `src/verify.ts` — reachability, dead ends, and workflow traversal (`@xstate/graph`)
-- `src/render.ts` — Graphviz and Mermaid text
-- `src/cli.ts` — `clew verify` and `clew compare`, file output, and Graphviz
-- `examples/todo/` — ported to-do candidates and the eight workflows
-- `examples/invalid/` — a misspelled state id, and an effect that sets an undeclared field
-- `docs/assets/` — illustration SVGs
-
 ## Visuals
 
 Overall state chart:
