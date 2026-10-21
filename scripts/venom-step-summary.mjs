@@ -35,6 +35,17 @@ function commandProperty(text) {
   return commandMessage(text).replace(/,/g, '%2C').replace(/:/g, '%3A');
 }
 
+function annotationLine(className, message) {
+  if (!className) return '';
+  const file = join('tests/venom', className);
+  if (!existsSync(file)) return '';
+  const named = message.match(/Testcase "([^"]+)"/);
+  if (!named) return '';
+  const lines = readFileSync(file, 'utf8').split('\n');
+  const index = lines.findIndex((line) => line.includes(`name: ${named[1]}`));
+  return index >= 0 ? `,line=${index + 1}` : '';
+}
+
 const lines = ['## Venom', ''];
 
 if (!existsSync(dir)) {
@@ -85,7 +96,7 @@ if (failures.length > 0) {
     lines.push('```', message, '```', '');
     if (process.env.GITHUB_ACTIONS === 'true') {
       const title = commandProperty(`${failure.suiteName} / ${failure.caseName}`);
-      const file = failure.className ? ` file=tests/venom/${failure.className}` : '';
+      const file = failure.className ? ` file=tests/venom/${failure.className}${annotationLine(failure.className, message)}` : '';
       process.stderr.write(`::error${file},title=${title}::${commandMessage(message)}\n`);
     }
   }
