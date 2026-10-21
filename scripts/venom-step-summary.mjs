@@ -27,6 +27,10 @@ function clip(text) {
   return `${text.slice(0, limit)}\n…`;
 }
 
+function commandValue(text) {
+  return text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A').replace(/,/g, '%2C');
+}
+
 const lines = ['## Venom', ''];
 
 if (!existsSync(dir)) {
@@ -65,14 +69,24 @@ for (const file of files) {
 }
 
 lines.push(`**${passed} passed, ${failed} failed.**`, '');
-lines.push('The HTML report and JUnit XML are in the `venom-report` artifact. This summary is the readable view on the Actions run.', '');
+lines.push('The HTML report and JUnit XML are in the `venom-report` artifact. Each failure is also an annotation on this run.', '');
 
 if (failures.length > 0) {
   lines.push('### Failures', '');
-  for (const failure of failures) {
+  const shown = failures.slice(0, 10);
+  for (const failure of shown) {
     const where = failure.className ? `\`${failure.className}\`` : 'the suite';
+    const message = clip(failure.errors.join('\n'));
     lines.push(`**${failure.suiteName} / ${failure.caseName}** (${where})`, '');
-    lines.push('```', clip(failure.errors.join('\n')), '```', '');
+    lines.push('```', message, '```', '');
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      const title = commandValue(`${failure.suiteName} / ${failure.caseName}`);
+      const file = failure.className ? ` file=tests/venom/${failure.className}` : '';
+      process.stderr.write(`::error${file},title=${title}::${commandValue(message)}\n`);
+    }
+  }
+  if (failures.length > shown.length) {
+    lines.push(`${failures.length - shown.length} more failures are in the JUnit artifact.`, '');
   }
 }
 

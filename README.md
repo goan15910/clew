@@ -42,7 +42,7 @@ bash scripts/install-venom.sh
 bin/venom run tests/venom --format=xml --output-dir=venom-results --html-report --var "root=$PWD" --var "clew=node_modules/.bin/tsx src/cli.ts"
 ```
 
-Venom is pinned to v1.3.0. GitHub Actions runs the same command on pull requests and on `main`. Failures are written to the job summary. The HTML report and JUnit XML are the `venom-report` artifact.
+Venom is pinned to v1.3.0. GitHub Actions runs the same command on pull requests and on `main`. A failing case is an annotation on the Actions run, and the same text is in the job summary. The HTML report and JUnit XML are the `venom-report` artifact.
 
 ## Architecture
 
