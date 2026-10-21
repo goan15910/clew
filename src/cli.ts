@@ -1,4 +1,4 @@
-#!/usr/bin/env -S npx tsx
+#!/usr/bin/env node
 // clew chart check <chart.yaml> [--json]
 // clew chart analyze <chart.yaml> [--json]
 // clew workflows check <set.yaml> [--json]

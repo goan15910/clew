@@ -17,3 +17,7 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run check:dependencies
+      - run: npm run build
+      - run: npm test
+      - name: Pack and smoke-install
+        run: scripts/smoke-install.sh

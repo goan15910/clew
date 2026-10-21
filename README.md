@@ -6,6 +6,21 @@ Clew is the ball of thread Ariadne gave Theseus: a proven path through the maze.
 
 The command contract, JSON shapes, and file format are in [docs/agent-cli.md](docs/agent-cli.md).
 
+## Install
+
+Clew is published as a tarball on GitHub Releases. Install that file. The tarball includes Clew's runtime dependencies, so this install does not use the npm registry.
+
+```bash
+npm install -g https://github.com/goan15910/clew/releases/download/v0.1.0/clew-0.1.0.tgz
+clew --help
+```
+
+The asset name is `clew-<version>.tgz`, and the tag is `v` plus the version in `package.json`. The same release includes `SHA256SUMS`. Check it with `sha256sum -c SHA256SUMS`. v0.1.0 appears after that tag is pushed.
+
+Image export needs Graphviz (`dot`, `gvpack`, `neato`) on your `PATH`. `clew verify` proves flows without it. Charts are written only when you pass `--out`.
+
+From a checkout, `npm install` then `npm run build`. `npm run clew` runs the TypeScript source. `npm test` runs the built CLI.
+
 ## Quick start
 
 Image export needs Graphviz (`dot`, `gvpack`, `neato`). Reports and charts are written only when you pass `--out`.
