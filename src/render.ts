@@ -62,8 +62,8 @@ export function chartDot(model: Model, title: string, highlight?: WorkflowResult
   return lines.join('\n');
 }
 
-/** One workflow (or several) as a straight left-to-right chain. */
-export function chainsDot(model: Model, title: string, results: readonly WorkflowResult[]): string {
+/** One workflow (or several) as a straight left-to-right chain. `nodePrefix` keeps ids unique when several chains are packed. */
+export function chainsDot(model: Model, title: string, results: readonly WorkflowResult[], nodePrefix = ''): string {
   const label = (id: string) => model.states().find((state) => state.id === id)?.label ?? id;
   const lines: string[] = [];
   lines.push('digraph G {', '  rankdir=LR; pad=0.3; nodesep=0.25; ranksep=0.35; newrank=true;');
@@ -74,14 +74,14 @@ export function chainsDot(model: Model, title: string, results: readonly Workflo
   results.forEach((result, index) => {
     const col = result.pass ? PASS : FAIL;
     const mark = result.pass ? 'PASS' : 'FAIL';
-    const head = `w${index}_h`;
+    const head = `${nodePrefix}w${index}_h`;
     lines.push(`  subgraph cluster_${index} { style="rounded" color="${col}" penwidth=1.5; label=""; `);
     lines.push(`    ${head} [shape=plaintext style="" label=<<FONT COLOR="${col}"><B>${esc(result.id)} ${mark}</B></FONT><BR/><FONT POINT-SIZE="10">${esc(result.title)}</FONT>>];`);
-    let prev = `w${index}_s0`;
+    let prev = `${nodePrefix}w${index}_s0`;
     lines.push(`    ${prev} [label="${esc(label(result.trace[0]?.from ?? model.initial))}"];`);
     lines.push(`    ${head} -> ${prev} [style=invis];`);
     result.trace.forEach((step, stepIndex) => {
-      const node = `w${index}_s${stepIndex + 1}`;
+      const node = `${nodePrefix}w${index}_s${stepIndex + 1}`;
       const wrongAccept = step.accepted && result.expect === 'rejected' && !result.pass && step.n === result.trace.length;
       if (wrongAccept) {
         lines.push(`    ${node} [label="${esc(label(step.to!))} (should be refused)" fillcolor="#ffebe9" color="${FAIL}" fontcolor="${FAIL}"];`);
@@ -98,7 +98,7 @@ export function chainsDot(model: Model, title: string, results: readonly Workflo
       prev = node;
     });
     if (!result.pass) {
-      const note = `w${index}_why`;
+      const note = `${nodePrefix}w${index}_why`;
       lines.push(`    ${note} [shape=note style=filled fillcolor="#fff8c5" color="#bf8700" fontsize=10 label="${esc(result.reason).replace(/"/g, "'")}"];`);
       lines.push(`    ${prev} -> ${note} [style=dotted arrowhead=none];`);
     }
@@ -106,7 +106,7 @@ export function chainsDot(model: Model, title: string, results: readonly Workflo
     if (prevHead) lines.push(`  ${prevHead} -> ${head} [style=invis weight=10];`);
     prevHead = head;
   });
-  lines.push(`  { rank=same; ${results.map((_, index) => `w${index}_h`).join('; ')} }`);
+  lines.push(`  { rank=same; ${results.map((_, index) => `${nodePrefix}w${index}_h`).join('; ')} }`);
   lines.push('}');
   return lines.join('\n');
 }
@@ -135,6 +135,6 @@ export function chainMermaid(model: Model, result: WorkflowResult): string {
 /** Title band plus one chain per workflow, for `gvpack` to stack. */
 export function proofColumnDots(model: Model, title: string, results: readonly WorkflowResult[]): string[] {
   const dots = [`digraph T { pad=0.2; t [shape=plaintext fontname="${FONT}" fontsize=20 label=<<B>${esc(title)}</B>>]; }`];
-  for (const result of results) dots.push(chainsDot(model, '', [result]));
+  results.forEach((result, index) => dots.push(chainsDot(model, '', [result], `c${index}`)));
   return dots;
 }

@@ -18,7 +18,7 @@ const EXIT_INVALID = 2;
 
 const CommandOptionsSchema = z.strictObject({
   out: z.string().min(1, 'output directory must not be empty'),
-  highlight: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/, 'highlight must be a workflow id').optional(),
+  highlight: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/, 'must be a workflow id').optional(),
   json: z.boolean().optional(),
 });
 type CommandOptions = z.infer<typeof CommandOptionsSchema>;
@@ -64,15 +64,18 @@ function candidateName(file: string): string {
   return basename(file).replace(/\.ya?ml$/, '');
 }
 
+function emitInvalid(errors: string[], json: boolean): never {
+  console.error(errors.join('\n'));
+  if (json) console.log(JSON.stringify({ schemaValid: false, schemaErrors: errors }, null, 2));
+  process.exit(EXIT_INVALID);
+}
+
 function parseCommandOptions(opts: { out?: string; highlight?: string; json?: boolean }): CommandOptions {
   const input: { out: string; highlight?: string; json?: boolean } = { out: opts.out ?? '' };
   if (opts.highlight !== undefined) input.highlight = opts.highlight;
   if (opts.json !== undefined) input.json = opts.json;
   const parsed = CommandOptionsSchema.safeParse(input);
-  if (!parsed.success) {
-    console.error(issueLines(parsed.error.issues).join('\n'));
-    process.exit(EXIT_INVALID);
-  }
+  if (!parsed.success) emitInvalid(issueLines(parsed.error.issues), input.json === true);
   return parsed.data;
 }
 
@@ -216,19 +219,15 @@ function verifyOne(modelFile: string, workflows: readonly Workflow[], outDir: st
   return { name, schemaValid: true, passed, total: results.length, failures, report };
 }
 
-function failWorkflows(file: string, errors: string[]): never {
-  console.error(`invalid workflows in ${file}:\n  ${errors.join('\n  ')}`);
-  process.exit(EXIT_INVALID);
+function failWorkflows(file: string, errors: string[], json: boolean): never {
+  emitInvalid(errors.map((error) => `${file}: ${error}`), json);
 }
 
 function runVerify(modelFile: string, workflowsFile: string, options: CommandOptions): never {
   const read = readYaml(workflowsFile);
-  if (!read.ok) {
-    console.error(read.error);
-    process.exit(EXIT_INVALID);
-  }
+  if (!read.ok) emitInvalid([read.error], options.json === true);
   const workflows = parseWorkflows(read.value);
-  if (!workflows.ok) failWorkflows(workflowsFile, workflows.errors);
+  if (!workflows.ok) failWorkflows(workflowsFile, workflows.errors, options.json === true);
   const run = verifyOne(modelFile, workflows.workflows, options.out, options.highlight, options.json === true);
   if (options.json === true) console.log(JSON.stringify(run.report, null, 2));
   if (!run.schemaValid) process.exit(EXIT_INVALID);
@@ -237,12 +236,9 @@ function runVerify(modelFile: string, workflowsFile: string, options: CommandOpt
 
 function runCompare(workflowsFile: string, modelFiles: readonly string[], options: CommandOptions): never {
   const read = readYaml(workflowsFile);
-  if (!read.ok) {
-    console.error(read.error);
-    process.exit(EXIT_INVALID);
-  }
+  if (!read.ok) emitInvalid([read.error], options.json === true);
   const workflows = parseWorkflows(read.value);
-  if (!workflows.ok) failWorkflows(workflowsFile, workflows.errors);
+  if (!workflows.ok) failWorkflows(workflowsFile, workflows.errors, options.json === true);
   const runs: Run[] = [];
   for (const modelFile of modelFiles) {
     runs.push(verifyOne(modelFile, workflows.workflows, `${options.out}/${candidateName(modelFile)}`, options.highlight, options.json === true));
