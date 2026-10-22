@@ -9,8 +9,8 @@ jobs:
   venom:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -26,14 +26,16 @@ jobs:
             --var "root=${GITHUB_WORKSPACE}" \
             --var "clew=node_modules/.bin/tsx src/cli.ts"
       - name: Publish the job summary
-        if: always()
+        if: ${{ !cancelled() }}
         run: node scripts/venom-step-summary.mjs venom-results >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload the Venom HTML report and JUnit XML
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Upload the Venom report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
         with:
           name: venom-report
+          retention-days: 14
           path: |
             venom-results/*.xml
             venom-results/*.html
+            venom-results/venom.log
           if-no-files-found: error
