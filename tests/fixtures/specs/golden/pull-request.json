@@ -1,0 +1,416 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "Pull request",
+      "text": "The author opens a pull request.",
+      "span": [
+        16,
+        48
+      ],
+      "hash": "sha256:c034df163f0e6eb747d00fcdb1006b6526680fcd34be09e7b7c499a416638c5e",
+      "clauses": [
+        "The author opens a pull request."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            16,
+            19
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "author",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            20,
+            26
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "opens",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            27,
+            32
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            33,
+            34
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "pull",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            35,
+            39
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t6",
+          "text": "request",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            40,
+            47
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s2",
+      "section": "Pull request",
+      "text": "A reviewer approves the pull request if the tests pass.",
+      "span": [
+        49,
+        104
+      ],
+      "hash": "sha256:3b3514a188ee857c041dd64ca74a05930ea826019cb20a457da0717a6459c0a3",
+      "clauses": [
+        "A reviewer approves the pull request if the tests pass."
+      ],
+      "tokens": [
+        {
+          "id": "s2.t1",
+          "text": "A",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            49,
+            50
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t2",
+          "text": "reviewer",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            51,
+            59
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t3",
+          "text": "approves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            60,
+            68
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            69,
+            72
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t5",
+          "text": "pull",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            73,
+            77
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t6",
+          "text": "request",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            78,
+            85
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t7",
+          "text": "if",
+          "tags": [
+            "Connector",
+            "Conjunction",
+            "Condition"
+          ],
+          "span": [
+            86,
+            88
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t8",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            89,
+            92
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t9",
+          "text": "tests",
+          "tags": [
+            "Noun",
+            "Plural"
+          ],
+          "span": [
+            93,
+            98
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t10",
+          "text": "pass",
+          "tags": [
+            "Verb",
+            "PresentTense",
+            "Infinitive"
+          ],
+          "span": [
+            99,
+            103
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "no-actor:s2",
+          "kind": "coverage",
+          "code": "no-actor",
+          "severity": "warning",
+          "message": "s2 has no actor",
+          "refs": [
+            "s2"
+          ]
+        },
+        {
+          "id": "condition-without-clause:s2",
+          "kind": "coverage",
+          "code": "condition-without-clause",
+          "severity": "warning",
+          "message": "s2 uses \"if\" but the tagger did not split a clause",
+          "refs": [
+            "s2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "section": "Pull request",
+      "text": "The author merges the pull request after it is approved.",
+      "span": [
+        106,
+        162
+      ],
+      "hash": "sha256:aada2661d0a4ac38157e010c1d3c9cef0025c85b0d2ba309d365c03b35123132",
+      "clauses": [
+        "The author merges the pull request after it is approved."
+      ],
+      "tokens": [
+        {
+          "id": "s3.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            106,
+            109
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t2",
+          "text": "author",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            110,
+            116
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t3",
+          "text": "merges",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            117,
+            123
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            124,
+            127
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t5",
+          "text": "pull",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            128,
+            132
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t6",
+          "text": "request",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            133,
+            140
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t7",
+          "text": "after",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            141,
+            146
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t8",
+          "text": "it",
+          "tags": [
+            "Noun",
+            "Pronoun"
+          ],
+          "span": [
+            147,
+            149
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t9",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "Passive",
+            "Auxiliary"
+          ],
+          "span": [
+            150,
+            152
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t10",
+          "text": "approved",
+          "tags": [
+            "Verb",
+            "PastTense",
+            "Passive"
+          ],
+          "span": [
+            153,
+            161
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    }
+  ],
+  "otherFindings": []
+}

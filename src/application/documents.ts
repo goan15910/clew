@@ -1,5 +1,6 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
+import type { Finding } from '../domain/spec.js';
 import type { Structure } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -26,6 +27,12 @@ export function formatIssues(issues: readonly OutputIssue[]): string[] {
   const lines: string[] = [];
   for (const issue of issues) lines.push(formatIssue(issue));
   return lines;
+}
+
+export function specInput(file: string | undefined, message: string): OutputIssue {
+  const issue: OutputIssue = { kind: 'input', path: '', message };
+  if (file !== undefined && file !== '') issue.file = file;
+  return issue;
 }
 
 export function tagIssues(file: string, kind: OutputIssue['kind'], errors: readonly LocatedError[]): OutputIssue[] {
@@ -146,12 +153,63 @@ export interface CompareDocument {
   issues: OutputIssue[];
 }
 
+export interface SpecSentenceView {
+  id: string;
+  text: string;
+  span: [number, number];
+  hash: string;
+  section: string;
+}
+
+export interface SpecTokenView {
+  id: string;
+  text: string;
+  tags: string[];
+  span: [number, number];
+  origin: 'tagger' | 'rule' | 'agent';
+}
+
+export interface SpecTaggedView {
+  id: string;
+  text: string;
+  section: string;
+  clauses: string[];
+  tokens: SpecTokenView[];
+}
+
+export type SpecFault = 'unreadable' | 'locked' | 'schema' | 'session';
+
+export interface SpecInitDocument {
+  command: 'spec.init';
+  ok: boolean;
+  session?: string;
+  spec?: string;
+  specHash?: string;
+  sentences?: SpecSentenceView[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecTagDocument {
+  command: 'spec.tag';
+  ok: boolean;
+  session?: string;
+  tagger?: { name: string; version: string };
+  sentences?: SpecTaggedView[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
 export type CommandDocument =
   | ChartCheckDocument
   | ChartAnalyzeDocument
   | WorkflowCheckDocument
   | VerifyDocument
-  | CompareDocument;
+  | CompareDocument
+  | SpecInitDocument
+  | SpecTagDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 

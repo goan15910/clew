@@ -32,6 +32,8 @@ npm run --silent clew -- chart analyze <chart.yaml> [--json]
 npm run --silent clew -- workflows check <workflows.yaml> [--json]
 npm run --silent clew -- verify <chart.yaml> <workflows.yaml> <mapping.yaml> [--flow W8] [--select file] [--out dir] [--highlight W2] [--json]
 npm run --silent clew -- compare <verify.json>... [--out dir] [--json]
+npm run --silent clew -- spec init <spec.md> [--session id] [--json]
+npm run --silent clew -- spec tag [--session id] [--sentence s1] [--json]
 ```
 
 `--silent` keeps npm's own banner off stdout, so a `--json` document stays one JSON value.
@@ -40,17 +42,19 @@ npm run --silent clew -- compare <verify.json>... [--out dir] [--json]
 
 Exit codes:
 
-- `0` — the check passed, the analysis is clean, every selected flow passed, or compare has a winner
-- `1` — schema or graph invalid, the analysis found an unreachable state or a dead end, a flow failed, or compare has no winner
-- `2` — unreadable input, bad arguments, or a verify/analyze precondition failed
+- `0` — the check passed, the analysis is clean, every selected flow passed, compare has a winner, or spec init/tag left no blocking findings
+- `1` — schema or graph invalid, the analysis found an unreachable state or a dead end, a flow failed, compare has no winner, or a spec command reported a blocking finding
+- `2` — unreadable input, bad arguments, a missing spec session, or a verify/analyze precondition failed
 
 Errors go to stderr. `--json` prints one result document on stdout.
 
 The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8. The workflow set and the chart use different names; `mapping.yaml` is the correspondence.
 
+`examples/spec/order.md` is a plain-English spec for `clew spec init` and `clew spec tag`. The session is stored outside the repo. See [docs/agent-cli.md](docs/agent-cli.md).
+
 ## Tests
 
-Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
+Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `spec init`, `spec tag`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
 
 ```bash
 bash scripts/install-venom.sh

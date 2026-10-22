@@ -1,0 +1,432 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "Refunds",
+      "text": "The customer requests a refund within 30 days.",
+      "span": [
+        11,
+        57
+      ],
+      "hash": "sha256:20bac59903be36c4281108b86ed84fe9fb71a6c5de0007047487ef8c53b6ee5b",
+      "clauses": [
+        "The customer requests a refund within 30 days."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            11,
+            14
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "customer",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            15,
+            23
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "requests",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            24,
+            32
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            33,
+            34
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "refund",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            35,
+            41
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t6",
+          "text": "within",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            42,
+            48
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t7",
+          "text": "30",
+          "tags": [
+            "Value",
+            "Cardinal",
+            "NumericValue"
+          ],
+          "span": [
+            49,
+            51
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t8",
+          "text": "days",
+          "tags": [
+            "Date",
+            "Noun",
+            "Duration",
+            "Plural"
+          ],
+          "span": [
+            52,
+            56
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s2",
+      "section": "Refunds",
+      "text": "The clerk approves the refund if the item is unused.",
+      "span": [
+        58,
+        110
+      ],
+      "hash": "sha256:57a9588ce9b41d2b38ddf2198133a5e9cec78467517abd6f4db6b36a3ff2dc3a",
+      "clauses": [
+        "The clerk approves",
+        "the refund if the item is unused."
+      ],
+      "tokens": [
+        {
+          "id": "s2.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            58,
+            61
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t2",
+          "text": "clerk",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            62,
+            67
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t3",
+          "text": "approves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            68,
+            76
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            77,
+            80
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t5",
+          "text": "refund",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            81,
+            87
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t6",
+          "text": "if",
+          "tags": [
+            "Connector",
+            "Conjunction",
+            "Condition"
+          ],
+          "span": [
+            88,
+            90
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            91,
+            94
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t8",
+          "text": "item",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            95,
+            99
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t9",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "PresentTense"
+          ],
+          "span": [
+            100,
+            102
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t10",
+          "text": "unused",
+          "tags": [
+            "Adjective"
+          ],
+          "span": [
+            103,
+            109
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s3",
+      "section": "Refunds",
+      "text": "The clerk rejects the refund when the item is damaged.",
+      "span": [
+        112,
+        166
+      ],
+      "hash": "sha256:bbfe958b8b6b82bed98f012d20c9897e5d6ae1d134f183a9c5eed1a62653cd7f",
+      "clauses": [
+        "The clerk rejects the refund when the item is damaged."
+      ],
+      "tokens": [
+        {
+          "id": "s3.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            112,
+            115
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t2",
+          "text": "clerk",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            116,
+            121
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t3",
+          "text": "rejects",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            122,
+            129
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            130,
+            133
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t5",
+          "text": "refund",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            134,
+            140
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t6",
+          "text": "when",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            141,
+            145
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            146,
+            149
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t8",
+          "text": "item",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            150,
+            154
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t9",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "PresentTense"
+          ],
+          "span": [
+            155,
+            157
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t10",
+          "text": "damaged",
+          "tags": [
+            "Adjective"
+          ],
+          "span": [
+            158,
+            165
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "condition-without-clause:s3",
+          "kind": "coverage",
+          "code": "condition-without-clause",
+          "severity": "warning",
+          "message": "s3 uses \"when\" but the tagger did not split a clause",
+          "refs": [
+            "s3"
+          ]
+        }
+      ]
+    }
+  ],
+  "otherFindings": []
+}

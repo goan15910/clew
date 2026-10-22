@@ -1,0 +1,263 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "",
+      "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.",
+      "span": [
+        0,
+        101
+      ],
+      "hash": "sha256:6b67fe8afd6b389bf48c5470a768995095fe1d1082a0956c62d483ecbf82b98f",
+      "clauses": [
+        "When the customer submits an order,",
+        "the manager approves",
+        "the order if the total is under 500 dollars."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "When",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            0,
+            4
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            5,
+            8
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "customer",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            9,
+            17
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "submits",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            18,
+            25
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "an",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            26,
+            28
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t6",
+          "text": "order",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            29,
+            34
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            36,
+            39
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t8",
+          "text": "manager",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            40,
+            47
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t9",
+          "text": "approves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            48,
+            56
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t10",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            57,
+            60
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t11",
+          "text": "order",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            61,
+            66
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t12",
+          "text": "if",
+          "tags": [
+            "Connector",
+            "Conjunction",
+            "Condition"
+          ],
+          "span": [
+            67,
+            69
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t13",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            70,
+            73
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t14",
+          "text": "total",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            74,
+            79
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t15",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "PresentTense"
+          ],
+          "span": [
+            80,
+            82
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t16",
+          "text": "under",
+          "tags": [
+            "Adjective"
+          ],
+          "span": [
+            83,
+            88
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t17",
+          "text": "500",
+          "tags": [
+            "Value",
+            "Cardinal",
+            "NumericValue",
+            "Money"
+          ],
+          "span": [
+            89,
+            92
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t18",
+          "text": "dollars",
+          "tags": [
+            "Noun",
+            "Currency",
+            "Plural",
+            "Unit"
+          ],
+          "span": [
+            93,
+            100
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    }
+  ],
+  "otherFindings": []
+}
