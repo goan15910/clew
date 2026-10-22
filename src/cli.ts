@@ -10,6 +10,10 @@
 // clew spec entities merge|rename|reject|promote [--session id] [--json]
 // clew spec facts propose [--sentence s1] [--session id] [--json]
 // clew spec facts add|edit|remove [--from file.json] [--session id] [--json]
+// clew spec graph build [--session id] [--json]
+// clew spec graph split --id W1 --at 2 [--session id] [--json]
+// clew spec graph group --id W1 --id W2 [--title text] [--session id] [--json]
+// clew spec emit (--dry-run | --out file) [--force] [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 //
@@ -19,6 +23,7 @@ import { z } from 'zod';
 import { jsonSelectionLoader } from './adapters/json/selection-loader.js';
 import { compromiseTagger } from './adapters/pos/compromise-tagger.js';
 import { loadAddedFacts, loadFactEdit, loadRemovedFacts } from './adapters/spec-store/fact-patch.js';
+import { loadGroupPatch, loadSplitPatch } from './adapters/spec-store/flow-patch.js';
 import { jsonSpecStore } from './adapters/spec-store/json-file-store.js';
 import { specTextSource } from './adapters/spec-store/read-spec.js';
 import { jsonVerifyResultLoader } from './adapters/json/verify-result-loader.js';
@@ -30,12 +35,16 @@ import { locatedErrors } from './adapters/yaml/issue-lines.js';
 import { yamlMappingLoader } from './adapters/yaml/mapping-loader.js';
 import { yamlModelLoader } from './adapters/yaml/model-loader.js';
 import { yamlWorkflowLoader } from './adapters/yaml/workflow-loader.js';
+import { yamlWorkflowWriter } from './adapters/yaml/workflow-writer.js';
 import { analyzeChart } from './application/analyze-chart.js';
+import { buildSpecGraph } from './application/build-graph.js';
 import { checkChart } from './application/check-chart.js';
 import { checkWorkflows } from './application/check-workflows.js';
 import { compareResults } from './application/compare-results.js';
 import { editEntities } from './application/edit-entities.js';
 import { editFacts } from './application/edit-facts.js';
+import { editGraph } from './application/edit-graph.js';
+import { emitSpec } from './application/emit-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listEntities } from './application/list-entities.js';
 import { formatIssues, type CommandDocument, type Outcome, type OutputIssue } from './application/documents.js';
@@ -188,6 +197,53 @@ const SpecFactRemoveFlags = z.object({
   const hasIds = value.id !== undefined && value.id.length > 0;
   if (value.from !== undefined && hasIds) context.addIssue({ code: 'custom', message: 'pass --id or --from, not both', path: ['from'] });
   if (value.from === undefined && !hasIds) context.addIssue({ code: 'custom', message: 'remove needs --id or --from', path: ['id'] });
+});
+const FlowIdOption = z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE);
+const SpecGraphSplitFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  from: z.string().min(1).optional(),
+  id: FlowIdOption.optional(),
+  at: z.string().min(1).optional(),
+}).superRefine((value, context) => {
+  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
+  const flagged = value.id !== undefined || value.at !== undefined;
+  if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
+  if (value.from === undefined && (value.id === undefined || value.at === undefined)) {
+    context.addIssue({ code: 'custom', message: 'split needs --id and --at, or --from', path: ['id'] });
+  }
+});
+const SpecGraphGroupFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  from: z.string().min(1).optional(),
+  id: z.array(FlowIdOption).optional(),
+  transition: z.array(z.string().regex(/^tr[1-9][0-9]*$/, 'transition ids look like tr1')).optional(),
+  title: z.string().min(1).optional(),
+  into: FlowIdOption.optional(),
+}).superRefine((value, context) => {
+  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
+  const flowCount = value.id?.length ?? 0;
+  const transitionCount = value.transition?.length ?? 0;
+  const flagged = flowCount > 0 || transitionCount > 0 || value.title !== undefined || value.into !== undefined;
+  if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
+  if (value.from !== undefined) return;
+  if (flowCount > 0 && transitionCount > 0) context.addIssue({ code: 'custom', message: 'pass --id or --transition, not both', path: ['id'] });
+  if (flowCount === 0 && transitionCount === 0) context.addIssue({ code: 'custom', message: 'group needs at least two --id or two --transition, or --from', path: ['id'] });
+  if ((flowCount > 0 && flowCount < 2) || (transitionCount > 0 && transitionCount < 2)) {
+    context.addIssue({ code: 'custom', message: 'group needs at least two paths', path: ['id'] });
+  }
+});
+const SpecEmitFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  dryRun: z.boolean().optional(),
+  out: z.string().min(1).optional(),
+  force: z.boolean().optional(),
+}).superRefine((value, context) => {
+  if (value.out === '-') context.addIssue({ code: 'custom', message: 'emit writes a file; Clew never writes the workflow set to stdout', path: ['out'] });
+  if (value.dryRun === true && value.out !== undefined) context.addIssue({ code: 'custom', message: 'pass --dry-run or --out, not both', path: ['out'] });
+  if (value.dryRun !== true && (value.out === undefined || value.out === '')) context.addIssue({ code: 'custom', message: 'emit needs --dry-run or --out', path: ['out'] });
 });
 const SpecSessionFlags = z.object({
   json: z.boolean().optional(),
@@ -564,6 +620,89 @@ facts
     emit(editFacts({ action: 'remove', sessionId: flags.session, ids: flags.id ?? [] }, jsonSpecStore), flags.json === true);
   });
 
+const graph = spec.command('graph').description('Assemble a draft graph and choose named paths.');
+
+graph
+  .command('build')
+  .description('Assemble states and transitions from facts, and propose one path per transition.')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.graph.build', opts, parsed.error);
+    emit(buildSpecGraph({ sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
+  });
+
+graph
+  .command('split')
+  .description('Split one accepted path into two. --at is the first edge of the second path.')
+  .option('--id <id>', 'flow to split, for example W1')
+  .option('--at <edge>', '1-based edge number or transition id, for example 2 or tr2')
+  .option('--from <file>', 'JSON { "id": "W1", "at": 2 }')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecGraphSplitFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.graph.split', opts, parsed.error);
+    const flags = parsed.data;
+    if (flags.from !== undefined) {
+      const loaded = loadSplitPatch(flags.from);
+      if (!loaded.ok) usage('spec.graph.split', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
+      emit(editGraph({ action: 'split', sessionId: flags.session, id: loaded.id, at: loaded.at }, jsonSpecStore), flags.json === true);
+    }
+    if (flags.id === undefined || flags.at === undefined) usage('spec.graph.split', opts, new z.ZodError([{ code: 'custom', message: 'split needs --id and --at', path: ['id'] }]));
+    emit(editGraph({ action: 'split', sessionId: flags.session, id: flags.id, at: flags.at }, jsonSpecStore), flags.json === true);
+  });
+
+graph
+  .command('group')
+  .description('Join accepted paths into one linear workflow.')
+  .option('--id <id>', 'flow to join, in walk order (repeatable)', collectFlow, [] as string[])
+  .option('--transition <id>', 'transition to join, in walk order (repeatable)', collectFlow, [] as string[])
+  .option('--title <text>', 'title of the grouped path')
+  .option('--into <id>', 'flow id to keep')
+  .option('--from <file>', 'JSON { "ids": ["W1", "W2"], "title": "..." } or { "transitions": ["tr1", "tr2"] }')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecGraphGroupFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.graph.group', opts, parsed.error);
+    const flags = parsed.data;
+    if (flags.from !== undefined) {
+      const loaded = loadGroupPatch(flags.from);
+      if (!loaded.ok) usage('spec.graph.group', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
+      emit(editGraph({ action: 'group', sessionId: flags.session, ...loaded.request }, jsonSpecStore), flags.json === true);
+    }
+    emit(editGraph({
+      action: 'group',
+      sessionId: flags.session,
+      flowIds: flags.id,
+      transitionIds: flags.transition,
+      title: flags.title,
+      into: flags.into,
+    }, jsonSpecStore), flags.json === true);
+  });
+
+spec
+  .command('emit')
+  .description('Write the chosen paths as a workflow set. Refuses while blocking findings remain.')
+  .option('--dry-run', 'print the YAML and check it without writing a file')
+  .option('--out <file>', 'write the workflow set to this file')
+  .option('--force', 'write even when blocking findings remain, and list them')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecEmitFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.emit', opts, parsed.error);
+    const flags = parsed.data;
+    emit(emitSpec({
+      sessionId: flags.session,
+      dryRun: flags.dryRun === true,
+      out: flags.out,
+      force: flags.force === true,
+    }, jsonSpecStore, yamlWorkflowWriter), flags.json === true);
+  });
+
 spec
   .command('trace')
   .description('Follow an id back to facts, entities, tokens, and the sentence.')
@@ -608,6 +747,11 @@ Examples:
   clew spec tag --json
   clew spec entities list --json
   clew spec facts propose --json
+  clew spec graph build --json
+  clew spec graph split --id W1 --at tr2 --json
+  clew spec graph group --id W1 --id W2 --title "Submit and approve an order" --json
+  clew spec emit --dry-run --json
+  clew spec emit --out flows.yaml --json
   clew spec trace actor:customer --json
   clew spec status --json
 `);

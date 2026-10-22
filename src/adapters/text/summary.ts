@@ -83,6 +83,24 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
+  if (document.command === 'spec.graph.build' || document.command === 'spec.graph.split' || document.command === 'spec.graph.group') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const lines = [`session ${document.session}: ${document.graph?.states.length ?? 0} states, ${document.graph?.transitions.length ?? 0} transitions, ${document.flows?.length ?? 0} flows`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.emit') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const name = document.id ?? 'workflow set';
+    const head = document.written !== undefined
+      ? `session ${document.session}: wrote ${document.written} (${name})`
+      : document.dryRun === true
+        ? `session ${document.session}: dry run, ${name} not written`
+        : `session ${document.session}: ${name} not written`;
+    const lines = [head];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
   if (document.command === 'spec.status') {
     if (document.fault !== undefined || document.session === undefined || document.coverage === undefined) return '';
     const sentences = document.coverage.sentences;

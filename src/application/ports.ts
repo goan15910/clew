@@ -4,7 +4,7 @@ import type { Model } from '../domain/model.js';
 import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
 import type { Traversal } from '../domain/traversal.js';
 import type { WorkflowResult } from '../domain/verification.js';
-import type { WorkflowSet } from '../domain/workflow.js';
+import type { WorkflowSet, WorkflowSetDraft } from '../domain/workflow.js';
 import type { CompareDocument, LocatedError, ParsedVerifyResult, VerifyDocument } from './documents.js';
 
 export type FileLoad<T> =
@@ -97,4 +97,9 @@ export interface PosTaggerPort {
   readonly name: string;
   readonly version: string;
   tag(text: string): PosTagging;
+}
+
+export interface WorkflowSetWriter {
+  render(draft: WorkflowSetDraft): string;
+  write(file: string, yaml: string): { ok: true } | { ok: false; message: string };
 }

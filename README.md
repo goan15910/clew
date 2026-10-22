@@ -36,6 +36,10 @@ npm run --silent clew -- spec init <spec.md> [--session id] [--json]
 npm run --silent clew -- spec tag [--session id] [--sentence s1] [--json]
 npm run --silent clew -- spec entities list [--kind actor] [--status candidate] [--session id] [--json]
 npm run --silent clew -- spec facts propose [--sentence s1] [--session id] [--json]
+npm run --silent clew -- spec graph build [--session id] [--json]
+npm run --silent clew -- spec graph split --id W1 --at 2 [--session id] [--json]
+npm run --silent clew -- spec graph group --id W1 --id W2 [--title text] [--session id] [--json]
+npm run --silent clew -- spec emit (--dry-run | --out file) [--force] [--session id] [--json]
 npm run --silent clew -- spec trace <id> [--session id] [--json]
 npm run --silent clew -- spec status [--session id] [--json]
 ```
@@ -54,11 +58,11 @@ Errors go to stderr. `--json` prints one result document on stdout.
 
 The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8. The workflow set and the chart use different names; `mapping.yaml` is the correspondence.
 
-`examples/spec/order.md` is a plain-English spec for `clew spec init`, `clew spec tag`, `clew spec entities`, and `clew spec facts`. The session is stored outside the repo. See [docs/agent-cli.md](docs/agent-cli.md).
+`examples/spec/order.md` is a plain-English spec for `clew spec init`, `clew spec tag`, `clew spec entities`, `clew spec facts`, `clew spec graph`, and `clew spec emit`. The session is stored outside the repo. See [docs/agent-cli.md](docs/agent-cli.md).
 
 ## Tests
 
-Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `spec init`, `spec tag`, `spec entities`, `spec facts`, `spec trace`, `spec status`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
+Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `spec init`, `spec tag`, `spec entities`, `spec facts`, `spec graph`, `spec emit`, `spec trace`, `spec status`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
 
 ```bash
 bash scripts/install-venom.sh
