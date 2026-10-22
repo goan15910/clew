@@ -1,6 +1,7 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
-import type { Finding } from '../domain/spec.js';
+import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
+import type { EntityKind, EntityReview, EntityStatus, FactType, Finding, SpecOrigin } from '../domain/spec.js';
 import type { Structure } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -202,6 +203,83 @@ export interface SpecTagDocument {
   issues: OutputIssue[];
 }
 
+export interface SpecEntityView {
+  id: string;
+  kind: EntityKind;
+  name?: string;
+  text?: string;
+  sources: string[];
+  origin: SpecOrigin;
+  status: EntityStatus;
+  review?: EntityReview;
+  note?: string;
+}
+
+export interface SpecEntitiesDocument {
+  command: 'spec.entities.list' | 'spec.entities.merge' | 'spec.entities.rename' | 'spec.entities.reject' | 'spec.entities.promote';
+  ok: boolean;
+  session?: string;
+  entities?: SpecEntityView[];
+  changed?: string[];
+  removed?: string[];
+  affected?: string[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecFactView {
+  id: string;
+  type: FactType;
+  actor?: string;
+  action?: string;
+  object?: string;
+  from?: string | null;
+  to?: string;
+  condition?: string;
+  state?: string;
+  origin: SpecOrigin;
+  confidence: number;
+  sources: string[];
+  status: 'current' | 'stale';
+  note?: string;
+}
+
+export interface SpecFactsDocument {
+  command: 'spec.facts.propose' | 'spec.facts.add' | 'spec.facts.edit' | 'spec.facts.remove';
+  ok: boolean;
+  session?: string;
+  facts?: SpecFactView[];
+  changed?: string[];
+  removed?: string[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecTraceDocument {
+  command: 'spec.trace';
+  ok: boolean;
+  session?: string;
+  id?: string;
+  chain?: TraceLink[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecStatusDocument {
+  command: 'spec.status';
+  ok: boolean;
+  session?: string;
+  coverage?: StatusCoverage;
+  layers?: { tokens: boolean; entities: boolean; facts: boolean; graph: false };
+  findingsByLayer?: { sentences: Finding[]; tokens: Finding[]; entities: Finding[]; facts: Finding[] };
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
 export type CommandDocument =
   | ChartCheckDocument
   | ChartAnalyzeDocument
@@ -209,7 +287,11 @@ export type CommandDocument =
   | VerifyDocument
   | CompareDocument
   | SpecInitDocument
-  | SpecTagDocument;
+  | SpecTagDocument
+  | SpecEntitiesDocument
+  | SpecFactsDocument
+  | SpecTraceDocument
+  | SpecStatusDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 

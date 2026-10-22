@@ -10,8 +10,19 @@ export const SPEC_SENTENCE_ID_MESSAGE = 'sentence ids look like s1';
 
 export type SpecOrigin = 'tagger' | 'rule' | 'agent';
 export type SpecItemStatus = 'current' | 'stale';
+export type EntityKind = 'actor' | 'object' | 'action' | 'condition';
+export type EntityReview = 'candidate' | 'confirmed' | 'rejected';
+export type EntityStatus = EntityReview | 'stale';
+export type FactType = 'performs' | 'transition' | 'guard' | 'initial' | 'final' | 'forbidden';
 export type FindingKind = 'gap' | 'conflict' | 'stale' | 'vocabulary' | 'coverage';
 export type FindingSeverity = 'blocking' | 'warning' | 'info';
+
+export const SPEC_ENTITY_ID_PATTERN = /^(actor|object|action|condition):[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+export const SPEC_ENTITY_ID_MESSAGE = 'entity ids look like actor:customer or condition:c1';
+export const SPEC_FACT_ID_PATTERN = /^f[1-9][0-9]*$/;
+export const SPEC_FACT_ID_MESSAGE = 'fact ids look like f1';
+export const FACT_TYPES = ['performs', 'transition', 'guard', 'initial', 'final', 'forbidden'] as const;
+export const ENTITY_KINDS = ['actor', 'object', 'action', 'condition'] as const;
 
 export interface Finding {
   id: string;
@@ -57,6 +68,38 @@ export interface TaggedSentence {
   tokens: Token[];
 }
 
+export interface Entity {
+  id: string;
+  kind: EntityKind;
+  name?: string;
+  text?: string;
+  sources: string[];
+  origin: SpecOrigin;
+  status: EntityStatus;
+  /** Review to restore when a stale entity's sources come back. */
+  review?: EntityReview;
+  note?: string;
+}
+
+export interface Fact {
+  id: string;
+  type: FactType;
+  actor?: string;
+  action?: string;
+  object?: string;
+  from?: string | null;
+  to?: string;
+  condition?: string;
+  state?: string;
+  origin: SpecOrigin;
+  confidence: number;
+  sources: string[];
+  status: SpecItemStatus;
+  note?: string;
+  /** Agent removed this fact. Propose must not recreate its signature. */
+  removed?: boolean;
+}
+
 export interface SpecSnapshot {
   schemaVersion: typeof SPEC_SCHEMA_VERSION;
   id: string;
@@ -67,12 +110,41 @@ export interface SpecSnapshot {
   updated: string;
   sentences: Sentence[];
   tagged: TaggedSentence[];
+  entities?: Entity[];
+  facts?: Fact[];
+}
+
+export type SpecCommandName =
+  | 'spec.init'
+  | 'spec.tag'
+  | 'spec.entities.list'
+  | 'spec.entities.merge'
+  | 'spec.entities.rename'
+  | 'spec.entities.reject'
+  | 'spec.entities.promote'
+  | 'spec.facts.propose'
+  | 'spec.facts.add'
+  | 'spec.facts.edit'
+  | 'spec.facts.remove';
+
+export interface SpecHistoryArgs {
+  spec?: string;
+  session: string;
+  sentence?: string;
+  id?: string;
+  ids?: string[];
+  into?: string;
+  name?: string;
+  text?: string;
+  kind?: string;
+  reason?: string;
+  from?: string;
 }
 
 export interface SpecHistoryEntry {
   at: string;
-  command: 'spec.init' | 'spec.tag';
-  args: { spec?: string; session: string; sentence?: string };
+  command: SpecCommandName;
+  args: SpecHistoryArgs;
   before: string[];
   after: string[];
 }
