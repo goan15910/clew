@@ -67,8 +67,14 @@ jobs:
           ].join('\n');
           writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, notes);
           NODE
+          # A hyphen marks a SemVer pre-release (0.1.0-alpha.1). Keep it off Latest.
+          release_args=()
+          case "$version" in
+            *-*) release_args=(--prerelease --latest=false) ;;
+          esac
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${release_args[@]}" \
             "$tarball" \
             SHA256SUMS
