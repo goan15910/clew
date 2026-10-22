@@ -1,0 +1,50 @@
+rules:
+  - id: domain-imports-outer-layer
+    languages: [typescript]
+    severity: ERROR
+    message: Domain must not import application, ports, or adapters. Dependencies point inward.
+    paths:
+      include:
+        - "**/domain/**"
+    patterns:
+      - pattern-either:
+          - pattern: import $X from "$MOD"
+          - pattern: import { $X } from "$MOD"
+          - pattern: import * as $X from "$MOD"
+          - pattern: import type $X from "$MOD"
+          - pattern: import type { $X } from "$MOD"
+          - pattern: import type * as $X from "$MOD"
+          - pattern: import "$MOD"
+          - pattern: export { $X } from "$MOD"
+          - pattern: export * from "$MOD"
+          - pattern: export type { $X } from "$MOD"
+          - pattern: require("$MOD")
+          - pattern: import("$MOD")
+      - metavariable-regex:
+          metavariable: $MOD
+          regex: .*(adapters|application)(/|$).*
+
+  - id: domain-imports-infra
+    languages: [typescript]
+    severity: ERROR
+    message: Domain must not import infrastructure (XState, Zod, YAML, the file system, or Graphviz).
+    paths:
+      include:
+        - "**/domain/**"
+    patterns:
+      - pattern-either:
+          - pattern: import $X from "$MOD"
+          - pattern: import { $X } from "$MOD"
+          - pattern: import * as $X from "$MOD"
+          - pattern: import type $X from "$MOD"
+          - pattern: import type { $X } from "$MOD"
+          - pattern: import type * as $X from "$MOD"
+          - pattern: import "$MOD"
+          - pattern: export { $X } from "$MOD"
+          - pattern: export * from "$MOD"
+          - pattern: export type { $X } from "$MOD"
+          - pattern: require("$MOD")
+          - pattern: import("$MOD")
+      - metavariable-regex:
+          metavariable: $MOD
+          regex: ^(zod|xstate|@xstate/graph|yaml|graphviz|fs|node:fs|node:fs/promises)$

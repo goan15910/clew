@@ -11,8 +11,10 @@
   "scripts": {
     "clew": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "check:dependencies": "tsx scripts/check-dependencies.ts",
-    "check": "tsc --noEmit && tsx scripts/check-dependencies.ts && tsx --test tests/spec/*.test.ts",
+    "check:dependencies": "node scripts/check-dependencies.mjs",
+    "check:imports": "bash scripts/check-imports.sh",
+    "test:architecture": "tsx --test tests/architecture/rules.test.ts",
+    "check": "tsc --noEmit && npm run check:dependencies && npm run check:imports && npm run test:architecture && npm run test:spec",
     "test:spec": "tsx --test tests/spec/*.test.ts",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
@@ -48,7 +50,10 @@
     "zod"
   ],
   "devDependencies": {
+    "@swc/core": "^1.16.20",
     "@types/node": "^26.6.5",
+    "cruiser-typescript": "file:tools/cruiser-typescript",
+    "dependency-cruiser": "^18.7.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },

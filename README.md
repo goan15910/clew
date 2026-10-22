@@ -96,7 +96,7 @@ An arrow means "depends on".
 
 The domain holds states, transitions, typed data fields, guards, effects, named workflow lists, the mapping between the two vocabularies, and the verification results. Invariants live there. It does not import XState, Zod, YAML, the file system, or Graphviz. Zod runs only while reading a YAML file, a JSON selection, or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports.
 
-`npm run check:dependencies` fails when an import points the wrong way. `npm run check` runs that together with `tsc --noEmit`.
+`npm run check:dependencies` runs dependency-cruiser. Domain modules import only the domain. Application modules import the domain, other application modules (including ports), and `node:path`. Adapters import inward and may use libraries. The CLI is the composition root. Cycles fail the check. Type-only imports count, and `tsconfig` `paths` are resolved. `npm run check:imports` runs Semgrep on local rules, with no Semgrep account: the domain may not import XState, Zod, YAML, the file system, Graphviz, application, or adapters. Both are steps in the `check` job. Planted violations live in `tests/architecture/plants` and are outside that product scan. `npm run check` runs the typecheck, both gates, and the tests.
 
 ## Your files
 
