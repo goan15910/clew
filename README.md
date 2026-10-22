@@ -17,13 +17,13 @@ clew --help
 
 The asset name is `clew-<version>.tgz`, and the tag is `v` plus the version in `package.json`. The same release includes `SHA256SUMS`. Check it with `sha256sum -c SHA256SUMS`. v0.1.0 appears after that tag is pushed.
 
-Image export needs Graphviz (`dot`, `gvpack`, `neato`) on your `PATH`. `clew verify` proves flows without it. Charts are written only when you pass `--out`.
+Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`) on your `PATH`. Ubuntu's `apt install graphviz` is 2.42; `bash scripts/install-graphviz.sh` installs 16.1.0. `clew verify` proves flows without Graphviz. Charts are written only when you pass `--out`.
 
 From a checkout, `npm install` then `npm run build`. `npm run clew` runs the TypeScript source. `npm test` runs the built CLI.
 
 ## Quick start
 
-Image export needs Graphviz (`dot`, `gvpack`, `neato`). Reports and charts are written only when you pass `--out`.
+Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`). Reports and charts are written only when you pass `--out`. See [docs/agent-cli.md](docs/agent-cli.md) for attribute tables, actor colors, dashed guards, clusters, and highlighted paths.
 
 ```bash
 npm install
@@ -162,16 +162,16 @@ Overall state chart:
 
 ![Overall state chart](docs/assets/state-chart.svg)
 
-*Overall state chart.*
+*State chart. Each state is an attribute table. Edges are colored by actor, guarded edges are dashed, and states are grouped by the actor who leaves them.*
 
 W2, Snooze and resume:
 
 ![W2 Snooze and resume, path highlighted](docs/assets/w2-snooze-and-resume.svg)
 
-*W2 "Snooze and resume": traversal path highlighted.*
+*W2 "Snooze and resume": that path is blue and numbered. The rest of the chart is faded.*
 
 Workflow proofs:
 
 ![Workflow proofs, W1 through W8](docs/assets/workflow-proofs.svg)
 
-*W1–W8, with W8 refused as required.*
+*W1–W8. Each workflow is its own cluster. W8 is refused, as required.*

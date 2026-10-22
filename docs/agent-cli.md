@@ -45,7 +45,9 @@ clew spec status [--session <id>] [--json]
 
 `--flow` is repeatable. `--select` reads a JSON file. Passing neither verifies every workflow, in file order. Passing both unions them, `--flow` first, dropping duplicates. `--select -` is rejected: Clew never reads stdin, so it cannot wait for input.
 
-`--out` is optional. Reports and Graphviz charts are written only when it is set.
+`--out` is optional. Reports and Graphviz charts are written only when it is set. Charts need Graphviz 16.1.0 (`dot`, `gvpack`, `neato`) on `PATH`. Ubuntu's apt package is 2.42; `scripts/install-graphviz.sh` installs 16.1.0, and the `check` and `venom` workflows run that script. `gvpack -V` was removed in Graphviz 16, so Clew probes `gvpack -?`.
+
+The state chart (`<out>/state-chart.svg`, and `<out>/overview-<id>.svg` when `--highlight` is set) draws each state as an attribute table: the label, then one row per data field (name and type). A final state keeps a double border. Edges are colored by actor. The color is stable: sorted actor names pick a fixed palette. A guarded edge is dashed. States are grouped into clusters by the actor of their outgoing transitions. A state with no outgoing transition sits in `final` when it is final, and in `terminal` otherwise. `--highlight` numbers that workflow's accepted steps, draws them in blue, and fades every other state and edge. The guard stays dashed on a highlighted edge. SVG states and edges carry a tooltip and a link to the target state (`#<state id>`). Workflow proofs stay one cluster per workflow.
 
 ### Spec
 

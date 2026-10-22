@@ -7,18 +7,65 @@ const FONT = 'Helvetica';
 const PASS = '#1a7f37';
 const FAIL = '#cf222e';
 const HL = '#0969da';
+const TEXT = '#24292f';
+const MUTED = '#57606a';
+const FADE_EDGE = '#d0d7de';
+const FADE_FONT = '#8c959f';
+const FADE_NODE = '#d8dee4';
+const NODE_FILL = '#f6f8fa';
 
-function stateLabel(state: State): string {
-  const fields = state.data.map((field) => `${esc(field.name)}: ${esc(field.type)}`);
-  if (fields.length === 0) return `<<B>${esc(state.label)}</B>>`;
-  return `<<B>${esc(state.label)}</B><BR/><FONT POINT-SIZE="10" COLOR="#57606a">${fields.join('<BR/>')}</FONT>>`;
+/** Palette for actor strokes. Sorted actor names pick the index, so the color is stable. */
+export const ACTOR_PALETTE = ['#8250df', '#bc4c00', '#1a7f37', '#bf3989', '#0550ae', '#9a6700'] as const;
+
+export function actorStroke(actor: string, actors: readonly string[]): string {
+  const sorted = [...new Set(actors)].sort();
+  const index = Math.max(0, sorted.indexOf(actor));
+  return ACTOR_PALETTE[index % ACTOR_PALETTE.length]!;
+}
+
+function dotQuote(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
 }
 
 function edgeCaption(actor: string, guard: string | undefined): string {
   return guard === undefined ? actor : `${actor}; if ${guard}`;
 }
 
-/** Full state chart. If `highlight` is given, that workflow's path is numbered. */
+function stateTable(state: State, text: string, muted: string): string {
+  const rows = [`<TR><TD COLSPAN="2" ALIGN="CENTER"><FONT COLOR="${text}"><B>${esc(state.label)}</B></FONT></TD></TR>`];
+  if (state.data.length > 0) rows.push('<HR/>');
+  for (const field of state.data) {
+    rows.push(`<TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="${muted}">${esc(field.name)}</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="${muted}">${esc(field.type)}</FONT></TD></TR>`);
+  }
+  return `<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">${rows.join('')}</TABLE>>`;
+}
+
+function stateTooltip(state: State): string {
+  const lines = [state.label, `id: ${state.id}`];
+  if (state.final) lines.push('final');
+  for (const field of state.data) lines.push(`${field.name}: ${field.type}`);
+  return dotQuote(lines.join('\n'));
+}
+
+/** States share a cluster when the same actors leave them. A state with no exit is `final` or `terminal`. */
+function clusterKey(state: State, outgoing: readonly { actor: string }[]): string {
+  if (outgoing.length === 0) return state.final ? 'final' : 'terminal';
+  return [...new Set(outgoing.map((edge) => edge.actor))].sort().join(', ');
+}
+
+function clusterSlug(key: string, used: Set<string>): string {
+  const base = key.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'group';
+  let slug = base;
+  let n = 2;
+  while (used.has(slug)) {
+    slug = `${base}_${n}`;
+    n += 1;
+  }
+  used.add(slug);
+  return slug;
+}
+
+/** Full state chart. If `highlight` is given, that workflow's path is numbered and the rest is faded. */
 export function chartDot(model: Model, title: string, highlight?: WorkflowResult): string {
   const used = new Map<string, number[]>();
   const visited = new Set<string>();
@@ -34,29 +81,63 @@ export function chartDot(model: Model, title: string, highlight?: WorkflowResult
       }
     }
   }
+  const actors = model.transitions().map((edge) => edge.actor);
   const lines: string[] = [];
   lines.push('digraph G {', '  rankdir=LR; pad=0.3; nodesep=0.5; ranksep=0.9; bgcolor="white";');
   lines.push(`  labelloc=t; fontname="${FONT}"; fontsize=18; label=<<B>${esc(title)}</B>>;`);
-  lines.push('  node [shape=box style="rounded,filled" fillcolor="#f6f8fa" color="#57606a" fontname="' + FONT + '" fontsize=13 margin="0.18,0.08"];');
-  lines.push('  edge [fontname="' + FONT + '" fontsize=11 color="#6e7781" fontcolor="#24292f" arrowsize=0.8];');
-  lines.push('  __start [shape=circle label="" width=0.22 style=filled fillcolor=black];');
+  lines.push('  node [shape=box style="rounded,filled" fillcolor="' + NODE_FILL + '" color="' + MUTED + '" fontname="' + FONT + '" fontsize=13 margin="0.18,0.08"];');
+  lines.push('  edge [fontname="' + FONT + '" fontsize=11 color="#6e7781" fontcolor="' + TEXT + '" arrowsize=0.8];');
+  lines.push(`  __start [shape=circle label="" width=0.22 style=filled fillcolor=black tooltip="start" URL=${dotQuote(`#${model.initial}`)}];`);
+
+  const groups = new Map<string, State[]>();
   for (const state of model.states()) {
-    const extra: string[] = [];
-    if (state.final) extra.push('peripheries=2');
-    if (highlight && visited.has(state.id)) extra.push(`fillcolor="#ddf4ff" color="${HL}" penwidth=2`);
-    lines.push(`  ${state.id} [label=${stateLabel(state)} ${extra.join(' ')}];`);
+    const outgoing = model.transitions().filter((edge) => edge.from === state.id);
+    const key = clusterKey(state, outgoing);
+    const list = groups.get(key) ?? [];
+    list.push(state);
+    groups.set(key, list);
   }
-  lines.push(`  __start -> ${model.initial} [label="new task"];`);
+  const slugs = new Set<string>();
+  for (const key of [...groups.keys()].sort()) {
+    lines.push(`  subgraph cluster_${clusterSlug(key, slugs)} {`);
+    lines.push(`    label=${dotQuote(key)}; style="rounded"; color="#d0d7de"; fontname="${FONT}"; fontsize=11;`);
+    for (const state of groups.get(key) ?? []) {
+      const onPath = highlight !== undefined && visited.has(state.id);
+      const faded = highlight !== undefined && !onPath;
+      const extra: string[] = [];
+      if (state.final) extra.push('peripheries=2');
+      if (onPath) extra.push(`fillcolor="#ddf4ff" color="${HL}" penwidth=2`);
+      else if (faded) extra.push(`fillcolor="${NODE_FILL}" color="${FADE_NODE}"`);
+      const text = faded ? FADE_FONT : TEXT;
+      const muted = faded ? FADE_FONT : MUTED;
+      const attrs = [`label=${stateTable(state, text, muted)}`, `tooltip=${stateTooltip(state)}`, `URL=${dotQuote(`#${state.id}`)}`, ...extra];
+      lines.push(`    ${state.id} [${attrs.filter((attr) => attr.length > 0).join(' ')}];`);
+    }
+    lines.push('  }');
+  }
+
+  const startFade = highlight ? ` color="${FADE_EDGE}" fontcolor="${FADE_FONT}"` : '';
+  lines.push(`  __start -> ${model.initial} [label="new task" tooltip="new task" URL=${dotQuote(`#${model.initial}`)}${startFade}];`);
   for (const edge of model.transitions()) {
     const steps = used.get(`${edge.from}|${edge.event}`);
+    const onPath = steps !== undefined;
+    const faded = highlight !== undefined && !onPath;
+    const color = onPath ? HL : faded ? FADE_EDGE : actorStroke(edge.actor, actors);
+    const captionColor = faded ? FADE_FONT : MUTED;
     const caption = edgeCaption(edge.actor, edge.guard?.name);
-    let label = `<<B>${esc(edge.event)}</B><BR/><FONT POINT-SIZE="9" COLOR="#57606a">${esc(caption)}</FONT>>`;
-    let attrs = '';
-    if (steps) {
-      label = `<<B><FONT COLOR="${HL}">${steps.map((n) => `(${n}) `).join('')}${esc(edge.event)}</FONT></B><BR/><FONT POINT-SIZE="9" COLOR="#57606a">${esc(caption)}</FONT>>`;
-      attrs = ` color="${HL}" penwidth=3`;
-    } else if (highlight) attrs = ' color="#c8ccd1" fontcolor="#8c959f"';
-    lines.push(`  ${edge.from} -> ${edge.to} [label=${label}${attrs}];`);
+    const eventHtml = onPath
+      ? `<FONT COLOR="${HL}">${steps.map((n) => `(${n}) `).join('')}${esc(edge.event)}</FONT>`
+      : faded
+        ? `<FONT COLOR="${FADE_FONT}">${esc(edge.event)}</FONT>`
+        : esc(edge.event);
+    const label = `<<B>${eventHtml}</B><BR/><FONT POINT-SIZE="9" COLOR="${captionColor}">${esc(caption)}</FONT>>`;
+    const tip = [`${edge.event}`, `${edge.from} -> ${edge.to}`, `actor: ${edge.actor}`];
+    if (edge.guard) tip.push(`guard: ${edge.guard.name}`);
+    tip.push(`effect: ${edge.effect.name}`);
+    const attrs = [`label=${label}`, `color="${color}"`, `fontcolor="${faded ? FADE_FONT : TEXT}"`, `tooltip=${dotQuote(tip.join('\n'))}`, `URL=${dotQuote(`#${edge.to}`)}`];
+    if (edge.guard) attrs.push('style=dashed');
+    if (onPath) attrs.push('penwidth=3');
+    lines.push(`  ${edge.from} -> ${edge.to} [${attrs.join(' ')}];`);
   }
   lines.push('}');
   return lines.join('\n');

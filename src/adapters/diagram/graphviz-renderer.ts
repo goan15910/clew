@@ -6,12 +6,12 @@ import type { Model } from '../../domain/model.js';
 import type { WorkflowResult } from '../../domain/verification.js';
 import { chainMermaid, chartMermaid, chainsDot, chartDot, proofColumnDots } from './diagrams.js';
 
-function requireGraphviz(bin: string): void {
+function requireGraphviz(bin: string, args: readonly string[]): void {
   try {
-    execFileSync(bin, ['-V'], { stdio: 'ignore' });
+    execFileSync(bin, [...args], { stdio: 'ignore' });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Graphviz \`${bin}\` is not runnable (${detail}). Install Graphviz, or omit --out.`);
+    throw new Error(`Graphviz \`${bin}\` is not runnable (${detail}). Install Graphviz 16.1.0, or omit --out.`);
   }
 }
 
@@ -59,9 +59,10 @@ function writeCharts(model: Model, name: string, results: readonly WorkflowResul
 
 export const graphvizDiagramRenderer: DiagramRenderer = {
   render(model, name, results, passed, outDir, highlight) {
-    requireGraphviz('dot');
-    requireGraphviz('gvpack');
-    requireGraphviz('neato');
+    requireGraphviz('dot', ['-V']);
+    requireGraphviz('neato', ['-V']);
+    // Graphviz 16 dropped `gvpack -V`. `-?` still exits 0 on 2.42 and on 16.
+    requireGraphviz('gvpack', ['-?']);
     writeCharts(model, name, results, passed, outDir, highlight);
   },
 };
