@@ -211,3 +211,42 @@ export function unusedTransitions(model: Model, results: readonly WorkflowResult
   }
   return unused;
 }
+
+/** One chart transition and how many selected workflows accepted it. A refused step is not coverage. */
+export interface TransitionCoverage {
+  from: string;
+  event: string;
+  to: string;
+  count: number;
+  flows: readonly string[];
+}
+
+export function transitionCoverage(model: Model, results: readonly WorkflowResult[]): TransitionCoverage[] {
+  const hits = new Map<string, { count: number; flows: string[] }>();
+  for (const result of results) {
+    const seen = new Set<string>();
+    for (const step of result.trace) {
+      if (!step.accepted || step.to === null) continue;
+      const key = `${step.from}|${step.event}|${step.to}`;
+      const hit = hits.get(key) ?? { count: 0, flows: [] };
+      hit.count += 1;
+      if (!seen.has(key)) {
+        seen.add(key);
+        hit.flows.push(result.id);
+      }
+      hits.set(key, hit);
+    }
+  }
+  const rows: TransitionCoverage[] = [];
+  for (const edge of model.transitions()) {
+    const hit = hits.get(`${edge.from}|${edge.event}|${edge.to}`);
+    rows.push({
+      from: edge.from,
+      event: edge.event,
+      to: edge.to,
+      count: hit?.count ?? 0,
+      flows: hit?.flows ?? [],
+    });
+  }
+  return rows;
+}

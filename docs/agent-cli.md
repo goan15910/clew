@@ -22,7 +22,7 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 clew chart check <chart.yaml> [--json]
 clew chart analyze <chart.yaml> [--json]
 clew workflows check <set.yaml> [--json]
-clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow <id>] [--select <file>] [--highlight <id>] [--out <dir>] [--json]
+clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow <id>] [--select <file>] [--highlight <id>] [--heatmap] [--replay] [--out <dir>] [--json]
 clew compare <verify.json>... [--out <dir>] [--json]
 clew spec init <spec.md> [--session <id>] [--json]
 clew spec tag [--session <id>] [--sentence <id>] [--json]
@@ -48,6 +48,14 @@ clew spec status [--session <id>] [--json]
 `--out` is optional. Reports and Graphviz charts are written only when it is set. Charts need Graphviz 16.1.0 (`dot`, `gvpack`, `neato`) on `PATH`. Ubuntu's apt package is 2.42; `scripts/install-graphviz.sh` installs 16.1.0, and the `check` and `venom` workflows run that script. `gvpack -V` was removed in Graphviz 16, so Clew probes `gvpack -?`.
 
 The state chart (`<out>/state-chart.svg`, and `<out>/overview-<id>.svg` when `--highlight` is set) draws each state as an attribute table: the label, then one row per data field (name and type). A final state keeps a double border. Edges are colored by actor. The color is stable: sorted actor names pick a fixed palette. A guarded edge is dashed. States are grouped into clusters by the actor of their outgoing transitions. A state with no outgoing transition sits in `final` when it is final, and in `terminal` otherwise. `--highlight` numbers that workflow's accepted steps, draws them in blue, and fades every other state and edge. The guard stays dashed on a highlighted edge. SVG states and edges carry a tooltip and a link to the target state (`#<state id>`). Workflow proofs stay one cluster per workflow.
+
+`--heatmap` writes `coverage-heatmap.svg` into `--out`, one file for that candidate. Each cell is one chart transition: the row is the source state, the column is the event, and the color is how many times a selected workflow accepted it. Zero is cold. A refused step is not coverage. `--heatmap` also adds `transitionCoverage` to the verify document, in chart order. `count` is accepted steps. `flows` lists the workflows that contributed, once each.
+
+`--replay` writes `replays/<id>.gif` for each selected workflow. Frame 0 is the start state. Each later frame lights the next trace step. A rejected workflow includes the refused step: green, labeled `refused (as required)`, when the chart refused it on a passing proof; red, labeled `should be refused`, when the chart accepted a step it was required to refuse (W8 on `a-basic`). The last frame holds so that step stays visible. Replay frames are positioned DOT drawn by Graphviz `neato`. The heatmap is SVG and does not call Graphviz.
+
+`--heatmap` or `--replay` without `--out` is exit 2. The flags do not change the pass/fail exit code. With either flag, the document gains `views`. Paths are relative to `--out`.
+
+The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.svg). W8 on that chart, including the refused archive step, is [assets/w8-replay.gif](assets/w8-replay.gif).
 
 ### Spec
 
@@ -405,7 +413,23 @@ These are shapes. Captured command output is in the pull request. Every `--json`
 }
 ```
 
-`ok` is true only when every selected flow passed. `unusedTransitions` does not change the exit code. Preconditions (`fault` of `unreadable`, `invalid-chart`, `invalid-workflows`, `invalid-mapping`, `mismatch`, `selection`, or `mapping-gap`) are exit 2 and omit `flows`.
+`ok` is true only when every selected flow passed. `unusedTransitions` does not change the exit code. Preconditions (`fault` of `unreadable`, `invalid-chart`, `invalid-workflows`, `invalid-mapping`, `mismatch`, `selection`, or `mapping-gap`) are exit 2 and omit `flows`. `transitionCoverage` and `views` are omitted unless `--heatmap` or `--replay` was passed.
+
+`--heatmap --replay --out` adds:
+
+```json
+{
+  "transitionCoverage": [
+    { "from": "draft", "event": "SUBMIT", "to": "todo", "count": 7, "flows": ["W1", "W2", "W3", "W4", "W6", "W7", "W8"] }
+  ],
+  "views": {
+    "heatmap": "coverage-heatmap.svg",
+    "replays": [{ "id": "W8", "file": "replays/W8.gif", "frames": 4 }]
+  }
+}
+```
+
+`frames` counts the start state plus every trace step, so a three-step W8 replay has four frames and the fourth is the refused step. `--heatmap` alone omits `replays`. `--replay` alone omits `heatmap` and `transitionCoverage`.
 
 `compare`:
 

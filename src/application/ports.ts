@@ -3,7 +3,7 @@ import type { Mapping } from '../domain/mapping.js';
 import type { Model } from '../domain/model.js';
 import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
 import type { Traversal } from '../domain/traversal.js';
-import type { WorkflowResult } from '../domain/verification.js';
+import type { TransitionCoverage, WorkflowResult } from '../domain/verification.js';
 import type { WorkflowSet, WorkflowSetDraft } from '../domain/workflow.js';
 import type { CompareDocument, LocatedError, ParsedVerifyResult, VerifyDocument } from './documents.js';
 
@@ -40,8 +40,16 @@ export interface ReportWriter {
   writeComparison(document: CompareDocument, outDir: string): void;
 }
 
+export interface ReplayFile {
+  id: string;
+  file: string;
+  frames: number;
+}
+
 export interface DiagramRenderer {
   render(model: Model, name: string, results: readonly WorkflowResult[], passed: number, outDir: string, highlight: string | undefined): void;
+  writeHeatmap(model: Model, candidate: string, workflowCount: number, coverage: readonly TransitionCoverage[], outDir: string): string;
+  writeReplays(model: Model, results: readonly WorkflowResult[], outDir: string): ReplayFile[];
 }
 
 export interface VerifyPorts {

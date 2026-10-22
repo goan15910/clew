@@ -17,20 +17,20 @@ clew --help
 
 The asset name is `clew-<version>.tgz`, and the tag is `v` plus the version in `package.json`. The same release includes `SHA256SUMS`. Check it with `sha256sum -c SHA256SUMS`. v0.1.0 appears after that tag is pushed.
 
-Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`) on your `PATH`. Ubuntu's `apt install graphviz` is 2.42; `bash scripts/install-graphviz.sh` installs 16.1.0. `clew verify` proves flows without Graphviz. Charts are written only when you pass `--out`.
+Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`) on your `PATH`. Ubuntu's `apt install graphviz` is 2.42; `bash scripts/install-graphviz.sh` installs 16.1.0. `clew verify` proves flows without Graphviz. Charts are written only when you pass `--out`. `--heatmap` writes an SVG coverage matrix and does not need Graphviz. `--replay` writes one GIF per selected workflow and uses `neato`.
 
 From a checkout, `npm install` then `npm run build`. `npm run clew` runs the TypeScript source. `npm test` runs the built CLI.
 
 ## Quick start
 
-Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`). Reports and charts are written only when you pass `--out`. See [docs/agent-cli.md](docs/agent-cli.md) for attribute tables, actor colors, dashed guards, clusters, and highlighted paths.
+Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`). Reports and charts are written only when you pass `--out`. `--heatmap` and `--replay` also need `--out`. See [docs/agent-cli.md](docs/agent-cli.md) for attribute tables, actor colors, dashed guards, clusters, and highlighted paths.
 
 ```bash
 npm install
 npm run --silent clew -- chart check <chart.yaml> [--json]
 npm run --silent clew -- chart analyze <chart.yaml> [--json]
 npm run --silent clew -- workflows check <workflows.yaml> [--json]
-npm run --silent clew -- verify <chart.yaml> <workflows.yaml> <mapping.yaml> [--flow W8] [--select file] [--out dir] [--highlight W2] [--json]
+npm run --silent clew -- verify <chart.yaml> <workflows.yaml> <mapping.yaml> [--flow W8] [--select file] [--highlight W2] [--heatmap] [--replay] [--out dir] [--json]
 npm run --silent clew -- compare <verify.json>... [--out dir] [--json]
 npm run --silent clew -- spec init <spec.md> [--session id] [--json]
 npm run --silent clew -- spec tag [--session id] [--sentence s1] [--json]
@@ -62,7 +62,7 @@ The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `
 
 ## Tests
 
-Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `spec init`, `spec tag`, `spec entities`, `spec facts`, `spec graph`, `spec emit`, `spec trace`, `spec status`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
+Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `spec init`, `spec tag`, `spec entities`, `spec facts`, `spec graph`, `spec emit`, `spec trace`, `spec status`, `--heatmap`, `--replay`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
 
 ```bash
 bash scripts/install-venom.sh
@@ -94,7 +94,7 @@ flowchart BT
 
 An arrow means "depends on".
 
-The domain holds states, transitions, typed data fields, guards, effects, named workflow lists, the mapping between the two vocabularies, and the verification results. Invariants live there. It does not import XState, Zod, YAML, the file system, or Graphviz. Zod runs only while reading a YAML file, a JSON selection, or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports.
+The domain holds states, transitions, typed data fields, guards, effects, named workflow lists, the mapping between the two vocabularies, and the verification results. Invariants live there. It does not import XState, Zod, YAML, the file system, Graphviz, or the GIF encoder. Zod runs only while reading a YAML file, a JSON selection, or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports.
 
 `npm run check:dependencies` runs dependency-cruiser. Domain modules import only the domain. Application modules import the domain, other application modules (including ports), and `node:path`. Adapters import inward and may use libraries. The CLI is the composition root. Cycles fail the check. Type-only imports count, and `tsconfig` `paths` are resolved. `npm run check:imports` runs Semgrep on local rules, with no Semgrep account: the domain may not import XState, Zod, YAML, the file system, Graphviz, application, or adapters. Both are steps in the `check` job. Planted violations live in `tests/architecture/plants` and are outside that product scan. `npm run check` runs the typecheck, both gates, and the tests.
 
@@ -175,3 +175,15 @@ Workflow proofs:
 ![Workflow proofs, W1 through W8](docs/assets/workflow-proofs.svg)
 
 *W1–W8. Each workflow is its own cluster. W8 is refused, as required.*
+
+Transition coverage for `b-full`. Cold cells were not accepted by any of the eight workflows. SUBMIT is hot because seven workflows accept it. W8's refused archive is not a cell: that step is not coverage.
+
+![Transition coverage heatmap for b-full](docs/assets/coverage-heatmap.svg)
+
+*Transition coverage: b-full.*
+
+W8 replay. The last frame is the archive step the chart refuses.
+
+![W8 replay, including the refused archive step](docs/assets/w8-replay.gif)
+
+*W8 on b-full, ending on the refused step.*

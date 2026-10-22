@@ -2,7 +2,7 @@
 // clew chart check <chart.yaml> [--json]
 // clew chart analyze <chart.yaml> [--json]
 // clew workflows check <set.yaml> [--json]
-// clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow W1] [--select file] [--out dir] [--highlight W2] [--json]
+// clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow W1] [--select file] [--highlight W2] [--heatmap] [--replay] [--out dir] [--json]
 // clew compare <verify.json>... [--out dir] [--json]
 // clew spec init <spec.md> [--session id] [--json]
 // clew spec tag [--session id] [--sentence s1] [--json]
@@ -255,6 +255,12 @@ const VerifyFlags = z.object({
   highlight: z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE).optional(),
   select: z.string().min(1, 'selection file must not be empty').optional(),
   flow: z.array(z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE)).optional(),
+  heatmap: z.boolean().optional(),
+  replay: z.boolean().optional(),
+}).superRefine((value, context) => {
+  if ((value.heatmap === true || value.replay === true) && value.out === undefined) {
+    context.addIssue({ code: 'custom', message: '--heatmap and --replay need --out', path: ['out'] });
+  }
 });
 
 function askedJson(opts: unknown): boolean {
@@ -373,7 +379,9 @@ program
   .option('--flow <id>', 'named sub-graph to verify (repeatable)', collectFlow, [] as string[])
   .option('--select <file>', 'JSON selection: { "flows": ["W1"] } or a workflows.check document')
   .option('--highlight <workflowId>', 'highlight this workflow on the state chart')
-  .option('--out <dir>', 'write reports and charts to this directory')
+  .option('--heatmap', 'write a transition coverage heatmap into --out')
+  .option('--replay', 'write a replay GIF for each selected workflow into --out')
+  .option('--out <dir>', 'write reports, charts, and proof views to this directory')
   .option('--json', 'print the result document as JSON on stdout')
   .action((chartFile, workflowsFile, mappingFile, opts) => {
     const parsed = VerifyFlags.safeParse(opts);
@@ -387,6 +395,8 @@ program
       selectFile: flags.select,
       highlight: flags.highlight,
       outDir: flags.out,
+      heatmap: flags.heatmap,
+      replay: flags.replay,
     }, verifyPorts), flags.json === true);
   });
 
@@ -742,6 +752,7 @@ Examples:
   clew workflows check examples/todo/workflows.yaml --json
   clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json
   clew verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W8 --json
+  clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --replay --out out --json
   clew compare b-full.json a-basic.json --json
   clew spec init examples/spec/order.md --json
   clew spec tag --json

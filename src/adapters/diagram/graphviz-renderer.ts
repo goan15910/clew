@@ -1,10 +1,14 @@
 // Render DOT and Mermaid, then draw the charts with Graphviz (`dot`, `gvpack`, `neato`).
+// The coverage heatmap is SVG. Replay frames are positioned DOT, drawn by `neato`, and packed into a GIF.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import type { DiagramRenderer } from '../../application/ports.js';
+import type { DiagramRenderer, ReplayFile } from '../../application/ports.js';
 import type { Model } from '../../domain/model.js';
-import type { WorkflowResult } from '../../domain/verification.js';
+import type { TransitionCoverage, WorkflowResult } from '../../domain/verification.js';
 import { chainMermaid, chartMermaid, chainsDot, chartDot, proofColumnDots } from './diagrams.js';
+import { decodePng, encodeAnimatedGif } from './gif.js';
+import { coverageHeatmapSvg } from './heatmap.js';
+import { replayFrameDot } from './replay-frames.js';
 
 function requireGraphviz(bin: string, args: readonly string[]): void {
   try {
@@ -57,12 +61,41 @@ function writeCharts(model: Model, name: string, results: readonly WorkflowResul
   }
 }
 
+const HEATMAP_FILE = 'coverage-heatmap.svg';
+
+function writeHeatmap(model: Model, candidate: string, workflowCount: number, coverage: readonly TransitionCoverage[], outDir: string): string {
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(`${outDir}/${HEATMAP_FILE}`, coverageHeatmapSvg(model, candidate, workflowCount, coverage));
+  return HEATMAP_FILE;
+}
+
+function writeReplays(model: Model, results: readonly WorkflowResult[], outDir: string): ReplayFile[] {
+  requireGraphviz('neato', ['-V']);
+  mkdirSync(`${outDir}/replays`, { recursive: true });
+  const written: ReplayFile[] = [];
+  for (const result of results) {
+    const frameCount = result.trace.length + 1;
+    const pngs: Buffer[] = [];
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      const dot = replayFrameDot(model, result, frame);
+      pngs.push(execFileSync('neato', ['-n', '-Tpng', '-Gdpi=120'], { input: dot, maxBuffer: 8 * 1024 * 1024 }));
+    }
+    const gif = encodeAnimatedGif(pngs.map((png) => decodePng(png)), { delayCs: 90, lastDelayCs: 200 });
+    const file = `replays/${result.id}.gif`;
+    writeFileSync(`${outDir}/${file}`, gif);
+    written.push({ id: result.id, file, frames: frameCount });
+  }
+  return written;
+}
+
 export const graphvizDiagramRenderer: DiagramRenderer = {
   render(model, name, results, passed, outDir, highlight) {
     requireGraphviz('dot', ['-V']);
     requireGraphviz('neato', ['-V']);
-    // Graphviz 16 dropped `gvpack -V`. `-?` still exits 0 on 2.42 and on 16.
+    // Graphviz 14 rejects `gvpack -V`, and Graphviz 16 dropped it. `-?` exits 0 on 2.42, 14, and 16.
     requireGraphviz('gvpack', ['-?']);
     writeCharts(model, name, results, passed, outDir, highlight);
   },
+  writeHeatmap,
+  writeReplays,
 };
