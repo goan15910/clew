@@ -62,7 +62,7 @@ jobs:
             '',
             'Check the tarball with `sha256sum -c SHA256SUMS`.',
             '',
-            'Chart images (`clew verify --out`) need Graphviz (`dot`, `gvpack`, `neato`) on PATH.',
+            'Chart images (`clew verify --out`) need Graphviz 16.1.0 (`dot`, `gvpack`, `neato`) on PATH. Ubuntu apt still ships 2.42.',
             '',
           ].join('\n');
           writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, notes);

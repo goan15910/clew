@@ -1,0 +1,64 @@
+name: charts
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: state chart svg has tables, actor color, dashed guards, clusters, tooltips, and links
+  steps:
+  - type: exec
+    script: |
+      cd '{{.root}}'
+      out=$(mktemp -d)
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --out "$out" --json > "$out/verify.json"
+      cat "$out/state-chart.svg"
+      rm -rf "$out"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "graphviz version 16.1.0"
+    - result.systemout ShouldContainSubstring "cluster_user"
+    - result.systemout ShouldContainSubstring "cluster_user_or_timer"
+    - result.systemout ShouldContainSubstring "#8250df"
+    - result.systemout ShouldContainSubstring "#bc4c00"
+    - result.systemout ShouldContainSubstring "stroke-dasharray"
+    - result.systemout ShouldContainSubstring "xlink:href"
+    - result.systemout ShouldContainSubstring "xlink:title"
+    - 'result.systemout ShouldContainSubstring "id: draft"'
+    - result.systemout ShouldContainSubstring ">title<"
+    - result.systemout ShouldContainSubstring ">string<"
+
+- name: highlight fades every state and edge off the path
+  steps:
+  - type: exec
+    script: |
+      cd '{{.root}}'
+      out=$(mktemp -d)
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W2 --highlight W2 --out "$out" --json > "$out/verify.json"
+      cat "$out/overview-W2.svg"
+      rm -rf "$out"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "graphviz version 16.1.0"
+    - result.systemout ShouldContainSubstring "#0969da"
+    - result.systemout ShouldContainSubstring "#d0d7de"
+    - result.systemout ShouldContainSubstring "(1) SUBMIT"
+    - result.systemout ShouldContainSubstring "stroke-dasharray"
+    - result.systemout ShouldContainSubstring "xlink:title"
+
+- name: workflow proofs keep one cluster per workflow
+  steps:
+  - type: exec
+    script: |
+      cd '{{.root}}'
+      out=$(mktemp -d)
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --out "$out" --json > "$out/verify.json"
+      cat "$out/workflow-chains.svg"
+      rm -rf "$out"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "graphviz version 16.1.0"
+    - result.systemout ShouldContainSubstring "cluster"
+    - result.systemout ShouldContainSubstring "W8"
+    - result.systemout ShouldContainSubstring "refused (as required)"
