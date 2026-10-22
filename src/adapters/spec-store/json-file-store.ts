@@ -4,10 +4,16 @@ import { basename, join } from 'node:path';
 import { z } from 'zod';
 import type { SpecMutation, SpecStore, SpecStoreResult, SessionRef } from '../../application/ports.js';
 import {
+  ENTITY_KINDS,
+  FACT_TYPES,
+  SPEC_ENTITY_ID_PATTERN,
+  SPEC_FACT_ID_PATTERN,
   SPEC_SCHEMA_VERSION,
   SPEC_SENTENCE_ID_MESSAGE,
   SPEC_SENTENCE_ID_PATTERN,
   SPEC_SESSION_ID_PATTERN,
+  type Entity,
+  type Fact,
   type Sentence,
   type SpecHistoryEntry,
   type SpecSnapshot,
@@ -69,6 +75,56 @@ const SentencesFileSchema = z.strictObject({
 const TokensFileSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
   sentences: z.array(TaggedSchema),
+});
+
+const EntitySchema = z.strictObject({
+  id: z.string().regex(SPEC_ENTITY_ID_PATTERN),
+  kind: z.enum(ENTITY_KINDS),
+  name: z.string().min(1).optional(),
+  text: z.string().min(1).optional(),
+  sources: z.array(z.string()),
+  origin: z.enum(['tagger', 'rule', 'agent']),
+  status: z.enum(['candidate', 'confirmed', 'rejected', 'stale']),
+  review: z.enum(['candidate', 'confirmed', 'rejected']).optional(),
+  note: z.string().optional(),
+}).superRefine((entity, context) => {
+  if (entity.kind === 'condition' && entity.text === undefined) {
+    context.addIssue({ code: 'custom', message: 'condition needs text', path: ['text'] });
+  }
+  if (entity.kind !== 'condition' && entity.name === undefined) {
+    context.addIssue({ code: 'custom', message: `${entity.kind} needs a name`, path: ['name'] });
+  }
+  if (entity.status === 'stale' && entity.review === undefined) {
+    context.addIssue({ code: 'custom', message: 'stale entity needs review', path: ['review'] });
+  }
+});
+
+const FactSchema = z.strictObject({
+  id: z.string().regex(SPEC_FACT_ID_PATTERN),
+  type: z.enum(FACT_TYPES),
+  actor: z.string().optional(),
+  action: z.string().optional(),
+  object: z.string().optional(),
+  from: z.string().nullable().optional(),
+  to: z.string().optional(),
+  condition: z.string().optional(),
+  state: z.string().optional(),
+  origin: z.enum(['tagger', 'rule', 'agent']),
+  confidence: z.number().min(0).max(1),
+  sources: z.array(z.string()),
+  status: z.enum(['current', 'stale']),
+  note: z.string().optional(),
+  removed: z.literal(true).optional(),
+});
+
+const EntitiesFileSchema = z.strictObject({
+  schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
+  entities: z.array(EntitySchema),
+});
+
+const FactsFileSchema = z.strictObject({
+  schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
+  facts: z.array(FactSchema),
 });
 
 function isSessionId(id: string): boolean {
@@ -224,7 +280,67 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
   if (sessionParsed.data.tagger !== undefined) {
     snapshot.tagger = { name: sessionParsed.data.tagger.name, version: sessionParsed.data.tagger.version };
   }
+
+  const entitiesFile = join(dir, 'entities.json');
+  if (existsSync(entitiesFile)) {
+    const entitiesRead = readJson(entitiesFile);
+    if (!entitiesRead.ok) return entitiesRead;
+    const entitiesVersion = versionFault(entitiesRead.value, entitiesFile);
+    if (entitiesVersion !== undefined) return { ok: false, fault: entitiesVersion.fault, message: entitiesVersion.message };
+    const entitiesParsed = EntitiesFileSchema.safeParse(entitiesRead.value);
+    if (!entitiesParsed.success) return { ok: false, ...zodFault(entitiesFile, entitiesParsed.error) };
+    const entities: Entity[] = [];
+    for (const raw of entitiesParsed.data.entities) entities.push(toEntity(raw));
+    snapshot.entities = entities;
+  }
+
+  const factsFile = join(dir, 'facts.json');
+  if (existsSync(factsFile)) {
+    const factsRead = readJson(factsFile);
+    if (!factsRead.ok) return factsRead;
+    const factsVersion = versionFault(factsRead.value, factsFile);
+    if (factsVersion !== undefined) return { ok: false, fault: factsVersion.fault, message: factsVersion.message };
+    const factsParsed = FactsFileSchema.safeParse(factsRead.value);
+    if (!factsParsed.success) return { ok: false, ...zodFault(factsFile, factsParsed.error) };
+    const facts: Fact[] = [];
+    for (const raw of factsParsed.data.facts) facts.push(toFact(raw));
+    snapshot.facts = facts;
+  }
   return { ok: true, snapshot };
+}
+
+function toEntity(raw: z.infer<typeof EntitySchema>): Entity {
+  const sources: string[] = [];
+  for (const source of raw.sources) sources.push(source);
+  const entity: Entity = { id: raw.id, kind: raw.kind, sources, origin: raw.origin, status: raw.status };
+  if (raw.name !== undefined) entity.name = raw.name;
+  if (raw.text !== undefined) entity.text = raw.text;
+  if (raw.review !== undefined) entity.review = raw.review;
+  if (raw.note !== undefined) entity.note = raw.note;
+  return entity;
+}
+
+function toFact(raw: z.infer<typeof FactSchema>): Fact {
+  const sources: string[] = [];
+  for (const source of raw.sources) sources.push(source);
+  const fact: Fact = {
+    id: raw.id,
+    type: raw.type,
+    origin: raw.origin,
+    confidence: raw.confidence,
+    sources,
+    status: raw.status,
+  };
+  if (raw.actor !== undefined) fact.actor = raw.actor;
+  if (raw.action !== undefined) fact.action = raw.action;
+  if (raw.object !== undefined) fact.object = raw.object;
+  if (raw.from !== undefined) fact.from = raw.from;
+  if (raw.to !== undefined) fact.to = raw.to;
+  if (raw.condition !== undefined) fact.condition = raw.condition;
+  if (raw.state !== undefined) fact.state = raw.state;
+  if (raw.note !== undefined) fact.note = raw.note;
+  if (raw.removed === true) fact.removed = true;
+  return fact;
 }
 
 function sentenceRecord(sentence: Sentence): z.infer<typeof SentenceSchema> {
@@ -287,13 +403,71 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
     tagged.push({ id: item.id, status: item.status, clauses, tokens });
   }
   writeJson(join(dir, 'tokens.json'), { schemaVersion: snapshot.schemaVersion, sentences: tagged });
+  if (snapshot.entities !== undefined) {
+    const entities = [];
+    for (const entity of snapshot.entities) entities.push(entityRecord(entity));
+    writeJson(join(dir, 'entities.json'), { schemaVersion: snapshot.schemaVersion, entities });
+  }
+  if (snapshot.facts !== undefined) {
+    const facts = [];
+    for (const fact of snapshot.facts) facts.push(factRecord(fact));
+    writeJson(join(dir, 'facts.json'), { schemaVersion: snapshot.schemaVersion, facts });
+  }
   if (history !== undefined) appendFileSync(join(dir, 'history.jsonl'), `${JSON.stringify(historyRecord(history))}\n`);
 }
 
-function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; args: { spec?: string; session: string; sentence?: string }; before: string[]; after: string[] } {
-  const args: { spec?: string; session: string; sentence?: string } = { session: entry.args.session };
+function entityRecord(entity: Entity): z.infer<typeof EntitySchema> {
+  const sources: string[] = [];
+  for (const source of entity.sources) sources.push(source);
+  const record: z.infer<typeof EntitySchema> = {
+    id: entity.id,
+    kind: entity.kind,
+    sources,
+    origin: entity.origin,
+    status: entity.status,
+  };
+  if (entity.name !== undefined) record.name = entity.name;
+  if (entity.text !== undefined) record.text = entity.text;
+  if (entity.review !== undefined) record.review = entity.review;
+  if (entity.note !== undefined) record.note = entity.note;
+  return record;
+}
+
+function factRecord(fact: Fact): z.infer<typeof FactSchema> {
+  const sources: string[] = [];
+  for (const source of fact.sources) sources.push(source);
+  const record: z.infer<typeof FactSchema> = {
+    id: fact.id,
+    type: fact.type,
+    origin: fact.origin,
+    confidence: fact.confidence,
+    sources,
+    status: fact.status,
+  };
+  if (fact.actor !== undefined) record.actor = fact.actor;
+  if (fact.action !== undefined) record.action = fact.action;
+  if (fact.object !== undefined) record.object = fact.object;
+  if (fact.from !== undefined) record.from = fact.from;
+  if (fact.to !== undefined) record.to = fact.to;
+  if (fact.condition !== undefined) record.condition = fact.condition;
+  if (fact.state !== undefined) record.state = fact.state;
+  if (fact.note !== undefined) record.note = fact.note;
+  if (fact.removed === true) record.removed = true;
+  return record;
+}
+
+function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; args: SpecHistoryEntry['args']; before: string[]; after: string[] } {
+  const args: SpecHistoryEntry['args'] = { session: entry.args.session };
   if (entry.args.spec !== undefined) args.spec = entry.args.spec;
   if (entry.args.sentence !== undefined) args.sentence = entry.args.sentence;
+  if (entry.args.id !== undefined) args.id = entry.args.id;
+  if (entry.args.ids !== undefined) args.ids = entry.args.ids.slice();
+  if (entry.args.into !== undefined) args.into = entry.args.into;
+  if (entry.args.name !== undefined) args.name = entry.args.name;
+  if (entry.args.text !== undefined) args.text = entry.args.text;
+  if (entry.args.kind !== undefined) args.kind = entry.args.kind;
+  if (entry.args.reason !== undefined) args.reason = entry.args.reason;
+  if (entry.args.from !== undefined) args.from = entry.args.from;
   const before: string[] = [];
   for (const id of entry.before) before.push(id);
   const after: string[] = [];

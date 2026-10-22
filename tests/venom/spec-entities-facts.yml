@@ -1,0 +1,257 @@
+name: spec entities and facts
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: list propose trace and status
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual order-sentence
+    - result.systemoutjson.findings ShouldHaveLength 0
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.tag
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.entities.list
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.entities ShouldHaveLength 7
+    - result.systemoutjson.entities.entities0.id ShouldEqual actor:customer
+    - result.systemoutjson.entities.entities0.origin ShouldEqual tagger
+    - result.systemoutjson.entities.entities2.id ShouldEqual object:order
+    - result.systemoutjson.entities.entities2.origin ShouldEqual rule
+    - result.systemoutjson.entities.entities6.id ShouldEqual condition:c1
+    - result.systemoutjson.entities.entities6.text ShouldEqual "the total is under 500 dollars"
+    - result.systemoutjson.findings ShouldHaveLength 7
+    - result.systemoutjson.findings.findings0.code ShouldEqual unreviewed
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --kind actor --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.entities ShouldHaveLength 2
+    - result.systemoutjson.entities.entities0.id ShouldEqual actor:customer
+    - result.systemoutjson.entities.entities1.id ShouldEqual actor:manager
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.facts.propose
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.facts ShouldHaveLength 5
+    - result.systemoutjson.facts.facts0.id ShouldEqual f1
+    - result.systemoutjson.facts.facts0.type ShouldEqual performs
+    - result.systemoutjson.facts.facts0.actor ShouldEqual actor:customer
+    - result.systemoutjson.facts.facts0.confidence ShouldEqual 0.9
+    - result.systemoutjson.facts.facts2.id ShouldEqual f3
+    - result.systemoutjson.facts.facts2.type ShouldEqual transition
+    - result.systemoutjson.facts.facts2.to ShouldEqual submitted
+    - result.systemoutjson.facts.facts3.from ShouldEqual submitted
+    - result.systemoutjson.facts.facts3.to ShouldEqual approved
+    - result.systemoutjson.facts.facts4.id ShouldEqual f5
+    - result.systemoutjson.facts.facts4.type ShouldEqual guard
+    - result.systemoutjson.facts.facts4.condition ShouldEqual condition:c1
+    - result.systemoutjson.findings.findings0.code ShouldEqual transition-without-from
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d);process.stdin.on(\"end\",()=>{const f=JSON.parse(s).facts.find(x=>x.id===\"f3\"); if(!f||f.from!==null) process.exit(1);})'"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities reject --id object:total --reason 'a data field, not a thing with states' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.entities.reject
+    - result.systemoutjson.entities.entities3.id ShouldEqual object:total
+    - result.systemoutjson.entities.entities3.status ShouldEqual rejected
+    - result.systemoutjson.entities.entities3.origin ShouldEqual tagger
+    - result.systemoutjson.entities.entities3.note ShouldContainSubstring "agent:"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f3 --from-state draft --note 'agent supplied draft' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.facts.edit
+    - result.systemoutjson.facts.facts2.id ShouldEqual f3
+    - result.systemoutjson.facts.facts2.from ShouldEqual draft
+    - result.systemoutjson.facts.facts2.origin ShouldEqual agent
+    - result.systemoutjson.facts.facts2.confidence ShouldEqual 1
+  - type: exec
+    script: "printf '%s\n' '{\"type\":\"initial\",\"object\":\"object:order\",\"state\":\"draft\"}' > '{{.dir}}/initial.json' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --from '{{.dir}}/initial.json' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.facts.add
+    - result.systemoutjson.facts.facts5.id ShouldEqual f6
+    - result.systemoutjson.facts.facts5.type ShouldEqual initial
+    - result.systemoutjson.facts.facts5.state ShouldEqual draft
+    - result.systemoutjson.facts.facts5.origin ShouldEqual agent
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace f6 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.trace
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.id ShouldEqual f6
+    - result.systemoutjson.chain.chain0.layer ShouldEqual fact
+    - result.systemoutjson.findings.findings0.code ShouldEqual orphan
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace actor:customer --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.chain.chain0.layer ShouldEqual entity
+    - result.systemoutjson.chain.chain0.id ShouldEqual actor:customer
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts remove --id f5 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.facts.remove
+    - result.systemoutjson.removed.removed0 ShouldEqual f5
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.facts ShouldHaveLength 5
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.status
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.coverage.sentences.mapped.mapped0 ShouldEqual s1
+    - result.systemoutjson.coverage.entities.rejected ShouldEqual 1
+    - result.systemoutjson.coverage.facts.implied ShouldEqual 1
+    - result.systemoutjson.coverage.facts.removed ShouldEqual 1
+    - result.systemoutjson.layers.tokens ShouldBeTrue
+    - result.systemoutjson.layers.entities ShouldBeTrue
+    - result.systemoutjson.layers.facts ShouldBeTrue
+    - result.systemoutjson.layers.graph ShouldBeFalse
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "find '{{.dir}}' -type f \\( -name entities.json -o -name facts.json -o -name .lock \\) | sort"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring entities.json
+    - result.systemout ShouldContainSubstring facts.json
+    - result.systemout ShouldNotContainSubstring ".lock"
+
+- name: human summaries
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "session order-sentence: 7 entities"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "session order-sentence: 5 facts"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status"
+    assertions:
+    - result.code ShouldEqual 0
+    - 'result.systemout ShouldContainSubstring "1 mapped, 0 pending, 0 stale"'
+
+- name: cross-kind merge is a blocking finding
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities merge --into actor:customer --id object:order --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.entities.merge
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.findings.findings0.code ShouldEqual merge-across-kinds
+    - result.systemoutjson.findings.findings0.severity ShouldEqual blocking
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: list before tag and stdin are exit 2
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "spec tag"
+    - result.systemoutjson.command ShouldEqual spec.entities.list
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --from - --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring stdin
+    - result.systemoutjson.command ShouldEqual spec.facts.add
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual usage
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input

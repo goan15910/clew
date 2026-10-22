@@ -26,6 +26,17 @@ clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow <id>] [--select <file
 clew compare <verify.json>... [--out <dir>] [--json]
 clew spec init <spec.md> [--session <id>] [--json]
 clew spec tag [--session <id>] [--sentence <id>] [--json]
+clew spec entities list [--kind actor] [--status candidate] [--session <id>] [--json]
+clew spec entities merge --into <id> --id <id> [--session <id>] [--json]
+clew spec entities rename --id <id> (--name <name> | --text <text>) [--session <id>] [--json]
+clew spec entities reject --id <id> [--reason <text>] [--session <id>] [--json]
+clew spec entities promote --id <id> [--kind actor] [--session <id>] [--json]
+clew spec facts propose [--sentence <id>] [--session <id>] [--json]
+clew spec facts add (--type <type> ... | --from <file.json>) [--session <id>] [--json]
+clew spec facts edit (--id <id> ... | --from <file.json>) [--session <id>] [--json]
+clew spec facts remove (--id <id> ... | --from <file.json>) [--session <id>] [--json]
+clew spec trace <id> [--session <id>] [--json]
+clew spec status [--session <id>] [--json]
 ```
 
 `--flow` is repeatable. `--select` reads a JSON file. Passing neither verifies every workflow, in file order. Passing both unions them, `--flow` first, dropping duplicates. `--select -` is rejected: Clew never reads stdin, so it cannot wait for input.
@@ -34,13 +45,13 @@ clew spec tag [--session <id>] [--sentence <id>] [--json]
 
 ### Spec
 
-`spec init` and `spec tag` are the first layer of turning a plain-English spec into a workflow set. Entities, facts, the draft graph, and emit are not in this version. Clew does not call a language model. The tagger is a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims, and `spec trace` and `spec status` read the result back. The draft graph and emit are not in this version. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
 Running `spec init` again on the same file refreshes that session. Unchanged sentence text keeps its id. Changed or removed sentences stay in the store as `stale` and are reported. They are not deleted. A sentence that comes back with the same hash is revived, and token spans shift if the text moved in the file.
 
-`spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. This version has no command that sets `origin` to `agent`.
+`spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. Entity and fact edits are what set `origin` to `agent`.
 
 `--session` selects a session. When it is omitted, Clew uses the only open session for this repo. Zero sessions, or more than one, is exit 2.
 
@@ -51,6 +62,8 @@ The session store is outside the repo. Nothing is written next to the spec, and 
   session.json
   sentences.json
   tokens.json
+  entities.json
+  facts.json
   history.jsonl
   .lock
 ```
@@ -84,7 +97,73 @@ Latin-script languages are not detected. Translate those to plain English before
 | `tagger-version` | info | the stored tagger version differs from this one |
 | `stale-sentence` | warning | a stale sentence is still in the session |
 
-Input failures use `issues` with `{ kind, file, path, message }` and `kind: "input"`. Model problems stay in `findings`.
+`spec entities list` derives candidates from the current tokens and writes them the first time. Running it again, when nothing changed, does not append history. `--kind` and `--status` filter the document. There is no separate extract command. Actor-tagged nouns become actors. Other nouns become objects, except pronouns, currency, units, determiners, and values, so "dollars" is skipped. Verbs become actions, except copulas, auxiliaries, and modals. An adjectival verb between a determiner and a noun ("a shipped order") is not an action. A sentence-initial “When” is a condition only when its clause has no content verb; mid-sentence if, when, and unless are conditions. Same-lemma nouns merge. A single token stays `origin: tagger`. Two sources of the same lemma are `origin: rule`.
+
+`spec entities list` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `unreviewed` | warning | a candidate has not been confirmed or rejected |
+| `near-duplicate` | warning | two live names of the same kind differ by one edit, and both are at least four letters |
+| `agent-entity` | warning | an agent-owned entity disagrees with the tokens and was left in place |
+
+`spec entities merge` keeps `--into` and folds each `--id` into it. The ids must be the same kind, and the target must not be rejected. `rename` takes `--name` for an actor, object, or action, and `--text` for a condition. A name that is not workflow vocabulary is blocking and is not written. A name that only needs kebab-case is written, with an info `normalized-name` finding. `reject` sets `status: rejected`, keeps `origin`, and stores `note` as `agent: <reason>` when a reason is given. Facts that cite it become stale. `promote` confirms the entity. `--kind` changes the id prefix for actor, object, and action. A condition cannot change kind.
+
+`spec entities` edit findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `merge-across-kinds` | blocking | a merge or a `--kind` change crosses kinds, including a condition |
+| `rejected-entity` | blocking | the merge target is rejected |
+| `vocabulary` | blocking | the new name cannot be workflow vocabulary |
+| `duplicate-entity` | blocking | the new id already exists |
+| `normalized-name` | info | the written name was normalized |
+| `stale-fact` | warning | rejecting an entity marked the facts that cite it stale |
+
+`spec facts propose` drafts facts from subject-verb-object frames, clause order, and condition markers. It does not overwrite `origin: agent`. A disagreement is `agent-fact`. Running it again, when nothing changed, does not append history. `--sentence s1` limits the proposal to that sentence. Emission order inside a sentence is performs, then transitions, then forbidden, then guards. The first transition on an object has `from: null` and confidence 0.5. A later transition in a When sentence takes the previous `to` as `from`, confidence 0.6. A past participle is the `to` state (`submit` becomes `submitted`; a surface form such as `cancelled` is kept). Negation (`cannot`, `not`, `never`) emits `forbidden` instead of a transition, and still emits `performs`. Passive voice takes the noun before the verb as the object and the actor after “by”. `initial` and `final` are not proposed. Removed facts stay in the store as tombstones (`removed: true`, `status: stale`, `origin: agent`) so a later propose does not recreate that signature. Documents omit removed facts. Adding a fact with a removed signature revives that id. Adding a live duplicate signature is a blocking `contradicting-facts` finding and does not write.
+
+`spec facts add`, `edit`, and `remove` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. `--from-state` and `--to-state` name transition states, because `--from` is the patch file. `--source` and `--id` are repeatable on the commands that accept them. Confidence is a number from 0 to 1. An edit sets confidence to 1 unless the patch sets it. An unknown fact id is exit 2. A well-formed entity id that is not in the session is a blocking finding, not an input issue.
+
+`spec facts propose` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `transition-without-from` | warning | a current transition still has `from: null` |
+| `unused-entity` | warning | a live entity is not cited by a current fact |
+| `action-without-actor` | warning | a frame has an action and no actor |
+| `action-without-object` | warning | a frame has an action and no object |
+| `guard-without-action` | warning | a condition does not attach to an action |
+| `agent-fact` | warning | an agent-owned fact disagreed with the proposal and was kept |
+| `contradicting-facts` | warning | live facts disagree, for example two transitions of the same object and action |
+
+`spec facts add` and `edit` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `unknown-entity` | blocking | a fact cites an entity id that is not in the session |
+| `type-mismatch` | blocking | a fact is missing a field, or an entity has the wrong kind |
+| `rejected-entity` | blocking | a fact cites a rejected or stale entity |
+| `vocabulary` | blocking | a state name is not workflow vocabulary |
+| `normalized-name` | info | a state name was normalized |
+| `contradicting-facts` | blocking | the signature is already recorded by a live fact |
+
+`spec trace <id>` walks provenance: state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
+
+`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and stale. A current sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is false until a later slice builds the graph. A missing entities or facts layer is an info `entities-absent` or `facts-absent` finding. Status does not write the store.
+
+`spec trace` and `spec status` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `orphan` | warning | a fact or other id has no sentence source |
+| `removed-fact` | info | the traced fact is a tombstone |
+| `stale-entity` | warning | an entity is stale after the spec changed |
+| `stale-fact` | warning | a fact is stale |
+| `transition-without-from` | warning | status still sees a current transition with no source state |
+| `entities-absent` | info | `spec entities list` has not been run |
+| `facts-absent` | info | `spec facts propose` or an edit has not been run |
+
+Input failures use `issues` with `{ kind, file, path, message }` and `kind: "input"`. Model problems stay in `findings`. A blocking finding is exit 1 with an empty stderr. A bad id, a missing layer, or a bad patch is exit 2.
 
 ### Selection
 
@@ -100,9 +179,9 @@ Unknown ids, a failing check document, and a file that is neither shape are exit
 
 | Code | Meaning |
 |---|---|
-| 0 | Chart schema and graph are valid; or the analysis is clean; or the workflow set is valid; or every selected flow passed; or compare has a winner; or spec init/tag left no blocking findings |
+| 0 | Chart schema and graph are valid; or the analysis is clean; or the workflow set is valid; or every selected flow passed; or compare has a winner; or a spec command left no blocking findings |
 | 1 | Schema or graph is invalid; or the analysis found an unreachable state or a dead end; or a selected flow failed; or compare has no winner; or a spec command reported a blocking finding |
-| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; the mapping does not apply; the selection names a missing flow; the spec file or session cannot be read |
+| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; the mapping does not apply; the selection names a missing flow; the spec file, session, or id cannot be read |
 
 Schema is checked before the graph. Graph findings are produced only after the schema is valid (`graphChecked` tells them apart). YAML and JSON syntax errors are exit 2: there is no document to judge yet.
 
@@ -334,7 +413,82 @@ Bad arguments, when `--json` was passed, use `{ "command", "ok": false, "fault":
 }
 ```
 
-A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` is false, `fault` is `session`, `locked`, `schema`, or `unreadable`, `findings` is empty, and `issues` carries the message. The same shape is printed for `--json`. Without `--json`, exit 2 writes only to stderr.
+A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` is false, `fault` is `session`, `locked`, `schema`, `unreadable`, or `usage`, `findings` is empty, and `issues` carries the message. The same shape is printed for `--json`. Without `--json`, exit 2 writes only to stderr.
+
+`spec.entities.list`, after `spec tag`. `ok` stays true when the only findings are warnings.
+
+```json
+{
+  "command": "spec.entities.list",
+  "ok": true,
+  "session": "order-sentence",
+  "entities": [
+    { "id": "actor:customer", "kind": "actor", "name": "customer", "sources": ["s1.t3"], "origin": "tagger", "status": "candidate" },
+    { "id": "object:order", "kind": "object", "name": "order", "sources": ["s1.t6", "s1.t11"], "origin": "rule", "status": "candidate" },
+    { "id": "condition:c1", "kind": "condition", "text": "the total is under 500 dollars", "sources": ["s1.t12"], "origin": "rule", "status": "candidate" }
+  ],
+  "findings": [
+    { "id": "unreviewed:actor:customer", "kind": "coverage", "code": "unreviewed", "severity": "warning", "message": "actor:customer is an unreviewed candidate", "refs": ["actor:customer"] }
+  ],
+  "issues": []
+}
+```
+
+`spec.facts.propose`. `from: null` means the rule did not see a source state. The agent supplies one with `spec facts edit --id f3 --from-state draft`. This excerpt omits the warning findings that proposal usually returns.
+
+```json
+{
+  "command": "spec.facts.propose",
+  "ok": true,
+  "session": "order-sentence",
+  "facts": [
+    { "id": "f1", "type": "performs", "actor": "actor:customer", "action": "action:submit", "origin": "rule", "confidence": 0.9, "sources": ["s1"], "status": "current" },
+    { "id": "f3", "type": "transition", "object": "object:order", "action": "action:submit", "from": null, "to": "submitted", "origin": "rule", "confidence": 0.5, "sources": ["s1.t4", "s1.t6"], "status": "current" },
+    { "id": "f5", "type": "guard", "action": "action:approve", "condition": "condition:c1", "origin": "rule", "confidence": 0.8, "sources": ["s1.t12"], "status": "current" }
+  ],
+  "findings": [],
+  "issues": []
+}
+```
+
+`spec.facts.add --from patch.json` accepts one fact or `{ "facts": [ ... ] }`. `spec.facts.edit --from` accepts the fields to change, including `id`. `spec.facts.remove --from` accepts `{ "id": "f5" }` or `{ "ids": ["f5"] }`.
+
+`spec.trace` for an implied fact. The chain still names the entity, and `orphan` says there is no sentence source on the fact itself.
+
+```json
+{
+  "command": "spec.trace",
+  "ok": true,
+  "session": "order-sentence",
+  "id": "f6",
+  "chain": [
+    { "layer": "fact", "id": "f6", "type": "initial", "status": "current", "origin": "agent", "refs": [] },
+    { "layer": "entity", "id": "object:order", "kind": "object", "name": "order" }
+  ],
+  "findings": [
+    { "id": "orphan:f6", "kind": "coverage", "code": "orphan", "severity": "warning", "message": "f6 has no sentence source", "refs": ["f6"] }
+  ],
+  "issues": []
+}
+```
+
+`spec.status`. `layers.graph` stays false in this version.
+
+```json
+{
+  "command": "spec.status",
+  "ok": true,
+  "session": "order-sentence",
+  "coverage": {
+    "sentences": { "mapped": ["s1"], "pending": [], "stale": [] },
+    "entities": { "candidate": 6, "confirmed": 0, "rejected": 1, "stale": 0 },
+    "facts": { "current": 6, "stale": 0, "implied": 1, "removed": 0 }
+  },
+  "layers": { "tokens": true, "entities": true, "facts": true, "graph": false },
+  "findings": [],
+  "issues": []
+}
+```
 
 ## Migration
 

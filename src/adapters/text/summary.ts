@@ -50,7 +50,47 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
-  if (document.fault !== undefined) return '';
+  if (
+    document.command === 'spec.entities.list'
+    || document.command === 'spec.entities.merge'
+    || document.command === 'spec.entities.rename'
+    || document.command === 'spec.entities.reject'
+    || document.command === 'spec.entities.promote'
+  ) {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const lines = [`session ${document.session}: ${document.entities?.length ?? 0} entities`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (
+    document.command === 'spec.facts.propose'
+    || document.command === 'spec.facts.add'
+    || document.command === 'spec.facts.edit'
+    || document.command === 'spec.facts.remove'
+  ) {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const lines = [`session ${document.session}: ${document.facts?.length ?? 0} facts`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.trace') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const lines = [`session ${document.session}: trace ${document.id ?? ''}`];
+    for (const link of document.chain ?? []) {
+      const label = link.text ?? link.name ?? link.type ?? link.kind ?? '';
+      lines.push(`  ${link.layer} ${link.id}${label === '' ? '' : ` ${label}`}`);
+    }
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.status') {
+    if (document.fault !== undefined || document.session === undefined || document.coverage === undefined) return '';
+    const sentences = document.coverage.sentences;
+    const lines = [`session ${document.session}: ${sentences.mapped.length} mapped, ${sentences.pending.length} pending, ${sentences.stale.length} stale`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command !== 'compare' || document.fault !== undefined) return '';
   const lines = [document.winner ? `winner: ${document.winner}` : 'no winner'];
   for (const candidate of document.candidates ?? []) {
     const failed = candidate.failures.map((failure) => failure.id).join(', ');

@@ -6,12 +6,19 @@
 // clew compare <verify.json>... [--out dir] [--json]
 // clew spec init <spec.md> [--session id] [--json]
 // clew spec tag [--session id] [--sentence s1] [--json]
+// clew spec entities list [--kind actor] [--status candidate] [--session id] [--json]
+// clew spec entities merge|rename|reject|promote [--session id] [--json]
+// clew spec facts propose [--sentence s1] [--session id] [--json]
+// clew spec facts add|edit|remove [--from file.json] [--session id] [--json]
+// clew spec trace <id> [--session id] [--json]
+// clew spec status [--session id] [--json]
 //
 // Composition root: parse arguments, wire adapters into use cases, map results to output and exit codes.
 import { Command, CommanderError } from '@commander-js/extra-typings';
 import { z } from 'zod';
 import { jsonSelectionLoader } from './adapters/json/selection-loader.js';
 import { compromiseTagger } from './adapters/pos/compromise-tagger.js';
+import { loadAddedFacts, loadFactEdit, loadRemovedFacts } from './adapters/spec-store/fact-patch.js';
 import { jsonSpecStore } from './adapters/spec-store/json-file-store.js';
 import { specTextSource } from './adapters/spec-store/read-spec.js';
 import { jsonVerifyResultLoader } from './adapters/json/verify-result-loader.js';
@@ -27,12 +34,19 @@ import { analyzeChart } from './application/analyze-chart.js';
 import { checkChart } from './application/check-chart.js';
 import { checkWorkflows } from './application/check-workflows.js';
 import { compareResults } from './application/compare-results.js';
+import { editEntities } from './application/edit-entities.js';
+import { editFacts } from './application/edit-facts.js';
 import { initSpec } from './application/init-spec.js';
+import { listEntities } from './application/list-entities.js';
 import { formatIssues, type CommandDocument, type Outcome, type OutputIssue } from './application/documents.js';
 import type { ComparePorts, VerifyPorts } from './application/ports.js';
+import { proposeSpecFacts } from './application/propose-facts.js';
+import { readSpecStatus } from './application/spec-status.js';
 import { tagSpec } from './application/tag-spec.js';
+import { traceSpec } from './application/trace-spec.js';
 import { verifyFlows } from './application/verify-flows.js';
-import { SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
+import type { FactDraft } from './domain/spec-facts.js';
+import { ENTITY_KINDS, FACT_TYPES, SPEC_ENTITY_ID_MESSAGE, SPEC_ENTITY_ID_PATTERN, SPEC_FACT_ID_MESSAGE, SPEC_FACT_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
 import { WORKFLOW_ID_MESSAGE, WORKFLOW_ID_PATTERN } from './domain/workflow.js';
 
 const EXIT_PASS = 0;
@@ -68,6 +82,117 @@ const SpecTagFlags = z.object({
   session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
   sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
 });
+const SessionOption = z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional();
+const EntityIdOption = z.string().regex(SPEC_ENTITY_ID_PATTERN, SPEC_ENTITY_ID_MESSAGE);
+const FactIdOption = z.string().regex(SPEC_FACT_ID_PATTERN, SPEC_FACT_ID_MESSAGE);
+const SpecEntityListFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  kind: z.enum(ENTITY_KINDS).optional(),
+  status: z.enum(['candidate', 'confirmed', 'rejected', 'stale']).optional(),
+});
+const SpecEntityMergeFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  into: EntityIdOption,
+  id: z.array(EntityIdOption).min(1, 'merge needs --id'),
+});
+const SpecEntityRenameFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  id: EntityIdOption,
+  name: z.string().min(1).optional(),
+  text: z.string().min(1).optional(),
+}).superRefine((value, context) => {
+  if (value.name === undefined && value.text === undefined) {
+    context.addIssue({ code: 'custom', message: 'rename needs --name or --text', path: ['name'] });
+  }
+});
+const SpecEntityRejectFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  id: EntityIdOption,
+  reason: z.string().min(1).optional(),
+});
+const SpecEntityPromoteFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  id: EntityIdOption,
+  kind: z.enum(ENTITY_KINDS).optional(),
+});
+const SpecFactProposeFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
+});
+const SpecFactAddFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  from: z.string().min(1).optional(),
+  type: z.enum(FACT_TYPES).optional(),
+  actor: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  object: z.string().min(1).optional(),
+  fromState: z.string().min(1).optional(),
+  toState: z.string().min(1).optional(),
+  condition: z.string().min(1).optional(),
+  state: z.string().min(1).optional(),
+  source: z.array(z.string().min(1)).optional(),
+  note: z.string().optional(),
+  confidence: z.union([z.number(), z.string()]).optional(),
+}).superRefine((value, context) => {
+  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
+  const flagged = value.type !== undefined || value.actor !== undefined || value.action !== undefined || value.object !== undefined
+    || value.fromState !== undefined || value.toState !== undefined || value.condition !== undefined || value.state !== undefined
+    || (value.source !== undefined && value.source.length > 0) || value.note !== undefined || value.confidence !== undefined;
+  if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
+  if (value.from === undefined && value.type === undefined) context.addIssue({ code: 'custom', message: 'add needs --type or --from', path: ['type'] });
+  if (value.confidence !== undefined && !validConfidence(value.confidence)) {
+    context.addIssue({ code: 'custom', message: 'confidence must be between 0 and 1', path: ['confidence'] });
+  }
+});
+const SpecFactEditFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  from: z.string().min(1).optional(),
+  id: FactIdOption.optional(),
+  type: z.enum(FACT_TYPES).optional(),
+  actor: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  object: z.string().min(1).optional(),
+  fromState: z.string().min(1).optional(),
+  toState: z.string().min(1).optional(),
+  condition: z.string().min(1).optional(),
+  state: z.string().min(1).optional(),
+  source: z.array(z.string().min(1)).optional(),
+  note: z.string().optional(),
+  confidence: z.union([z.number(), z.string()]).optional(),
+}).superRefine((value, context) => {
+  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
+  const flagged = value.type !== undefined || value.actor !== undefined || value.action !== undefined || value.object !== undefined
+    || value.fromState !== undefined || value.toState !== undefined || value.condition !== undefined || value.state !== undefined
+    || (value.source !== undefined && value.source.length > 0) || value.note !== undefined || value.confidence !== undefined;
+  if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
+  if (value.from === undefined && value.id === undefined) context.addIssue({ code: 'custom', message: 'edit needs --id or --from', path: ['id'] });
+  if (value.confidence !== undefined && !validConfidence(value.confidence)) {
+    context.addIssue({ code: 'custom', message: 'confidence must be between 0 and 1', path: ['confidence'] });
+  }
+});
+const SpecFactRemoveFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  from: z.string().min(1).optional(),
+  id: z.array(FactIdOption).optional(),
+}).superRefine((value, context) => {
+  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
+  const hasIds = value.id !== undefined && value.id.length > 0;
+  if (value.from !== undefined && hasIds) context.addIssue({ code: 'custom', message: 'pass --id or --from, not both', path: ['from'] });
+  if (value.from === undefined && !hasIds) context.addIssue({ code: 'custom', message: 'remove needs --id or --from', path: ['id'] });
+});
+const SpecSessionFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+});
 const VerifyFlags = z.object({
   json: z.boolean().optional(),
   out: z.string().min(1, 'output directory must not be empty').optional(),
@@ -99,6 +224,45 @@ function emit(outcome: Outcome<CommandDocument>, json: boolean): never {
 
 function collectFlow(value: string, previous: string[]): string[] {
   return [...previous, value];
+}
+
+function validConfidence(value: number | string): boolean {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 1;
+}
+
+function confidenceOf(value: number | string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  return typeof value === 'number' ? value : Number(value);
+}
+
+function draftFromFlags(flags: {
+  type?: FactDraft['type'];
+  actor?: string;
+  action?: string;
+  object?: string;
+  fromState?: string;
+  toState?: string;
+  condition?: string;
+  state?: string;
+  source?: string[];
+  note?: string;
+  confidence?: number | string;
+}): FactDraft {
+  const draft: FactDraft = {};
+  if (flags.type !== undefined) draft.type = flags.type;
+  if (flags.actor !== undefined) draft.actor = flags.actor;
+  if (flags.action !== undefined) draft.action = flags.action;
+  if (flags.object !== undefined) draft.object = flags.object;
+  if (flags.fromState !== undefined) draft.from = flags.fromState;
+  if (flags.toState !== undefined) draft.to = flags.toState;
+  if (flags.condition !== undefined) draft.condition = flags.condition;
+  if (flags.state !== undefined) draft.state = flags.state;
+  if (flags.source !== undefined && flags.source.length > 0) draft.sources = flags.source.slice();
+  if (flags.note !== undefined) draft.note = flags.note;
+  const confidence = confidenceOf(flags.confidence);
+  if (confidence !== undefined) draft.confidence = confidence;
+  return draft;
 }
 
 const program = new Command();
@@ -208,9 +372,225 @@ spec
     emit(tagSpec({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore, compromiseTagger), parsed.data.json === true);
   });
 
+const entities = spec.command('entities').description('List and refine entity candidates.');
+
+entities
+  .command('list')
+  .description('Derive entity candidates from tagged tokens and list them.')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--kind <kind>', 'actor, object, action, or condition')
+  .option('--status <status>', 'candidate, confirmed, rejected, or stale')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecEntityListFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.entities.list', opts, parsed.error);
+    emit(listEntities({
+      sessionId: parsed.data.session,
+      kind: parsed.data.kind,
+      status: parsed.data.status,
+    }, jsonSpecStore), parsed.data.json === true);
+  });
+
+entities
+  .command('merge')
+  .description('Merge entities of the same kind into one.')
+  .option('--into <id>', 'entity that keeps the sources')
+  .option('--id <id>', 'entity to merge (repeatable)', collectFlow, [] as string[])
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecEntityMergeFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.entities.merge', opts, parsed.error);
+    emit(editEntities({ action: 'merge', sessionId: parsed.data.session, into: parsed.data.into, ids: parsed.data.id }, jsonSpecStore), parsed.data.json === true);
+  });
+
+entities
+  .command('rename')
+  .description('Rename an entity. Conditions take --text; other kinds take --name.')
+  .option('--id <id>', 'entity to rename')
+  .option('--name <name>', 'new name for an actor, object, or action')
+  .option('--text <text>', 'new text for a condition')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecEntityRenameFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.entities.rename', opts, parsed.error);
+    emit(editEntities({
+      action: 'rename',
+      sessionId: parsed.data.session,
+      id: parsed.data.id,
+      name: parsed.data.name,
+      text: parsed.data.text,
+    }, jsonSpecStore), parsed.data.json === true);
+  });
+
+entities
+  .command('reject')
+  .description('Reject an entity so later steps ignore it.')
+  .option('--id <id>', 'entity to reject')
+  .option('--reason <text>', 'why the entity is not part of the model')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecEntityRejectFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.entities.reject', opts, parsed.error);
+    emit(editEntities({
+      action: 'reject',
+      sessionId: parsed.data.session,
+      id: parsed.data.id,
+      reason: parsed.data.reason,
+    }, jsonSpecStore), parsed.data.json === true);
+  });
+
+entities
+  .command('promote')
+  .description('Confirm an entity, optionally changing its kind.')
+  .option('--id <id>', 'entity to confirm')
+  .option('--kind <kind>', 'actor, object, or action, when the tagger chose the wrong kind')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecEntityPromoteFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.entities.promote', opts, parsed.error);
+    emit(editEntities({
+      action: 'promote',
+      sessionId: parsed.data.session,
+      id: parsed.data.id,
+      kind: parsed.data.kind,
+    }, jsonSpecStore), parsed.data.json === true);
+  });
+
+const facts = spec.command('facts').description('Propose facts and record agent judgment.');
+
+facts
+  .command('propose')
+  .description('Propose draft facts from entities, clauses, and token order.')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--sentence <id>', 'propose only from this sentence, for example s1')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecFactProposeFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.facts.propose', opts, parsed.error);
+    emit(proposeSpecFacts({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore), parsed.data.json === true);
+  });
+
+facts
+  .command('add')
+  .description('Add a fact from flags or a JSON file.')
+  .option('--from <file>', 'JSON fact, or { "facts": [ ... ] }')
+  .option('--type <type>', 'performs, transition, guard, initial, final, or forbidden')
+  .option('--actor <id>', 'actor entity id')
+  .option('--action <id>', 'action entity id')
+  .option('--object <id>', 'object entity id')
+  .option('--from-state <state>', 'source state of a transition')
+  .option('--to-state <state>', 'target state of a transition')
+  .option('--condition <id>', 'condition entity id')
+  .option('--state <state>', 'state named by an initial or final fact')
+  .option('--source <id>', 'provenance id (repeatable)', collectFlow, [] as string[])
+  .option('--note <text>', 'note stored with the fact')
+  .option('--confidence <number>', 'advisory confidence from 0 to 1')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecFactAddFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.facts.add', opts, parsed.error);
+    const flags = parsed.data;
+    if (flags.from !== undefined) {
+      const loaded = loadAddedFacts(flags.from);
+      if (!loaded.ok) {
+        usage('spec.facts.add', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
+      }
+      emit(editFacts({ action: 'add', sessionId: flags.session, drafts: loaded.drafts }, jsonSpecStore), flags.json === true);
+    }
+    emit(editFacts({ action: 'add', sessionId: flags.session, drafts: [draftFromFlags(flags)] }, jsonSpecStore), flags.json === true);
+  });
+
+facts
+  .command('edit')
+  .description('Edit a fact from flags or a JSON file.')
+  .option('--id <id>', 'fact to edit, for example f3')
+  .option('--from <file>', 'JSON object with the fields to change')
+  .option('--type <type>', 'performs, transition, guard, initial, final, or forbidden')
+  .option('--actor <id>', 'actor entity id')
+  .option('--action <id>', 'action entity id')
+  .option('--object <id>', 'object entity id')
+  .option('--from-state <state>', 'source state of a transition')
+  .option('--to-state <state>', 'target state of a transition')
+  .option('--condition <id>', 'condition entity id')
+  .option('--state <state>', 'state named by an initial or final fact')
+  .option('--source <id>', 'provenance id (repeatable)', collectFlow, [] as string[])
+  .option('--note <text>', 'note stored with the fact')
+  .option('--confidence <number>', 'advisory confidence from 0 to 1')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecFactEditFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.facts.edit', opts, parsed.error);
+    const flags = parsed.data;
+    if (flags.from !== undefined) {
+      const loaded = loadFactEdit(flags.from);
+      if (!loaded.ok) {
+        usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
+      }
+      const id = flags.id ?? loaded.id;
+      if (id === undefined) usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: 'edit needs an id', path: ['id'] }]));
+      if (flags.id !== undefined && loaded.id !== undefined && flags.id !== loaded.id) {
+        usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: `file id ${loaded.id} does not match --id ${flags.id}`, path: ['id'] }]));
+      }
+      emit(editFacts({ action: 'edit', sessionId: flags.session, id, draft: loaded.draft }, jsonSpecStore), flags.json === true);
+    }
+    if (flags.id === undefined) usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: 'edit needs --id', path: ['id'] }]));
+    emit(editFacts({ action: 'edit', sessionId: flags.session, id: flags.id, draft: draftFromFlags(flags) }, jsonSpecStore), flags.json === true);
+  });
+
+facts
+  .command('remove')
+  .description('Remove facts. A later propose will not recreate them.')
+  .option('--id <id>', 'fact to remove (repeatable)', collectFlow, [] as string[])
+  .option('--from <file>', 'JSON { "id": "f1" } or { "ids": ["f1"] }')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecFactRemoveFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.facts.remove', opts, parsed.error);
+    const flags = parsed.data;
+    if (flags.from !== undefined) {
+      const loaded = loadRemovedFacts(flags.from);
+      if (!loaded.ok) {
+        usage('spec.facts.remove', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
+      }
+      emit(editFacts({ action: 'remove', sessionId: flags.session, ids: loaded.ids }, jsonSpecStore), flags.json === true);
+    }
+    emit(editFacts({ action: 'remove', sessionId: flags.session, ids: flags.id ?? [] }, jsonSpecStore), flags.json === true);
+  });
+
+spec
+  .command('trace')
+  .description('Follow an id back to facts, entities, tokens, and the sentence.')
+  .argument('<id>', 'entity, fact, token, sentence, or state id')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((id, opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.trace', opts, parsed.error);
+    if (id.trim() === '') usage('spec.trace', opts, new z.ZodError([{ code: 'custom', message: 'trace needs an id', path: ['id'] }]));
+    emit(traceSpec({ sessionId: parsed.data.session, id }, jsonSpecStore), parsed.data.json === true);
+  });
+
+spec
+  .command('status')
+  .description('Show sentence coverage and the findings still open on each layer.')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.status', opts, parsed.error);
+    emit(readSpecStatus({ sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
+  });
+
 program.addHelpText('afterAll', `
 Exit codes:
-  0  check passed, analysis is clean, every selected flow passed, compare has a winner, or spec init/tag left no blocking findings
+  0  check passed, analysis is clean, every selected flow passed, compare has a winner, or a spec command left no blocking findings
   1  schema or graph invalid, analysis found unreachable states or dead ends, a flow failed, compare has no winner, or a spec command reported a blocking finding
   2  unreadable input, bad arguments, no spec session, or verify/analyze preconditions failed
 
@@ -226,6 +606,10 @@ Examples:
   clew compare b-full.json a-basic.json --json
   clew spec init examples/spec/order.md --json
   clew spec tag --json
+  clew spec entities list --json
+  clew spec facts propose --json
+  clew spec trace actor:customer --json
+  clew spec status --json
 `);
 
 try {

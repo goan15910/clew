@@ -1,4 +1,6 @@
 // Use case: tag current sentences through PosTaggerPort and store the tokens.
+import { reconcileEntities, sameEntities } from '../domain/spec-entities.js';
+import { reconcileFacts, sameFacts } from '../domain/spec-facts.js';
 import {
   currentSentences,
   hasAgentTokens,
@@ -17,6 +19,7 @@ import {
 } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecTaggedView, type SpecTagDocument, type SpecTokenView } from './documents.js';
 import type { PosTaggerPort, SpecStore } from './ports.js';
+import { resolveSession } from './spec-session.js';
 
 export interface TagSpecCommand {
   sessionId?: string;
@@ -68,8 +71,10 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     for (const finding of staleFindings(current.sentences)) produced.push(finding);
     findings = produced;
     const tagged = mergeTagged(current.sentences, current.tagged, replacements);
+    const entities = current.entities === undefined ? undefined : reconcileEntities(current.sentences, tagged, current.entities);
+    const facts = current.facts === undefined ? undefined : reconcileFacts(current.sentences, tagged, entities ?? [], current.facts);
     const taggerSame = current.tagger !== undefined && current.tagger.name === tagger.name && current.tagger.version === tagger.version;
-    if (sameTagged(current.tagged, tagged) && taggerSame) return undefined;
+    if (sameTagged(current.tagged, tagged) && taggerSame && sameEntities(current.entities, entities) && sameFacts(current.facts, facts)) return undefined;
     const now = new Date().toISOString();
     const snapshot: SpecSnapshot = {
       schemaVersion: current.schemaVersion,
@@ -82,6 +87,8 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       sentences: current.sentences,
       tagged,
     };
+    if (entities !== undefined) snapshot.entities = entities;
+    if (facts !== undefined) snapshot.facts = facts;
     const touched: string[] = [];
     for (const sentence of live) {
       if (command.sentenceId === undefined || sentence.id === command.sentenceId) touched.push(sentence.id);
@@ -117,24 +124,6 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       issues: [],
     },
   };
-}
-
-function resolveSession(store: SpecStore, requested: string | undefined): { ok: true; id: string } | { ok: false; message: string } {
-  const sessions = store.listSessions();
-  if (requested !== undefined) {
-    for (const session of sessions) {
-      if (session.id === requested) return { ok: true, id: requested };
-    }
-    return { ok: false, message: `no spec session "${requested}"` };
-  }
-  const only = sessions[0];
-  if (sessions.length === 0 || only === undefined) return { ok: false, message: 'no spec session; run clew spec init first' };
-  if (sessions.length > 1) {
-    const ids: string[] = [];
-    for (const session of sessions) ids.push(session.id);
-    return { ok: false, message: `more than one spec session; pass --session. Open sessions: ${ids.join(', ')}` };
-  }
-  return { ok: true, id: only.id };
 }
 
 function includesId(sentences: readonly Sentence[], id: string): boolean {
