@@ -94,3 +94,10 @@ testcases:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "missing required argument"
     - result.systemout ShouldBeEmpty
+
+- name: planted failure for the job summary
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} chart check examples/todo/b-full.yaml"
+    assertions:
+    - result.code ShouldEqual 99
