@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1048" height="612" viewBox="0 0 1048 612" role="img" font-family="Helvetica, Arial, sans-serif">
+  <title>Transition coverage: b-full</title>
+  <desc>Each cell is one chart transition. The number is how many times a selected workflow accepted it. Zero is cold. A refused step is not counted.</desc>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="28" y="50" font-size="20" font-weight="700" fill="#24292f">Transition coverage: b-full</text>
+  <text x="28" y="72" font-size="13" fill="#57606a">8 selected workflows · chart todoTask · cold is unused, hot is the most accepted</text>
+  <text x="203" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 203 164)">SUBMIT</text>
+  <text x="289" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 289 164)">DELETE</text>
+  <text x="375" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 375 164)">START</text>
+  <text x="461" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 461 164)">COMPLETE</text>
+  <text x="547" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 547 164)">SNOOZE</text>
+  <text x="633" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 633 164)">RESUME</text>
+  <text x="719" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 719 164)">REOPEN</text>
+  <text x="805" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 805 164)">ARCHIVE</text>
+  <text x="891" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 891 164)">UNARCHIVE</text>
+  <text x="977" y="164" font-size="11" fill="#24292f" text-anchor="start" transform="rotate(-55 977 164)">RESTORE</text>
+  <text x="28" y="198" font-size="13" fill="#24292f">Draft</text>
+  <text x="28" y="214" font-size="10" fill="#57606a">draft</text>
+  <rect x="162" y="176" width="82" height="48" rx="4" fill="#b22318"><title>draft — SUBMIT → todo: 7 (W1, W2, W3, W4, W6, W7, W8)</title></rect>
+  <text x="203" y="196" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">7</text>
+  <text x="203" y="212" font-size="10" fill="#ffffff" text-anchor="middle">todo</text>
+  <rect x="248" y="176" width="82" height="48" rx="4" fill="#dbd9c1"><title>draft — DELETE → deleted: 1 (W5)</title></rect>
+  <text x="289" y="196" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="289" y="212" font-size="10" fill="#24292f" text-anchor="middle">deleted</text>
+  <rect x="334" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="420" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="506" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="592" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="678" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="764" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="850" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="936" y="176" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <text x="28" y="250" font-size="13" fill="#24292f">Todo</text>
+  <text x="28" y="266" font-size="10" fill="#57606a">todo</text>
+  <rect x="162" y="228" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="248" y="228" width="82" height="48" rx="4" fill="#dbd9c1"><title>todo — DELETE → deleted: 1 (W6)</title></rect>
+  <text x="289" y="248" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="289" y="264" font-size="10" fill="#24292f" text-anchor="middle">deleted</text>
+  <rect x="334" y="228" width="82" height="48" rx="4" fill="#d97f31"><title>todo — START → inProgress: 5 (W1, W2, W3, W4, W8)</title></rect>
+  <text x="375" y="248" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">5</text>
+  <text x="375" y="264" font-size="10" fill="#24292f" text-anchor="middle">inProgress</text>
+  <rect x="420" y="228" width="82" height="48" rx="4" fill="#dbd9c1"><title>todo — COMPLETE → done: 1 (W7)</title></rect>
+  <text x="461" y="248" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="461" y="264" font-size="10" fill="#24292f" text-anchor="middle">done</text>
+  <rect x="506" y="228" width="82" height="48" rx="4" fill="#d0e2f3"><title>todo — SNOOZE → snoozed: 0</title></rect>
+  <text x="547" y="248" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">0</text>
+  <text x="547" y="264" font-size="10" fill="#24292f" text-anchor="middle">snoozed</text>
+  <rect x="592" y="228" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="678" y="228" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="764" y="228" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="850" y="228" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="936" y="228" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <text x="28" y="302" font-size="13" fill="#24292f">In Progress</text>
+  <text x="28" y="318" font-size="10" fill="#57606a">inProgress</text>
+  <rect x="162" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="248" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="334" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="420" y="280" width="82" height="48" rx="4" fill="#ecad3d"><title>inProgress — COMPLETE → done: 4 (W1, W2, W3, W4)</title></rect>
+  <text x="461" y="300" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">4</text>
+  <text x="461" y="316" font-size="10" fill="#24292f" text-anchor="middle">done</text>
+  <rect x="506" y="280" width="82" height="48" rx="4" fill="#dbd9c1"><title>inProgress — SNOOZE → snoozed: 1 (W2)</title></rect>
+  <text x="547" y="300" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="547" y="316" font-size="10" fill="#24292f" text-anchor="middle">snoozed</text>
+  <rect x="592" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="678" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="764" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="850" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="936" y="280" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <text x="28" y="354" font-size="13" fill="#24292f">Snoozed</text>
+  <text x="28" y="370" font-size="10" fill="#57606a">snoozed</text>
+  <rect x="162" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="248" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="334" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="420" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="506" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="592" y="332" width="82" height="48" rx="4" fill="#dbd9c1"><title>snoozed — RESUME → inProgress: 1 (W2)</title></rect>
+  <text x="633" y="352" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="633" y="368" font-size="10" fill="#24292f" text-anchor="middle">inProgress</text>
+  <rect x="678" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="764" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="850" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="936" y="332" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <text x="28" y="406" font-size="13" fill="#24292f">Done</text>
+  <text x="28" y="422" font-size="10" fill="#57606a">done</text>
+  <rect x="162" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="248" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="334" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="420" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="506" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="592" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="678" y="384" width="82" height="48" rx="4" fill="#dbd9c1"><title>done — REOPEN → todo: 1 (W3)</title></rect>
+  <text x="719" y="404" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="719" y="420" font-size="10" fill="#24292f" text-anchor="middle">todo</text>
+  <rect x="764" y="384" width="82" height="48" rx="4" fill="#dbd9c1"><title>done — ARCHIVE → archived: 1 (W4)</title></rect>
+  <text x="805" y="404" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="805" y="420" font-size="10" fill="#24292f" text-anchor="middle">archived</text>
+  <rect x="850" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="936" y="384" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <text x="28" y="458" font-size="13" fill="#24292f">Archived</text>
+  <text x="28" y="474" font-size="10" fill="#57606a">archived</text>
+  <rect x="162" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="248" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="334" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="420" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="506" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="592" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="678" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="764" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="850" y="436" width="82" height="48" rx="4" fill="#d0e2f3"><title>archived — UNARCHIVE → done: 0</title></rect>
+  <text x="891" y="456" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">0</text>
+  <text x="891" y="472" font-size="10" fill="#24292f" text-anchor="middle">done</text>
+  <rect x="936" y="436" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <text x="28" y="510" font-size="13" fill="#24292f">Deleted</text>
+  <text x="28" y="526" font-size="10" fill="#57606a">deleted</text>
+  <rect x="162" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="248" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="334" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="420" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="506" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="592" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="678" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="764" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="850" y="488" width="82" height="48" rx="4" fill="#f6f8fa" stroke="#eaeef2"><title>no transition</title></rect>
+  <rect x="936" y="488" width="82" height="48" rx="4" fill="#dbd9c1"><title>deleted — RESTORE → todo: 1 (W6)</title></rect>
+  <text x="977" y="508" font-size="16" font-weight="700" fill="#24292f" text-anchor="middle">1</text>
+  <text x="977" y="524" font-size="10" fill="#24292f" text-anchor="middle">todo</text>
+  <defs><linearGradient id="coverage-heat" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#d0e2f3"/>
+    <stop offset="0.5" stop-color="#f6c443"/>
+    <stop offset="1" stop-color="#b22318"/>
+  </linearGradient></defs>
+  <rect x="160" y="554" width="280" height="12" rx="2" fill="url(#coverage-heat)"/>
+  <text x="160" y="582" font-size="11" fill="#57606a">0</text>
+  <text x="440" y="582" font-size="11" fill="#57606a" text-anchor="end">7</text>
+</svg>

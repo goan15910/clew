@@ -16,6 +16,10 @@ function reportMarkdown(document: VerifyDocument, model: Model): string {
     '',
     `- Final states: ${model.states().filter((state) => state.final).map((state) => state.label).join(', ') || 'none'}`,
     `- Transitions not exercised by the selected workflows: ${(document.unusedTransitions ?? []).join('; ') || 'none'}`,
+    ...(document.views?.heatmap !== undefined ? [`- Heatmap: \`${document.views.heatmap}\``] : []),
+    ...(document.views?.replays !== undefined && document.views.replays.length > 0
+      ? [`- Replay: ${document.views.replays.map((replay) => `\`${replay.file}\` (${replay.frames} frames)`).join(', ')}`]
+      : []),
     '',
     '| Workflow | Expect | Result | Path / reason |',
     '|---|---|---|---|',

@@ -35,6 +35,12 @@ export function humanSummary(document: CommandDocument): string {
     for (const flow of document.flows ?? []) {
       if (!flow.pass) lines.push(`  FAIL ${flow.id}: ${flow.reason}`);
     }
+    if (document.views?.heatmap !== undefined) lines.push(`  heatmap: ${document.views.heatmap}`);
+    if (document.views?.replays !== undefined && document.views.replays.length > 0) {
+      const files: string[] = [];
+      for (const replay of document.views.replays) files.push(replay.file);
+      lines.push(`  replay: ${files.join(', ')}`);
+    }
     return lines.join('\n');
   }
   if (document.command === 'spec.init') {

@@ -1,6 +1,6 @@
 // Use case: prove each selected named sub-graph against a chart, through an explicit mapping.
 import { mapChain } from '../domain/mapping.js';
-import { unusedTransitions, verifyFlow, type ChartFlow, type WorkflowResult } from '../domain/verification.js';
+import { transitionCoverage, unusedTransitions, verifyFlow, type ChartFlow, type WorkflowResult } from '../domain/verification.js';
 import type { LinkedWorkflow, WorkflowSet } from '../domain/workflow.js';
 import { candidateName } from './candidate-name.js';
 import {
@@ -10,6 +10,7 @@ import {
   type VerifyDocument,
   type VerifyFlowDocument,
   type VerifyTraceStep,
+  type VerifyViews,
 } from './documents.js';
 import type { VerifyPorts } from './ports.js';
 
@@ -21,6 +22,8 @@ export interface VerifyFlowsCommand {
   selectFile?: string;
   highlight?: string;
   outDir?: string;
+  heatmap?: boolean;
+  replay?: boolean;
 }
 
 function unique(ids: readonly string[]): string[] {
@@ -144,10 +147,18 @@ export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Ou
   for (const result of results) documents.push(flowDocument(result));
   const passed = results.filter((result) => result.pass).length;
   const failed = results.length - passed;
+  const name = candidateName(command.chartFile);
+  const coverage = command.heatmap === true ? transitionCoverage(model, results) : undefined;
+  let views: VerifyViews | undefined;
+  if (command.outDir !== undefined && (command.heatmap === true || command.replay === true)) {
+    views = {};
+    if (coverage !== undefined) views.heatmap = ports.diagrams.writeHeatmap(model, name, results.length, coverage, command.outDir);
+    if (command.replay === true) views.replays = ports.diagrams.writeReplays(model, results, command.outDir);
+  }
   const document: VerifyDocument = {
     command: 'verify',
     ok: failed === 0,
-    candidate: candidateName(command.chartFile),
+    candidate: name,
     chartId: model.id,
     workflowSetId: set.id,
     selected: ids,
@@ -156,9 +167,11 @@ export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Ou
     unusedTransitions: unusedTransitions(model, results),
     issues: [],
   };
+  if (coverage !== undefined) document.transitionCoverage = coverage;
+  if (views !== undefined) document.views = views;
   if (command.outDir !== undefined) {
     ports.reports.writeVerification(document, model, command.outDir);
-    ports.diagrams.render(model, candidateName(command.chartFile), results, passed, command.outDir, command.highlight);
+    ports.diagrams.render(model, name, results, passed, command.outDir, command.highlight);
   }
   return { exit: failed === 0 ? 'pass' : 'fail', document };
 }

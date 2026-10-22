@@ -1,0 +1,139 @@
+name: proof views
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: heatmap without out is exit 2
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "need --out"
+    - result.systemoutjson.command ShouldEqual verify
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual usage
+
+- name: replay without out is exit 2
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --replay --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "need --out"
+    - result.systemoutjson.fault ShouldEqual usage
+    - result.systemoutjson.ok ShouldBeFalse
+
+- name: heatmap writes coverage for b-full
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --out '{{.dir}}' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.views.heatmap ShouldEqual coverage-heatmap.svg
+    - result.systemoutjson.transitionCoverage.transitionCoverage0.from ShouldEqual draft
+    - result.systemoutjson.transitionCoverage.transitionCoverage0.event ShouldEqual SUBMIT
+    - result.systemoutjson.transitionCoverage.transitionCoverage0.to ShouldEqual todo
+    - result.systemoutjson.transitionCoverage.transitionCoverage0.count ShouldEqual 7
+    - result.systemoutjson.transitionCoverage.transitionCoverage11.event ShouldEqual UNARCHIVE
+    - result.systemoutjson.transitionCoverage.transitionCoverage11.count ShouldEqual 0
+  - type: exec
+    script: "head -c 80 '{{.dir}}/coverage-heatmap.svg'"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring "<svg"
+
+- name: replay writes a W8 gif including the refused step
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --replay --flow W8 --out '{{.dir}}' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.summary.total ShouldEqual 1
+    - result.systemoutjson.views.replays.replays0.id ShouldEqual W8
+    - result.systemoutjson.views.replays.replays0.file ShouldEqual replays/W8.gif
+    - result.systemoutjson.views.replays.replays0.frames ShouldEqual 4
+  - type: exec
+    script: "head -c 6 '{{.dir}}/replays/W8.gif'"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring GIF89a
+
+- name: a-basic W8 still replays the step that should have been refused
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --replay --flow W8 --out '{{.dir}}' --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.flows.flows0.id ShouldEqual W8
+    - result.systemoutjson.flows.flows0.pass ShouldBeFalse
+    - result.systemoutjson.views.replays.replays0.frames ShouldEqual 4
+    - result.systemoutjson.views.replays.replays0.file ShouldEqual replays/W8.gif
+  - type: exec
+    script: "test -s '{{.dir}}/replays/W8.gif'"
+    assertions:
+    - result.code ShouldEqual 0
+
+- name: heatmap and replay together keep the verify verdict
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --replay --flow W1 --out '{{.dir}}' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.views.heatmap ShouldEqual coverage-heatmap.svg
+    - result.systemoutjson.views.replays.replays0.id ShouldEqual W1
+    - result.systemoutjson.views.replays.replays0.frames ShouldEqual 4
+    - result.systemoutjson.transitionCoverage.transitionCoverage0.count ShouldEqual 1
+  - type: exec
+    script: "test -s '{{.dir}}/coverage-heatmap.svg' && test -s '{{.dir}}/replays/W1.gif'"
+    assertions:
+    - result.code ShouldEqual 0
+
+- name: invalid chart does not write a heatmap
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify tests/fixtures/charts/not-yaml.txt examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --out '{{.dir}}' --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemoutjson.ok ShouldBeFalse
+  - type: exec
+    script: "test ! -e '{{.dir}}/coverage-heatmap.svg'"
+    assertions:
+    - result.code ShouldEqual 0

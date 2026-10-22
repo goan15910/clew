@@ -2,7 +2,7 @@
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { EntityKind, EntityReview, EntityStatus, FactType, Finding, FlowOrigin, SpecOrigin } from '../domain/spec.js';
-import type { Structure } from '../domain/verification.js';
+import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
 export interface OutputIssue {
   kind: 'schema' | 'graph' | 'input' | 'mapping';
@@ -119,6 +119,17 @@ export interface VerifyFlowDocument {
   trace: VerifyTraceStep[];
 }
 
+export interface VerifyReplayView {
+  id: string;
+  file: string;
+  frames: number;
+}
+
+export interface VerifyViews {
+  heatmap?: string;
+  replays?: VerifyReplayView[];
+}
+
 export interface VerifyDocument {
   command: 'verify';
   ok: boolean;
@@ -129,6 +140,8 @@ export interface VerifyDocument {
   summary?: { passed: number; failed: number; total: number };
   flows?: VerifyFlowDocument[];
   unusedTransitions?: string[];
+  transitionCoverage?: TransitionCoverage[];
+  views?: VerifyViews;
   fault?: 'unreadable' | 'invalid-chart' | 'invalid-workflows' | 'invalid-mapping' | 'mismatch' | 'selection' | 'mapping-gap';
   issues: OutputIssue[];
 }
