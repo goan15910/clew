@@ -1,0 +1,238 @@
+name: spec init and tag
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: init and tag json
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init examples/spec/order.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual order
+    - result.systemoutjson.spec ShouldEqual examples/spec/order.md
+    - result.systemoutjson.sentences ShouldHaveLength 3
+    - result.systemoutjson.sentences.sentences0.id ShouldEqual s1
+    - result.systemoutjson.sentences.sentences0.section ShouldEqual "Order approval"
+    - result.systemoutjson.sentences.sentences0.text ShouldContainSubstring "When the customer submits an order"
+    - result.systemoutjson.sentences.sentences1.id ShouldEqual s2
+    - result.systemoutjson.sentences.sentences2.id ShouldEqual s3
+    - result.systemoutjson.findings ShouldHaveLength 0
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.tag
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual order
+    - result.systemoutjson.tagger.name ShouldEqual compromise
+    - result.systemoutjson.tagger.version ShouldEqual 14.19.0
+    - result.systemoutjson.sentences ShouldHaveLength 3
+    - result.systemoutjson.sentences.sentences0.clauses.clauses0 ShouldContainSubstring "When the customer submits an order"
+    - result.systemoutjson.sentences.sentences0.tokens.tokens2.text ShouldEqual customer
+    - result.systemoutjson.sentences.sentences0.tokens.tokens2.tags.tags1 ShouldEqual Actor
+    - result.systemoutjson.sentences.sentences0.tokens.tokens3.text ShouldEqual submits
+    - result.systemoutjson.sentences.sentences0.tokens.tokens3.tags.tags0 ShouldEqual Verb
+    - result.systemoutjson.findings ShouldHaveLength 0
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --sentence s1 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.sentences ShouldHaveLength 1
+    - result.systemoutjson.sentences.sentences0.id ShouldEqual s1
+  - type: exec
+    script: "find '{{.dir}}' -type f -name session.json -o -type f -name sentences.json -o -type f -name tokens.json | sort"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring session.json
+    - result.systemout ShouldContainSubstring sentences.json
+    - result.systemout ShouldContainSubstring tokens.json
+    - result.systemout ShouldNotContainSubstring ".lock"
+
+- name: init and tag human summary
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init examples/spec/order.md"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "session order: 3 sentences"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "session order: tagged 3 sentences (compromise 14.19.0)"'
+
+- name: tag before init
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "no spec session"
+    - result.systemoutjson.command ShouldEqual spec.tag
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: missing spec file
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/missing.md' --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "cannot read"
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual unreadable
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: stdin is refused
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init - --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring stdin
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: bad session id
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init examples/spec/order.md --session 1bad --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "session ids start with a letter"
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual usage
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: empty spec is a blocking finding
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "printf '\\n' > '{{.dir}}/empty.md'"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/empty.md' --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual empty
+    - result.systemoutjson.findings.findings0.code ShouldEqual no-sentences
+    - result.systemoutjson.findings.findings0.severity ShouldEqual blocking
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: unknown sentence
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init examples/spec/order.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --sentence s9 --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "unknown sentence"
+    - result.systemoutjson.command ShouldEqual spec.tag
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: two sessions require --session
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      printf 'The customer submits an order.\n' > '{{.dir}}/a.md'
+      printf 'The manager approves the order.\n' > '{{.dir}}/b.md'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/a.md' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.session ShouldEqual a
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/b.md' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.session ShouldEqual b
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "pass --session"
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --session a --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual a
