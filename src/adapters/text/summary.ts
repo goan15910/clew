@@ -37,6 +37,19 @@ export function humanSummary(document: CommandDocument): string {
     }
     return lines.join('\n');
   }
+  if (document.command === 'spec.init') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const lines = [`session ${document.session}: ${document.sentences?.length ?? 0} sentences`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.tag') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const tagger = document.tagger === undefined ? '' : ` (${document.tagger.name} ${document.tagger.version})`;
+    const lines = [`session ${document.session}: tagged ${document.sentences?.length ?? 0} sentences${tagger}`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
   if (document.fault !== undefined) return '';
   const lines = [document.winner ? `winner: ${document.winner}` : 'no winner'];
   for (const candidate of document.candidates ?? []) {

@@ -1,0 +1,417 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "Hotel booking",
+      "text": "The guest reserves a room if a room is available.",
+      "span": [
+        17,
+        66
+      ],
+      "hash": "sha256:49b21e2ea98c254e50bb40ab3b805b829f125568f5a6944c3337f02dfd62668b",
+      "clauses": [
+        "The guest reserves",
+        "a room if a room is available."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            17,
+            20
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "guest",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            21,
+            26
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "reserves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            27,
+            35
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            36,
+            37
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "room",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            38,
+            42
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t6",
+          "text": "if",
+          "tags": [
+            "Connector",
+            "Conjunction",
+            "Condition"
+          ],
+          "span": [
+            43,
+            45
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t7",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            46,
+            47
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t8",
+          "text": "room",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            48,
+            52
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t9",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "PresentTense"
+          ],
+          "span": [
+            53,
+            55
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t10",
+          "text": "available",
+          "tags": [
+            "Adjective"
+          ],
+          "span": [
+            56,
+            65
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s2",
+      "section": "Hotel booking",
+      "text": "The hotel confirms the reservation after the guest pays.",
+      "span": [
+        67,
+        123
+      ],
+      "hash": "sha256:ed131e7feab6e86c515ff395f72f98e7b09e1737457db28b4f205c7271313efc",
+      "clauses": [
+        "The hotel confirms the reservation after the guest pays."
+      ],
+      "tokens": [
+        {
+          "id": "s2.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            67,
+            70
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t2",
+          "text": "hotel",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            71,
+            76
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t3",
+          "text": "confirms",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            77,
+            85
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            86,
+            89
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t5",
+          "text": "reservation",
+          "tags": [
+            "Singular",
+            "Noun"
+          ],
+          "span": [
+            90,
+            101
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t6",
+          "text": "after",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            102,
+            107
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            108,
+            111
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t8",
+          "text": "guest",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            112,
+            117
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t9",
+          "text": "pays",
+          "tags": [
+            "Noun",
+            "Plural"
+          ],
+          "span": [
+            118,
+            122
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s3",
+      "section": "Hotel booking",
+      "text": "The guest cancels the reservation before the arrival date.",
+      "span": [
+        125,
+        183
+      ],
+      "hash": "sha256:ed833a9b9ebe13391daf5ed5cc1c98d3a44075872fd69842ce26d2baf5191bec",
+      "clauses": [
+        "The guest cancels the reservation before the arrival date."
+      ],
+      "tokens": [
+        {
+          "id": "s3.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            125,
+            128
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t2",
+          "text": "guest",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            129,
+            134
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t3",
+          "text": "cancels",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            135,
+            142
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            143,
+            146
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t5",
+          "text": "reservation",
+          "tags": [
+            "Singular",
+            "Noun"
+          ],
+          "span": [
+            147,
+            158
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t6",
+          "text": "before",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            159,
+            165
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            166,
+            169
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t8",
+          "text": "arrival",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            170,
+            177
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t9",
+          "text": "date",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            178,
+            182
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    }
+  ],
+  "otherFindings": []
+}

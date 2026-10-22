@@ -1,0 +1,533 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "Library",
+      "text": "A member borrows a book when a copy is on the shelf.",
+      "span": [
+        11,
+        63
+      ],
+      "hash": "sha256:929856d181c2238c7d468a18d6be4a3813b1dc00bdb1eb99a3fef810740b8902",
+      "clauses": [
+        "A member borrows a book when a copy is on the shelf."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "A",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            11,
+            12
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "member",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            13,
+            19
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "borrows",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            20,
+            27
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            28,
+            29
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "book",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            30,
+            34
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t6",
+          "text": "when",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            35,
+            39
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t7",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            40,
+            41
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t8",
+          "text": "copy",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            42,
+            46
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t9",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "PresentTense"
+          ],
+          "span": [
+            47,
+            49
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t10",
+          "text": "on",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            50,
+            52
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t11",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            53,
+            56
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t12",
+          "text": "shelf",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            57,
+            62
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "no-actor:s1",
+          "kind": "coverage",
+          "code": "no-actor",
+          "severity": "warning",
+          "message": "s1 has no actor",
+          "refs": [
+            "s1"
+          ]
+        },
+        {
+          "id": "condition-without-clause:s1",
+          "kind": "coverage",
+          "code": "condition-without-clause",
+          "severity": "warning",
+          "message": "s1 uses \"when\" but the tagger did not split a clause",
+          "refs": [
+            "s1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "section": "Library",
+      "text": "The member returns the book before the due date.",
+      "span": [
+        64,
+        112
+      ],
+      "hash": "sha256:5427c06263737304f02f65c2e4fe05441e91a99fbda750b1d190bd4e6e249b0e",
+      "clauses": [
+        "The member returns the book before the due date."
+      ],
+      "tokens": [
+        {
+          "id": "s2.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            64,
+            67
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t2",
+          "text": "member",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            68,
+            74
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t3",
+          "text": "returns",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            75,
+            82
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            83,
+            86
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t5",
+          "text": "book",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            87,
+            91
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t6",
+          "text": "before",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            92,
+            98
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            99,
+            102
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t8",
+          "text": "due",
+          "tags": [
+            "Adjective"
+          ],
+          "span": [
+            103,
+            106
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t9",
+          "text": "date",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            107,
+            111
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "no-actor:s2",
+          "kind": "coverage",
+          "code": "no-actor",
+          "severity": "warning",
+          "message": "s2 has no actor",
+          "refs": [
+            "s2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "section": "Library",
+      "text": "The librarian marks the book overdue if the member does not return it.",
+      "span": [
+        114,
+        184
+      ],
+      "hash": "sha256:b21fd7dc9129612ce2a8fff9346e1afe4f3a987bb07de072191cb31ec0e30231",
+      "clauses": [
+        "The librarian marks the",
+        "book overdue if the member does not return it."
+      ],
+      "tokens": [
+        {
+          "id": "s3.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            114,
+            117
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t2",
+          "text": "librarian",
+          "tags": [
+            "Singular",
+            "Noun"
+          ],
+          "span": [
+            118,
+            127
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t3",
+          "text": "marks",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            128,
+            133
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            134,
+            137
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t5",
+          "text": "book",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            138,
+            142
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t6",
+          "text": "overdue",
+          "tags": [
+            "Adjective"
+          ],
+          "span": [
+            143,
+            150
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t7",
+          "text": "if",
+          "tags": [
+            "Connector",
+            "Conjunction",
+            "Condition"
+          ],
+          "span": [
+            151,
+            153
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t8",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            154,
+            157
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t9",
+          "text": "member",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            158,
+            164
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t10",
+          "text": "does",
+          "tags": [
+            "Verb",
+            "Auxiliary"
+          ],
+          "span": [
+            165,
+            169
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t11",
+          "text": "not",
+          "tags": [
+            "Negative"
+          ],
+          "span": [
+            170,
+            173
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t12",
+          "text": "return",
+          "tags": [
+            "Verb",
+            "PresentTense",
+            "Infinitive"
+          ],
+          "span": [
+            174,
+            180
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t13",
+          "text": "it",
+          "tags": [
+            "Noun",
+            "Pronoun"
+          ],
+          "span": [
+            181,
+            183
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "no-actor:s3",
+          "kind": "coverage",
+          "code": "no-actor",
+          "severity": "warning",
+          "message": "s3 has no actor",
+          "refs": [
+            "s3"
+          ]
+        }
+      ]
+    }
+  ],
+  "otherFindings": []
+}

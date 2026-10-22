@@ -24,11 +24,67 @@ clew chart analyze <chart.yaml> [--json]
 clew workflows check <set.yaml> [--json]
 clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow <id>] [--select <file>] [--highlight <id>] [--out <dir>] [--json]
 clew compare <verify.json>... [--out <dir>] [--json]
+clew spec init <spec.md> [--session <id>] [--json]
+clew spec tag [--session <id>] [--sentence <id>] [--json]
 ```
 
 `--flow` is repeatable. `--select` reads a JSON file. Passing neither verifies every workflow, in file order. Passing both unions them, `--flow` first, dropping duplicates. `--select -` is rejected: Clew never reads stdin, so it cannot wait for input.
 
 `--out` is optional. Reports and Graphviz charts are written only when it is set.
+
+### Spec
+
+`spec init` and `spec tag` are the first layer of turning a plain-English spec into a workflow set. Entities, facts, the draft graph, and emit are not in this version. Clew does not call a language model. The tagger is a starting point; the calling agent is the guard.
+
+`spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
+
+Running `spec init` again on the same file refreshes that session. Unchanged sentence text keeps its id. Changed or removed sentences stay in the store as `stale` and are reported. They are not deleted. A sentence that comes back with the same hash is revived, and token spans shift if the text moved in the file.
+
+`spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. This version has no command that sets `origin` to `agent`.
+
+`--session` selects a session. When it is omitted, Clew uses the only open session for this repo. Zero sessions, or more than one, is exit 2.
+
+The session store is outside the repo. Nothing is written next to the spec, and there is nothing to commit. On Linux and macOS the base directory is `$XDG_DATA_HOME/clew`, or `~/.local/share/clew` when `XDG_DATA_HOME` is unset. On Windows it is `%LOCALAPPDATA%\clew`. `CLEW_DATA_DIR` overrides that base. Under it, sessions live at:
+
+```txt
+<repo-name>-<path-hash>/spec/<session-id>/
+  session.json
+  sentences.json
+  tokens.json
+  history.jsonl
+  .lock
+```
+
+`<repo-name>` is the git root’s directory name (the working directory when there is no `.git`). `<path-hash>` is the first 12 hex characters of the SHA-256 of that directory’s real path. `<session-id>` defaults to the spec file’s basename. A `.lock` file is the single writer for that session. A lock whose process is gone is taken over. A live lock is exit 2.
+
+`session.json` carries `schemaVersion`. This Clew reads schema 1. A different version is exit 2 and names the missing migration. The store adapter is the only place that validates that JSON with Zod.
+
+Every spec document has `findings`. A finding is `{ id, kind, code, severity, message, refs }`. `kind` is `gap`, `conflict`, `stale`, `vocabulary`, or `coverage`. `severity` is `blocking`, `warning`, or `info`. `ok` means the layer was produced. It stays true when findings are present. Exit 0 means no blocking finding. Exit 1 means a blocking finding is in the document, and stderr stays empty. Warnings and info do not change the exit code.
+
+`spec init` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `no-sentences` | blocking | the file has no sentence text |
+| `empty-sentence` | warning | a block had no sentence text |
+| `non-english` | warning | a sentence uses a non-Latin script |
+| `duplicate-sentence` | warning | the same sentence text appears twice |
+| `stale-sentence` | warning | a previous sentence changed or was removed |
+
+Latin-script languages are not detected. Translate those to plain English before `spec init`.
+
+`spec tag` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `no-verb` | warning | no token is tagged `Verb` |
+| `no-actor` | warning | no token is tagged `Actor` |
+| `condition-without-clause` | warning | the sentence says if, when, or unless, and the tagger returned one clause |
+| `agent-tokens` | warning | agent-owned tokens were left in place |
+| `tagger-version` | info | the stored tagger version differs from this one |
+| `stale-sentence` | warning | a stale sentence is still in the session |
+
+Input failures use `issues` with `{ kind, file, path, message }` and `kind: "input"`. Model problems stay in `findings`.
 
 ### Selection
 
@@ -44,9 +100,9 @@ Unknown ids, a failing check document, and a file that is neither shape are exit
 
 | Code | Meaning |
 |---|---|
-| 0 | Chart schema and graph are valid; or the analysis is clean; or the workflow set is valid; or every selected flow passed; or compare has a winner |
-| 1 | Schema or graph is invalid; or the analysis found an unreachable state or a dead end; or a selected flow failed; or compare has no winner |
-| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; the mapping does not apply; the selection names a missing flow |
+| 0 | Chart schema and graph are valid; or the analysis is clean; or the workflow set is valid; or every selected flow passed; or compare has a winner; or spec init/tag left no blocking findings |
+| 1 | Schema or graph is invalid; or the analysis found an unreachable state or a dead end; or a selected flow failed; or compare has no winner; or a spec command reported a blocking finding |
+| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; the mapping does not apply; the selection names a missing flow; the spec file or session cannot be read |
 
 Schema is checked before the graph. Graph findings are produced only after the schema is valid (`graphChecked` tells them apart). YAML and JSON syntax errors are exit 2: there is no document to judge yet.
 
@@ -225,6 +281,60 @@ These are shapes. Captured command output is in the pull request. Every `--json`
 The winner is the first candidate, in argument order after the pass-count sort, that passed every flow. Another candidate’s failures do not disqualify it. A tie keeps argument order. A document that is not a consistent verify result is exit 2.
 
 Bad arguments, when `--json` was passed, use `{ "command", "ok": false, "fault": "usage", "issues" }` and exit 2.
+
+`spec.init`, after a readable file. `ok` stays true when a blocking finding is present; the exit code is 1 in that case. `section` is `""` when the sentence is above any heading.
+
+```json
+{
+  "command": "spec.init",
+  "ok": true,
+  "session": "order",
+  "spec": "examples/spec/order.md",
+  "specHash": "sha256:…",
+  "sentences": [
+    {
+      "id": "s1",
+      "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.",
+      "span": [18, 119],
+      "hash": "sha256:…",
+      "section": "Order approval"
+    }
+  ],
+  "findings": [],
+  "issues": []
+}
+```
+
+`spec.tag`. Spans are character offsets into the spec file, the same coordinates as the sentence span. The store keeps every token; this excerpt is the start of the sample sentence.
+
+```json
+{
+  "command": "spec.tag",
+  "ok": true,
+  "session": "order",
+  "tagger": { "name": "compromise", "version": "14.19.0" },
+  "sentences": [
+    {
+      "id": "s1",
+      "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.",
+      "section": "Order approval",
+      "clauses": [
+        "When the customer submits an order,",
+        "the manager approves",
+        "the order if the total is under 500 dollars."
+      ],
+      "tokens": [
+        { "id": "s1.t1", "text": "When", "tags": ["Connector", "Conjunction"], "span": [18, 22], "origin": "tagger" },
+        { "id": "s1.t3", "text": "customer", "tags": ["Noun", "Actor", "Singular"], "span": [27, 35], "origin": "tagger" }
+      ]
+    }
+  ],
+  "findings": [],
+  "issues": []
+}
+```
+
+A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` is false, `fault` is `session`, `locked`, `schema`, or `unreadable`, `findings` is empty, and `issues` carries the message. The same shape is printed for `--json`. Without `--json`, exit 2 writes only to stderr.
 
 ## Migration
 

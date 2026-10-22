@@ -1,0 +1,378 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "Expenses",
+      "text": "The employee submits an expense report.",
+      "span": [
+        12,
+        51
+      ],
+      "hash": "sha256:83b751f9a4228c23a42cea31ae3854734e253302070f453e29487fca330838ad",
+      "clauses": [
+        "The employee submits an expense report."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            12,
+            15
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "employee",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            16,
+            24
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "submits",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            25,
+            32
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "an",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            33,
+            35
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "expense",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            36,
+            43
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t6",
+          "text": "report",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            44,
+            50
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s2",
+      "section": "Expenses",
+      "text": "The manager approves the report unless the amount is over the limit.",
+      "span": [
+        52,
+        120
+      ],
+      "hash": "sha256:50f52fc62f6a1acbb8fd335277aa3a8d54e3864ec04f1a0517763bd55fd7a55a",
+      "clauses": [
+        "The manager approves the report unless the amount is over the limit."
+      ],
+      "tokens": [
+        {
+          "id": "s2.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            52,
+            55
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t2",
+          "text": "manager",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            56,
+            63
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t3",
+          "text": "approves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            64,
+            72
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            73,
+            76
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t5",
+          "text": "report",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            77,
+            83
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t6",
+          "text": "unless",
+          "tags": [
+            "Connector",
+            "Condition"
+          ],
+          "span": [
+            84,
+            90
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            91,
+            94
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t8",
+          "text": "amount",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            95,
+            101
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t9",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "PresentTense"
+          ],
+          "span": [
+            102,
+            104
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t10",
+          "text": "over",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            105,
+            109
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t11",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            110,
+            113
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t12",
+          "text": "limit",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            114,
+            119
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "condition-without-clause:s2",
+          "kind": "coverage",
+          "code": "condition-without-clause",
+          "severity": "warning",
+          "message": "s2 uses \"unless\" but the tagger did not split a clause",
+          "refs": [
+            "s2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "section": "Expenses",
+      "text": "Accounting pays the employee after approval.",
+      "span": [
+        122,
+        166
+      ],
+      "hash": "sha256:9b048f6dd5635f306da7590a67a71fa8c969ec71f58950ebcb814aa5648e2fd2",
+      "clauses": [
+        "Accounting pays the employee after approval."
+      ],
+      "tokens": [
+        {
+          "id": "s3.t1",
+          "text": "Accounting",
+          "tags": [
+            "Verb",
+            "PresentTense",
+            "Gerund"
+          ],
+          "span": [
+            122,
+            132
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t2",
+          "text": "pays",
+          "tags": [
+            "Noun",
+            "Plural"
+          ],
+          "span": [
+            133,
+            137
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t3",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            138,
+            141
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t4",
+          "text": "employee",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            142,
+            150
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t5",
+          "text": "after",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            151,
+            156
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t6",
+          "text": "approval",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            157,
+            165
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    }
+  ],
+  "otherFindings": []
+}

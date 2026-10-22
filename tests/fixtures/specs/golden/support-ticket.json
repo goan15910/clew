@@ -1,0 +1,534 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "Support",
+      "text": "The customer opens a ticket.",
+      "span": [
+        11,
+        39
+      ],
+      "hash": "sha256:4ccaeccc99cebe56578412283c1ebb24368e1113917bfdd5f787152c9e8fcd5e",
+      "clauses": [
+        "The customer opens a ticket."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            11,
+            14
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "customer",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            15,
+            23
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "opens",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            24,
+            29
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            30,
+            31
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "ticket",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            32,
+            38
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s2",
+      "section": "Support",
+      "text": "An agent assigns the ticket to a specialist.",
+      "span": [
+        40,
+        84
+      ],
+      "hash": "sha256:6d13b7e98dfa9bd543478849420d4a77c5b79d1ec9dc0d846b89e5deb44223d8",
+      "clauses": [
+        "An agent assigns the ticket to a specialist."
+      ],
+      "tokens": [
+        {
+          "id": "s2.t1",
+          "text": "An",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            40,
+            42
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t2",
+          "text": "agent",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            43,
+            48
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t3",
+          "text": "assigns",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            49,
+            56
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            57,
+            60
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t5",
+          "text": "ticket",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            61,
+            67
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t6",
+          "text": "to",
+          "tags": [
+            "Connector",
+            "Preposition"
+          ],
+          "span": [
+            68,
+            70
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t7",
+          "text": "a",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            71,
+            72
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t8",
+          "text": "specialist",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            73,
+            83
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s3",
+      "section": "Support",
+      "text": "The specialist resolves the ticket when the customer confirms the fix.",
+      "span": [
+        86,
+        156
+      ],
+      "hash": "sha256:e302a5a859f41ed4cca0fe32d07a3ed08d9cf180cb5a5837ce7cf2b5487f8f87",
+      "clauses": [
+        "The specialist resolves the ticket when the customer confirms the fix."
+      ],
+      "tokens": [
+        {
+          "id": "s3.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            86,
+            89
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t2",
+          "text": "specialist",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            90,
+            100
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t3",
+          "text": "resolves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            101,
+            109
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            110,
+            113
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t5",
+          "text": "ticket",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            114,
+            120
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t6",
+          "text": "when",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            121,
+            125
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            126,
+            129
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t8",
+          "text": "customer",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            130,
+            138
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t9",
+          "text": "confirms",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            139,
+            147
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t10",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            148,
+            151
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t11",
+          "text": "fix",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            152,
+            155
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "condition-without-clause:s3",
+          "kind": "coverage",
+          "code": "condition-without-clause",
+          "severity": "warning",
+          "message": "s3 uses \"when\" but the tagger did not split a clause",
+          "refs": [
+            "s3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "section": "Support",
+      "text": "The customer can reopen the ticket if the problem returns.",
+      "span": [
+        157,
+        215
+      ],
+      "hash": "sha256:93fbcd3fecc58c0337c103ee64fbd40e3646d5064a29eca9f47b96dcbb0fc1ff",
+      "clauses": [
+        "The customer can reopen the ticket if the problem returns."
+      ],
+      "tokens": [
+        {
+          "id": "s4.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            157,
+            160
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t2",
+          "text": "customer",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            161,
+            169
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t3",
+          "text": "can",
+          "tags": [
+            "Verb",
+            "Modal",
+            "Auxiliary"
+          ],
+          "span": [
+            170,
+            173
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t4",
+          "text": "reopen",
+          "tags": [
+            "Verb",
+            "PresentTense",
+            "Infinitive"
+          ],
+          "span": [
+            174,
+            180
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t5",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            181,
+            184
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t6",
+          "text": "ticket",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            185,
+            191
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t7",
+          "text": "if",
+          "tags": [
+            "Connector",
+            "Conjunction",
+            "Condition"
+          ],
+          "span": [
+            192,
+            194
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t8",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            195,
+            198
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t9",
+          "text": "problem",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            199,
+            206
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s4.t10",
+          "text": "returns",
+          "tags": [
+            "Noun",
+            "Plural"
+          ],
+          "span": [
+            207,
+            214
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": [
+        {
+          "id": "condition-without-clause:s4",
+          "kind": "coverage",
+          "code": "condition-without-clause",
+          "severity": "warning",
+          "message": "s4 uses \"if\" but the tagger did not split a clause",
+          "refs": [
+            "s4"
+          ]
+        }
+      ]
+    }
+  ],
+  "otherFindings": []
+}

@@ -4,11 +4,16 @@
 // clew workflows check <set.yaml> [--json]
 // clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow W1] [--select file] [--out dir] [--highlight W2] [--json]
 // clew compare <verify.json>... [--out dir] [--json]
+// clew spec init <spec.md> [--session id] [--json]
+// clew spec tag [--session id] [--sentence s1] [--json]
 //
 // Composition root: parse arguments, wire adapters into use cases, map results to output and exit codes.
 import { Command, CommanderError } from '@commander-js/extra-typings';
 import { z } from 'zod';
 import { jsonSelectionLoader } from './adapters/json/selection-loader.js';
+import { compromiseTagger } from './adapters/pos/compromise-tagger.js';
+import { jsonSpecStore } from './adapters/spec-store/json-file-store.js';
+import { specTextSource } from './adapters/spec-store/read-spec.js';
 import { jsonVerifyResultLoader } from './adapters/json/verify-result-loader.js';
 import { graphvizDiagramRenderer } from './adapters/diagram/graphviz-renderer.js';
 import { fileReportWriter } from './adapters/report/file-report-writer.js';
@@ -22,9 +27,12 @@ import { analyzeChart } from './application/analyze-chart.js';
 import { checkChart } from './application/check-chart.js';
 import { checkWorkflows } from './application/check-workflows.js';
 import { compareResults } from './application/compare-results.js';
+import { initSpec } from './application/init-spec.js';
 import { formatIssues, type CommandDocument, type Outcome, type OutputIssue } from './application/documents.js';
 import type { ComparePorts, VerifyPorts } from './application/ports.js';
+import { tagSpec } from './application/tag-spec.js';
 import { verifyFlows } from './application/verify-flows.js';
+import { SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
 import { WORKFLOW_ID_MESSAGE, WORKFLOW_ID_PATTERN } from './domain/workflow.js';
 
 const EXIT_PASS = 0;
@@ -50,6 +58,15 @@ const JsonFlag = z.object({ json: z.boolean().optional() });
 const OutFlag = z.object({
   json: z.boolean().optional(),
   out: z.string().min(1, 'output directory must not be empty').optional(),
+});
+const SpecInitFlags = z.object({
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+});
+const SpecTagFlags = z.object({
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+  sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
 });
 const VerifyFlags = z.object({
   json: z.boolean().optional(),
@@ -165,13 +182,40 @@ program
     emit(compareResults({ resultFiles, outDir: parsed.data.out }, comparePorts), parsed.data.json === true);
   });
 
+const spec = program.command('spec').description('Turn a plain-English spec into a workflow set, one layer at a time.');
+
+spec
+  .command('init')
+  .description('Split a Markdown spec into sentences and open a session.')
+  .argument('<spec>', 'Markdown or plain-text spec')
+  .option('--session <id>', 'session to create or reuse')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((file, opts) => {
+    const parsed = SpecInitFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.init', opts, parsed.error);
+    emit(initSpec({ file, sessionId: parsed.data.session }, specTextSource, jsonSpecStore), parsed.data.json === true);
+  });
+
+spec
+  .command('tag')
+  .description('Tag sentences with parts of speech.')
+  .option('--session <id>', 'session to tag; defaults to the only open session')
+  .option('--sentence <id>', 'tag only this sentence, for example s1')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecTagFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.tag', opts, parsed.error);
+    emit(tagSpec({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore, compromiseTagger), parsed.data.json === true);
+  });
+
 program.addHelpText('afterAll', `
 Exit codes:
-  0  check passed, analysis is clean, every selected flow passed, or compare has a winner
-  1  schema or graph invalid, analysis found unreachable states or dead ends, a flow failed, or compare has no winner
-  2  unreadable input, bad arguments, or verify/analyze preconditions failed
+  0  check passed, analysis is clean, every selected flow passed, compare has a winner, or spec init/tag left no blocking findings
+  1  schema or graph invalid, analysis found unreachable states or dead ends, a flow failed, compare has no winner, or a spec command reported a blocking finding
+  2  unreadable input, bad arguments, no spec session, or verify/analyze preconditions failed
 
---json writes one document to stdout. Errors go to stderr. Clew never prompts.
+--json writes one document to stdout. Errors go to stderr. Clew never prompts or reads stdin.
+Spec sessions are stored outside the repo. See docs/agent-cli.md.
 
 Examples:
   clew chart check examples/todo/b-full.yaml --json
@@ -180,6 +224,8 @@ Examples:
   clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json
   clew verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W8 --json
   clew compare b-full.json a-basic.json --json
+  clew spec init examples/spec/order.md --json
+  clew spec tag --json
 `);
 
 try {

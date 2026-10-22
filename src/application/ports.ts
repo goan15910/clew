@@ -1,6 +1,7 @@
 // Ports the use cases need. Adapters implement these; the use cases do not import adapters.
 import type { Mapping } from '../domain/mapping.js';
 import type { Model } from '../domain/model.js';
+import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
 import type { Traversal } from '../domain/traversal.js';
 import type { WorkflowResult } from '../domain/verification.js';
 import type { WorkflowSet } from '../domain/workflow.js';
@@ -56,4 +57,44 @@ export interface VerifyPorts {
 export interface ComparePorts {
   results: VerifyResultLoader;
   reports: ReportWriter;
+}
+
+export interface SpecText {
+  text: string;
+  path: string;
+  hash: string;
+}
+
+export interface SpecTextSource {
+  read(file: string): { ok: true; spec: SpecText } | { ok: false; message: string };
+  hash(text: string): string;
+}
+
+export interface SessionRef {
+  id: string;
+  specPath: string;
+}
+
+export interface SpecMutation {
+  snapshot: SpecSnapshot;
+  history?: SpecHistoryEntry;
+}
+
+export type SpecStoreResult =
+  | { ok: true; snapshot: SpecSnapshot }
+  | { ok: false; fault: 'missing' | 'schema' | 'locked' | 'unreadable'; message: string };
+
+export interface SpecStore {
+  listSessions(): SessionRef[];
+  update(
+    id: string,
+    options: { create: boolean },
+    mutate: (current: SpecSnapshot | undefined) => SpecMutation | undefined,
+  ): SpecStoreResult;
+}
+
+export interface PosTaggerPort {
+  readonly name: string;
+  readonly version: string;
+  tag(text: string): PosTagging;
 }

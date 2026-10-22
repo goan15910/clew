@@ -1,0 +1,541 @@
+{
+  "tagger": {
+    "name": "compromise",
+    "version": "14.19.0"
+  },
+  "sentences": [
+    {
+      "id": "s1",
+      "section": "Order approval",
+      "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.",
+      "span": [
+        18,
+        119
+      ],
+      "hash": "sha256:6b67fe8afd6b389bf48c5470a768995095fe1d1082a0956c62d483ecbf82b98f",
+      "clauses": [
+        "When the customer submits an order,",
+        "the manager approves",
+        "the order if the total is under 500 dollars."
+      ],
+      "tokens": [
+        {
+          "id": "s1.t1",
+          "text": "When",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            18,
+            22
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t2",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            23,
+            26
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t3",
+          "text": "customer",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            27,
+            35
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t4",
+          "text": "submits",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            36,
+            43
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t5",
+          "text": "an",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            44,
+            46
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t6",
+          "text": "order",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            47,
+            52
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            54,
+            57
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t8",
+          "text": "manager",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            58,
+            65
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t9",
+          "text": "approves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            66,
+            74
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t10",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            75,
+            78
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t11",
+          "text": "order",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            79,
+            84
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t12",
+          "text": "if",
+          "tags": [
+            "Connector",
+            "Conjunction",
+            "Condition"
+          ],
+          "span": [
+            85,
+            87
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t13",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            88,
+            91
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t14",
+          "text": "total",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            92,
+            97
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t15",
+          "text": "is",
+          "tags": [
+            "Verb",
+            "Copula",
+            "PresentTense"
+          ],
+          "span": [
+            98,
+            100
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t16",
+          "text": "under",
+          "tags": [
+            "Adjective"
+          ],
+          "span": [
+            101,
+            106
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t17",
+          "text": "500",
+          "tags": [
+            "Value",
+            "Cardinal",
+            "NumericValue",
+            "Money"
+          ],
+          "span": [
+            107,
+            110
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s1.t18",
+          "text": "dollars",
+          "tags": [
+            "Noun",
+            "Currency",
+            "Plural",
+            "Unit"
+          ],
+          "span": [
+            111,
+            118
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s2",
+      "section": "Order approval",
+      "text": "The warehouse ships the order after the manager approves it.",
+      "span": [
+        121,
+        181
+      ],
+      "hash": "sha256:19c96cd2a9039a9335f734fd02c07b391a3e084d2bfdf92d74d71eafd4f828cd",
+      "clauses": [
+        "The warehouse ships the order after the manager approves it."
+      ],
+      "tokens": [
+        {
+          "id": "s2.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            121,
+            124
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t2",
+          "text": "warehouse",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            125,
+            134
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t3",
+          "text": "ships",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            135,
+            140
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t4",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            141,
+            144
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t5",
+          "text": "order",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            145,
+            150
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t6",
+          "text": "after",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            151,
+            156
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t7",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            157,
+            160
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t8",
+          "text": "manager",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            161,
+            168
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t9",
+          "text": "approves",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            169,
+            177
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s2.t10",
+          "text": "it",
+          "tags": [
+            "Noun",
+            "Pronoun"
+          ],
+          "span": [
+            178,
+            180
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    },
+    {
+      "id": "s3",
+      "section": "Order approval",
+      "text": "The customer can cancel the order before it ships.",
+      "span": [
+        182,
+        232
+      ],
+      "hash": "sha256:39eb0878d438096377769652cb9c5f221de3dbfe9e062cef366f8f96f23c5b50",
+      "clauses": [
+        "The customer can cancel the order before it ships."
+      ],
+      "tokens": [
+        {
+          "id": "s3.t1",
+          "text": "The",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            182,
+            185
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t2",
+          "text": "customer",
+          "tags": [
+            "Noun",
+            "Actor",
+            "Singular"
+          ],
+          "span": [
+            186,
+            194
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t3",
+          "text": "can",
+          "tags": [
+            "Verb",
+            "Modal",
+            "Auxiliary"
+          ],
+          "span": [
+            195,
+            198
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t4",
+          "text": "cancel",
+          "tags": [
+            "Verb",
+            "PresentTense",
+            "Infinitive"
+          ],
+          "span": [
+            199,
+            205
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t5",
+          "text": "the",
+          "tags": [
+            "Determiner"
+          ],
+          "span": [
+            206,
+            209
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t6",
+          "text": "order",
+          "tags": [
+            "Noun",
+            "Singular"
+          ],
+          "span": [
+            210,
+            215
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t7",
+          "text": "before",
+          "tags": [
+            "Connector",
+            "Conjunction"
+          ],
+          "span": [
+            216,
+            222
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t8",
+          "text": "it",
+          "tags": [
+            "Noun",
+            "Pronoun"
+          ],
+          "span": [
+            223,
+            225
+          ],
+          "origin": "tagger"
+        },
+        {
+          "id": "s3.t9",
+          "text": "ships",
+          "tags": [
+            "Verb",
+            "PresentTense"
+          ],
+          "span": [
+            226,
+            231
+          ],
+          "origin": "tagger"
+        }
+      ],
+      "findings": []
+    }
+  ],
+  "otherFindings": []
+}
