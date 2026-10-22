@@ -17,4 +17,6 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run check:dependencies
+      - run: npm run check:imports
+      - run: npm run test:architecture
       - run: npm run test:spec
