@@ -1,0 +1,279 @@
+name: spec graph and emit
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: build dry-run refuse and force
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.status
+    - result.systemoutjson.layers.graph ShouldBeFalse
+    - result.systemoutjson.findingsByLayer.graph.graph0.code ShouldEqual graph-absent
+    - result.systemoutjson.findingsByLayer.graph.graph0.severity ShouldEqual info
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f3 --from-state draft --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --type initial --object object:order --state draft --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.facts.facts5.id ShouldEqual f6
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.graph.build
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual order-sentence
+    - result.systemoutjson.graph.objects.objects0 ShouldEqual order
+    - result.systemoutjson.graph.states.states0.id ShouldEqual draft
+    - result.systemoutjson.graph.states.states0.initial ShouldBeTrue
+    - result.systemoutjson.graph.states.states0.facts.facts0 ShouldEqual f3
+    - result.systemoutjson.graph.states.states0.facts.facts1 ShouldEqual f6
+    - result.systemoutjson.graph.transitions.transitions0.id ShouldEqual tr1
+    - result.systemoutjson.graph.transitions.transitions0.event ShouldEqual submit
+    - result.systemoutjson.graph.transitions.transitions0.actor ShouldEqual customer
+    - result.systemoutjson.graph.transitions.transitions1.id ShouldEqual tr2
+    - result.systemoutjson.graph.transitions.transitions1.guard ShouldEqual condition:c1
+    - result.systemoutjson.flows.flows0.id ShouldEqual W1
+    - result.systemoutjson.flows.flows0.title ShouldEqual "Submit order"
+    - result.systemoutjson.flows.flows0.origin ShouldEqual rule
+    - result.systemoutjson.flows.flows1.id ShouldEqual W2
+    - result.systemoutjson.flows.flows1.transitions.transitions0 ShouldEqual tr2
+    - result.systemoutjson.findings.findings0.code ShouldEqual no-final-state
+    - result.systemoutjson.findings.findings1.code ShouldEqual guard-without-else
+    - result.systemoutjson.findings.findings1.severity ShouldEqual blocking
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemoutjson.flows.flows0.id ShouldEqual W1
+    - result.systemoutjson.flows.flows1.id ShouldEqual W2
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --dry-run --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.emit
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.dryRun ShouldBeTrue
+    - result.systemoutjson.id ShouldEqual orderFlows
+    - result.systemoutjson.yaml ShouldContainSubstring "The customer submits an order"
+    - result.systemoutjson.yaml ShouldContainSubstring "The manager approves the order if the total is under 500 dollars"
+    - result.systemoutjson.findings.findings1.code ShouldEqual guard-without-else
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --out '{{.dir}}/flows.yaml' --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.emit
+  - type: exec
+    script: "test ! -f '{{.dir}}/flows.yaml'"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --out '{{.dir}}/flows.yaml' --force --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.forced ShouldBeTrue
+    - result.systemoutjson.written ShouldEqual "{{.dir}}/flows.yaml"
+    - result.systemoutjson.findings.findings1.code ShouldEqual guard-without-else
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check '{{.dir}}/flows.yaml' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.command ShouldEqual workflows.check
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemoutjson.layers.graph ShouldBeTrue
+    - result.systemoutjson.findingsByLayer.graph.graph0.code ShouldNotEqual graph-absent
+  - type: exec
+    script: "find '{{.dir}}' -name graph.json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring graph.json
+
+- name: group split and trace
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f3 --from-state draft --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --type initial --object object:order --state draft --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemoutjson.command ShouldEqual spec.graph.build
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph group --id W1 --id W2 --title 'Submit and approve an order' --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.graph.group
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.changed.changed0 ShouldEqual W1
+    - result.systemoutjson.flows.flows0.title ShouldEqual "Submit and approve an order"
+    - result.systemoutjson.flows.flows0.origin ShouldEqual agent
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual tr1
+    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual tr2
+    - result.systemoutjson.findings.findings1.code ShouldEqual guard-without-else
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --type final --object object:order --state approved --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --type forbidden --actor actor:manager --action action:approve --object object:order --source s1 --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.flows.flows0.origin ShouldEqual agent
+    - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
+    - result.systemoutjson.flows.flows1.rejectAt ShouldEqual 1
+    - result.systemoutjson.flows.flows1.title ShouldEqual "Cannot approve order"
+    - result.systemoutjson.findings.findings0.code ShouldEqual agent-flow
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --out '{{.dir}}/clean.yaml' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.emit
+    - result.systemoutjson.written ShouldEqual "{{.dir}}/clean.yaml"
+    - result.systemoutjson.id ShouldEqual orderFlows
+    - result.systemoutjson.workflowSet.workflows.workflows1.expect ShouldEqual rejected
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} workflows check '{{.dir}}/clean.yaml' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.ok ShouldBeTrue
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph split --id W1 --at tr2 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.graph.split
+    - result.systemoutjson.changed.changed0 ShouldEqual W1
+    - result.systemoutjson.changed.changed1 ShouldEqual W3
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual tr1
+    - result.systemoutjson.flows.flows2.id ShouldEqual W3
+    - result.systemoutjson.flows.flows2.origin ShouldEqual agent
+    - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace tr1 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.chain.chain0.layer ShouldEqual transition
+    - result.systemoutjson.chain.chain0.id ShouldEqual tr1
+    - result.systemoutjson.chain.chain0.text ShouldEqual "draft → submitted"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace W1 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.chain.chain0.layer ShouldEqual flow
+    - result.systemoutjson.chain.chain0.id ShouldEqual W1
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph split --id W9 --at 2 --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "unknown flow"
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+
+- name: usage and a rejected edge with no transition
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "emit needs --dry-run or --out"
+    - result.systemoutjson.command ShouldEqual spec.emit
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual usage
+  - type: exec
+    script: "printf '%s\n' 'The customer cannot cancel a shipped order.' > '{{.dir}}/cancel.md' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/cancel.md' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --type initial --object object:order --state shipped --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.graph.build
+    - result.systemoutjson.flows.flows0.expect ShouldEqual rejected
+    - result.systemoutjson.flows.flows0.rejectAt ShouldEqual 1
+    - result.systemoutjson.flows.flows0.transitions ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --dry-run --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.yaml ShouldContainSubstring "shipped"
+    - result.systemoutjson.yaml ShouldContainSubstring "cancel"
+    - result.systemoutjson.yaml ShouldContainSubstring "cancelled"
+    - result.systemoutjson.yaml ShouldContainSubstring "The customer cannot cancel a shipped order"
+    - result.systemoutjson.issues ShouldHaveLength 0
+
+- name: human graph summary
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f3 --from-state draft --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --type initial --object object:order --state draft --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "3 states, 2 transitions, 2 flows"
+    - result.systemout ShouldContainSubstring guard-without-else
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --dry-run"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemout ShouldContainSubstring "dry run"
+    - result.systemout ShouldContainSubstring orderFlows

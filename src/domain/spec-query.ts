@@ -1,11 +1,12 @@
 // Read-only provenance and coverage over a spec session.
-import type { Entity, Fact, Finding, Sentence, SpecSnapshot, TaggedSentence, Token } from './spec.js';
+import type { Entity, Fact, Finding, GraphTransition, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
 import { initFindings, staleFindings, tagFindings } from './spec.js';
 import { entityFindings } from './spec-entities.js';
 import { contradictionFindings, visibleFacts } from './spec-facts.js';
+import { graphLayerFindings } from './spec-graph.js';
 
 export interface TraceLink {
-  layer: 'state' | 'fact' | 'entity' | 'token' | 'sentence';
+  layer: 'state' | 'transition' | 'flow' | 'fact' | 'entity' | 'token' | 'sentence';
   id: string;
   type?: string;
   kind?: string;
@@ -32,8 +33,8 @@ export interface StatusCoverage {
 
 export interface StatusResult {
   coverage: StatusCoverage;
-  layers: { tokens: boolean; entities: boolean; facts: boolean; graph: false };
-  findingsByLayer: { sentences: Finding[]; tokens: Finding[]; entities: Finding[]; facts: Finding[] };
+  layers: { tokens: boolean; entities: boolean; facts: boolean; graph: boolean };
+  findingsByLayer: { sentences: Finding[]; tokens: Finding[]; entities: Finding[]; facts: Finding[]; graph: Finding[] };
   findings: Finding[];
 }
 
@@ -46,6 +47,16 @@ export function traceItem(snapshot: SpecSnapshot, id: string): TraceResult | und
   if (token !== undefined) return finish([tokenLink(token.token), sentenceLink(token.sentence)]);
   const sentence = findSentence(snapshot.sentences, id);
   if (sentence !== undefined) return finish([sentenceLink(sentence)]);
+  const transition = findTransition(snapshot, id);
+  if (transition !== undefined) {
+    const links: TraceLink[] = [transitionLink(transition)];
+    for (const fact of factsById(snapshot, transition.facts)) {
+      for (const link of traceFact(snapshot, fact)) links.push(link);
+    }
+    return finish(links);
+  }
+  const flow = findFlow(snapshot, id);
+  if (flow !== undefined) return finish(traceFlow(snapshot, flow));
   const stateFacts = factsForState(snapshot.facts ?? [], id);
   if (stateFacts.length > 0) {
     const links: TraceLink[] = [{ layer: 'state', id, refs: stateFacts.map((fact) => fact.id) }];
@@ -62,16 +73,17 @@ export function specStatus(snapshot: SpecSnapshot): StatusResult {
   const tokens = tokenFindings(snapshot);
   const entities = snapshot.entities === undefined ? absent('entities') : entityLayerFindings(snapshot);
   const facts = snapshot.facts === undefined ? absent('facts') : factLayerFindings(snapshot);
-  const findings = [...sentences, ...tokens, ...entities, ...facts];
+  const graph = graphLayerFindings(snapshot);
+  const findings = [...sentences, ...tokens, ...entities, ...facts, ...graph];
   return {
     coverage: coverageOf(snapshot),
     layers: {
       tokens: hasTokens(snapshot),
       entities: snapshot.entities !== undefined,
       facts: snapshot.facts !== undefined,
-      graph: false,
+      graph: snapshot.graph !== undefined,
     },
-    findingsByLayer: { sentences, tokens, entities, facts },
+    findingsByLayer: { sentences, tokens, entities, facts, graph },
     findings,
   };
 }
@@ -313,6 +325,72 @@ function factsForState(facts: readonly Fact[], state: string): Fact[] {
     if (fact.from === state || fact.to === state || fact.state === state) matched.push(fact);
   }
   return matched;
+}
+
+function traceFlow(snapshot: SpecSnapshot, flow: SpecFlow): TraceLink[] {
+  const links: TraceLink[] = [flowLink(flow)];
+  for (const id of flow.transitions) {
+    const transition = findTransition(snapshot, id);
+    if (transition === undefined) continue;
+    links.push(transitionLink(transition));
+    for (const fact of factsById(snapshot, transition.facts)) {
+      for (const link of traceFact(snapshot, fact)) links.push(link);
+    }
+  }
+  if (flow.forbidden !== undefined) {
+    const fact = findFact(snapshot.facts ?? [], flow.forbidden);
+    if (fact !== undefined) {
+      for (const link of traceFact(snapshot, fact)) links.push(link);
+    }
+  }
+  return links;
+}
+
+function flowLink(flow: SpecFlow): TraceLink {
+  const link: TraceLink = {
+    layer: 'flow',
+    id: flow.id,
+    type: flow.expect,
+    name: flow.title,
+    origin: flow.origin,
+    refs: flow.transitions.slice(),
+  };
+  if (flow.forbidden !== undefined) link.refs = [...(link.refs ?? []), flow.forbidden];
+  return link;
+}
+
+function transitionLink(transition: GraphTransition): TraceLink {
+  return {
+    layer: 'transition',
+    id: transition.id,
+    type: transition.event,
+    name: transition.actor,
+    text: `${transition.from} → ${transition.to}`,
+    refs: transition.facts.slice(),
+  };
+}
+
+function factsById(snapshot: SpecSnapshot, ids: readonly string[]): Fact[] {
+  const facts: Fact[] = [];
+  for (const id of ids) {
+    const fact = findFact(snapshot.facts ?? [], id);
+    if (fact !== undefined) facts.push(fact);
+  }
+  return facts;
+}
+
+function findTransition(snapshot: SpecSnapshot, id: string): GraphTransition | undefined {
+  for (const transition of snapshot.graph?.transitions ?? []) {
+    if (transition.id === id) return transition;
+  }
+  return undefined;
+}
+
+function findFlow(snapshot: SpecSnapshot, id: string): SpecFlow | undefined {
+  for (const flow of snapshot.graph?.flows ?? []) {
+    if (flow.id === id) return flow;
+  }
+  return undefined;
 }
 
 function factLink(fact: Fact): TraceLink {

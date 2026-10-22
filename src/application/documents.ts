@@ -1,7 +1,7 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
-import type { EntityKind, EntityReview, EntityStatus, FactType, Finding, SpecOrigin } from '../domain/spec.js';
+import type { EntityKind, EntityReview, EntityStatus, FactType, Finding, FlowOrigin, SpecOrigin } from '../domain/spec.js';
 import type { Structure } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -268,13 +268,76 @@ export interface SpecTraceDocument {
   issues: OutputIssue[];
 }
 
+export interface SpecGraphStateView {
+  id: string;
+  object: string;
+  initial?: true;
+  final?: true;
+  facts: string[];
+}
+
+export interface SpecGraphTransitionView {
+  id: string;
+  from: string;
+  event: string;
+  to: string;
+  actor?: string;
+  guard?: string;
+  object: string;
+  fact: string;
+  facts: string[];
+}
+
+export interface SpecFlowView {
+  id: string;
+  title: string;
+  expect: 'accepted' | 'rejected';
+  rejectAt?: number;
+  transitions: string[];
+  forbidden?: string;
+  origin: FlowOrigin;
+}
+
+export interface SpecGraphView {
+  objects: string[];
+  states: SpecGraphStateView[];
+  transitions: SpecGraphTransitionView[];
+}
+
+export interface SpecGraphDocument {
+  command: 'spec.graph.build' | 'spec.graph.split' | 'spec.graph.group';
+  ok: boolean;
+  session?: string;
+  graph?: SpecGraphView;
+  flows?: SpecFlowView[];
+  changed?: string[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecEmitDocument {
+  command: 'spec.emit';
+  ok: boolean;
+  session?: string;
+  dryRun?: boolean;
+  forced?: boolean;
+  written?: string;
+  id?: string;
+  yaml?: string;
+  workflowSet?: { id: string; workflows: WorkflowView[] };
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
 export interface SpecStatusDocument {
   command: 'spec.status';
   ok: boolean;
   session?: string;
   coverage?: StatusCoverage;
-  layers?: { tokens: boolean; entities: boolean; facts: boolean; graph: false };
-  findingsByLayer?: { sentences: Finding[]; tokens: Finding[]; entities: Finding[]; facts: Finding[] };
+  layers?: { tokens: boolean; entities: boolean; facts: boolean; graph: boolean };
+  findingsByLayer?: { sentences: Finding[]; tokens: Finding[]; entities: Finding[]; facts: Finding[]; graph: Finding[] };
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -291,7 +354,9 @@ export type CommandDocument =
   | SpecEntitiesDocument
   | SpecFactsDocument
   | SpecTraceDocument
-  | SpecStatusDocument;
+  | SpecStatusDocument
+  | SpecGraphDocument
+  | SpecEmitDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 

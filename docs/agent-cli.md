@@ -35,6 +35,10 @@ clew spec facts propose [--sentence <id>] [--session <id>] [--json]
 clew spec facts add (--type <type> ... | --from <file.json>) [--session <id>] [--json]
 clew spec facts edit (--id <id> ... | --from <file.json>) [--session <id>] [--json]
 clew spec facts remove (--id <id> ... | --from <file.json>) [--session <id>] [--json]
+clew spec graph build [--session <id>] [--json]
+clew spec graph split (--id <id> --at <edge> | --from <file.json>) [--session <id>] [--json]
+clew spec graph group (--id <id> --id <id> | --transition <id> --transition <id> | --from <file.json>) [--title <text>] [--into <id>] [--session <id>] [--json]
+clew spec emit (--dry-run | --out <file>) [--force] [--session <id>] [--json]
 clew spec trace <id> [--session <id>] [--json]
 clew spec status [--session <id>] [--json]
 ```
@@ -45,7 +49,7 @@ clew spec status [--session <id>] [--json]
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims, and `spec trace` and `spec status` read the result back. The draft graph and emit are not in this version. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec trace` and `spec status` read the result back. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
@@ -64,6 +68,7 @@ The session store is outside the repo. Nothing is written next to the spec, and 
   tokens.json
   entities.json
   facts.json
+  graph.json
   history.jsonl
   .lock
 ```
@@ -147,9 +152,9 @@ Latin-script languages are not detected. Translate those to plain English before
 | `normalized-name` | info | a state name was normalized |
 | `contradicting-facts` | blocking | the signature is already recorded by a live fact |
 
-`spec trace <id>` walks provenance: state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
+`spec trace <id>` walks provenance. A transition id (`tr1`) or a flow id (`W1`) is resolved first. Otherwise it walks a state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
 
-`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and stale. A current sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is false until a later slice builds the graph. A missing entities or facts layer is an info `entities-absent` or `facts-absent` finding. Status does not write the store.
+`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and stale. A current sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is true after `spec graph build` has written `graph.json`. A missing entities, facts, or graph layer is an info `entities-absent`, `facts-absent`, or `graph-absent` finding. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
 
 `spec trace` and `spec status` findings:
 
@@ -162,6 +167,65 @@ Latin-script languages are not detected. Translate those to plain English before
 | `transition-without-from` | warning | status still sees a current transition with no source state |
 | `entities-absent` | info | `spec entities list` has not been run |
 | `facts-absent` | info | `spec facts propose` or an edit has not been run |
+| `graph-absent` | info | `spec graph build` has not been run |
+
+`spec graph build` reads the current facts and writes `graph.json`. Schema version stays 1; a session from an earlier slice still opens, and `graph.json` appears only after a build. Running build again, when the graph and the paths are unchanged, does not append history. Transition ids stay with the fact that produced them (`tr1` keeps the fact `f3`). A fact that no longer matches is not given a retired id. States are the `from` and `to` of each transition, then any `initial` or `final` fact. A state’s `facts` list every current initial, final, or transition fact that names that state, sorted by fact number. A transition with `from: null` is left out, with a blocking `transition-without-from` finding.
+
+The path cover is one accepted flow per transition (`Submit order` for event `submit` on object `order`) and one rejected flow per `forbidden` fact (`Cannot approve order`, `rejectAt` 1). A forbidden fact that matches a transition cites that transition. A forbidden fact with no transition is a rejected flow with an empty transition list; emit draws it from the object’s initial state to the past participle (`cancel` to `cancelled`) and uses the source sentence as the edge text. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden fact, keep their ids.
+
+`spec graph split --id W1 --at 2` cuts an accepted path before the second edge. `--at tr2` names that edge instead. The first path keeps `W1`. The second path gets the next workflow id. Both become `origin: agent`. A rejected path is a blocking `rejected-split` and is not written. A cut that would leave a path with no edge is `unsplittable` and is not written. An unknown flow or split point is exit 2.
+
+`spec graph group` joins accepted paths into one linear workflow. `--id W1 --id W2` walks the flows in that order. `--transition tr1 --transition tr2` walks those edges. The two modes are not combined. `--into` defaults to the first flow, or to the flow that already contains the first transition. `--title` sets the title; otherwise the titles are joined with ` and `. The result is `origin: agent`. A rejected input is `rejected-group`. Paths that do not chain are `not-linear`. A flow that shares some of the named transitions and keeps others is `overlap`. An `--into` id that already exists and is not one of the inputs is `duplicate-flow`. Those findings do not write. A successful edit writes even when other graph findings are still blocking, and the exit is 1.
+
+`spec graph split` and `group` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. A split patch is `{ "id": "W1", "at": 2 }` or `{ "id": "W1", "at": "tr2" }`. A group patch is `{ "ids": ["W1", "W2"], "title": "..." }` or `{ "transitions": ["tr1", "tr2"] }`, with optional `into`.
+
+`spec graph build` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `transition-without-from` | blocking | a transition fact still has no source state, so it is omitted |
+| `guard-without-else` | blocking | a guarded transition has no other guard on the same state and event, and no forbidden fact for that object and action |
+| `self-loop` | blocking | a transition’s source and target are the same state |
+| `vocabulary` | blocking | a state name is not workflow vocabulary |
+| `unknown-entity` | blocking | a fact cites an entity id that is not in the session |
+| `rejected-entity` | blocking | a fact cites a rejected or stale entity |
+| `type-mismatch` | blocking | a fact is missing a field, or an entity has the wrong kind |
+| `no-final-state` | warning | a state has no outgoing transition and is not marked final |
+| `no-initial-state` | warning | an object has no initial state |
+| `unreachable-state` | warning | a state is not reachable from an initial state |
+| `transition-without-actor` | warning | a transition has no actor |
+| `same-state-two-objects` | warning | two objects use the same state name |
+| `agent-flow` | warning | an agent-owned flow was kept |
+| `stale-flow` | warning | an agent-owned flow no longer matched and was dropped |
+
+`spec graph split` and `group` findings, besides the graph findings above:
+
+| Code | Severity | When |
+|---|---|---|
+| `rejected-split` | blocking | the path to split is rejected |
+| `unsplittable` | blocking | the cut does not leave an edge on both paths |
+| `rejected-group` | blocking | a grouped path is rejected |
+| `not-linear` | blocking | the paths or transitions do not chain |
+| `overlap` | blocking | a flow shares some named transitions and keeps others |
+| `duplicate-flow` | blocking | `--into` names a flow that is not one of the inputs |
+
+`spec emit` renders the workflow set only. It does not write a chart or a mapping. `--dry-run` prints the YAML in the JSON document and does not write a file, even with `--force`. `--out` is required otherwise. `--dry-run` and `--out` together are exit 2. `--out -` is rejected. Edge text is the clause that contains the action, extended through the object, with a leading when, after, before, or once removed. A guard’s text is appended when the clause does not already contain it. A rejected flow that cites a transition uses the forbidden fact’s source sentence.
+
+Emit refuses while a blocking finding remains on the graph layer. `--force` writes the file anyway, sets `forced: true`, lists the findings, and still exits 1. Earlier-layer warnings, such as an unreviewed entity, do not block emit. There is no per-finding waiver. A graph that no longer matches the facts is a blocking `stale-graph`; rebuild before emit. Emit does not write the session. Check failures from the workflow-set rules are `workflow-check` findings, with refs to the flow, its transitions, its facts, and their sources. They are not `issues`. The set id is the object name plus `Flows` (`order` becomes `orderFlows`). Two objects join as `orderAndShipmentFlows`.
+
+`spec emit` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `stale-graph` | blocking | stored states or transitions differ from a fresh assembly |
+| `uncovered-transition` | blocking | a transition is not on an accepted path |
+| `overlap` | blocking | a transition is on more than one accepted path |
+| `path-not-linear` | blocking | a flow does not chain |
+| `missing-transition` | blocking | a flow cites a transition that is gone |
+| `missing-reject-at` | blocking | a rejected flow has no `rejectAt` |
+| `forbidden-uncovered` | blocking | a forbidden fact has no rejected flow |
+| `no-workflows` | blocking | there is nothing to emit |
+| `workflow-check` | blocking | the rendered set fails `workflows check` |
 
 Input failures use `issues` with `{ kind, file, path, message }` and `kind: "input"`. Model problems stay in `findings`. A blocking finding is exit 1 with an empty stderr. A bad id, a missing layer, or a bad patch is exit 2.
 
@@ -472,7 +536,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 }
 ```
 
-`spec.status`. `layers.graph` stays false in this version.
+`spec.status` before `spec graph build`. Other warnings are omitted. `graph-absent` is info, so the exit is still 0.
 
 ```json
 {
@@ -485,6 +549,59 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
     "facts": { "current": 6, "stale": 0, "implied": 1, "removed": 0 }
   },
   "layers": { "tokens": true, "entities": true, "facts": true, "graph": false },
+  "findingsByLayer": {
+    "graph": [
+      { "id": "graph-absent", "kind": "coverage", "code": "graph-absent", "severity": "info", "message": "the graph layer has not been built", "refs": [] }
+    ]
+  },
+  "findings": [
+    { "id": "graph-absent", "kind": "coverage", "code": "graph-absent", "severity": "info", "message": "the graph layer has not been built", "refs": [] }
+  ],
+  "issues": []
+}
+```
+
+`spec.graph.build` after the agent sets `f3`’s source to `draft` and adds an initial fact. `approved` is not final, and the guard on `tr2` has no else, so the exit is 1. This excerpt keeps those two findings.
+
+```json
+{
+  "command": "spec.graph.build",
+  "ok": true,
+  "session": "order-sentence",
+  "graph": {
+    "objects": ["order"],
+    "states": [
+      { "id": "draft", "object": "order", "initial": true, "facts": ["f3", "f6"] },
+      { "id": "submitted", "object": "order", "facts": ["f3", "f4"] },
+      { "id": "approved", "object": "order", "facts": ["f4"] }
+    ],
+    "transitions": [
+      { "id": "tr1", "from": "draft", "event": "submit", "to": "submitted", "actor": "customer", "object": "order", "fact": "f3", "facts": ["f1", "f3"] },
+      { "id": "tr2", "from": "submitted", "event": "approve", "to": "approved", "actor": "manager", "guard": "condition:c1", "object": "order", "fact": "f4", "facts": ["f2", "f4", "f5"] }
+    ]
+  },
+  "flows": [
+    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["tr1"], "origin": "rule" },
+    { "id": "W2", "title": "Approve order", "expect": "accepted", "transitions": ["tr2"], "origin": "rule" }
+  ],
+  "findings": [
+    { "id": "no-final-state:order:approved", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approved has no outgoing transition and is not marked final", "refs": ["approved"] },
+    { "id": "guard-without-else:tr2", "kind": "gap", "code": "guard-without-else", "severity": "blocking", "message": "approve is guarded by c1 (the total is under 500 dollars); nothing says what happens to a submitted order otherwise", "refs": ["tr2", "f4", "condition:c1"] }
+  ],
+  "issues": []
+}
+```
+
+`spec.emit --dry-run` for that graph. `yaml` below is only the start of W1. The findings match the build, and they are omitted here. No file is written. `spec graph group --id W1 --id W2 --title "Submit and approve an order"` joins the two paths first when the agent wants one happy path. `--force` with `--out` writes the full YAML even while `guard-without-else` is open, sets `forced: true`, and still exits 1.
+
+```json
+{
+  "command": "spec.emit",
+  "ok": true,
+  "session": "order-sentence",
+  "dryRun": true,
+  "id": "orderFlows",
+  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", state: \"draft\" }\n      - { id: \"submitted\", state: \"submitted\" }\n    edges:\n      - { from: \"draft\", event: \"submit\", to: \"submitted\", text: \"The customer submits an order\" }\n",
   "findings": [],
   "issues": []
 }

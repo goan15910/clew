@@ -112,6 +112,53 @@ export interface SpecSnapshot {
   tagged: TaggedSentence[];
   entities?: Entity[];
   facts?: Fact[];
+  graph?: DraftGraph;
+}
+
+export type FlowOrigin = 'rule' | 'agent';
+
+/** One state of one object. `facts` are the initial, final, and transition facts that name it. */
+export interface GraphState {
+  id: string;
+  object: string;
+  initial?: true;
+  final?: true;
+  facts: string[];
+}
+
+/** One edge assembled from a transition fact. `fact` is that fact's id. */
+export interface GraphTransition {
+  id: string;
+  from: string;
+  event: string;
+  to: string;
+  actor?: string;
+  guard?: string;
+  object: string;
+  fact: string;
+  facts: string[];
+}
+
+/**
+ * One named path through the graph.
+ * Accepted paths list transition ids. A rejected path may list one transition,
+ * or only `forbidden` when the refusal has no matching transition yet.
+ */
+export interface SpecFlow {
+  id: string;
+  title: string;
+  expect: 'accepted' | 'rejected';
+  rejectAt?: number;
+  transitions: string[];
+  forbidden?: string;
+  origin: FlowOrigin;
+}
+
+export interface DraftGraph {
+  objects: string[];
+  states: GraphState[];
+  transitions: GraphTransition[];
+  flows: SpecFlow[];
 }
 
 export type SpecCommandName =
@@ -125,7 +172,10 @@ export type SpecCommandName =
   | 'spec.facts.propose'
   | 'spec.facts.add'
   | 'spec.facts.edit'
-  | 'spec.facts.remove';
+  | 'spec.facts.remove'
+  | 'spec.graph.build'
+  | 'spec.graph.split'
+  | 'spec.graph.group';
 
 export interface SpecHistoryArgs {
   spec?: string;
@@ -139,6 +189,8 @@ export interface SpecHistoryArgs {
   kind?: string;
   reason?: string;
   from?: string;
+  at?: string;
+  title?: string;
 }
 
 export interface SpecHistoryEntry {

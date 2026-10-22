@@ -12,14 +12,19 @@ import {
   SPEC_SENTENCE_ID_MESSAGE,
   SPEC_SENTENCE_ID_PATTERN,
   SPEC_SESSION_ID_PATTERN,
+  type DraftGraph,
   type Entity,
   type Fact,
+  type GraphState,
+  type GraphTransition,
   type Sentence,
+  type SpecFlow,
   type SpecHistoryEntry,
   type SpecSnapshot,
   type TaggedSentence,
   type Token,
 } from '../../domain/spec.js';
+import { WORKFLOW_ID_PATTERN, WORKFLOW_WORD_PATTERN } from '../../domain/workflow.js';
 import { locatedErrors } from '../yaml/issue-lines.js';
 import { specSessionDir, specRoot } from './data-dir.js';
 
@@ -125,6 +130,54 @@ const EntitiesFileSchema = z.strictObject({
 const FactsFileSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
   facts: z.array(FactSchema),
+});
+
+const GraphStateSchema = z.strictObject({
+  id: z.string().regex(WORKFLOW_WORD_PATTERN),
+  object: z.string().regex(WORKFLOW_WORD_PATTERN),
+  initial: z.literal(true).optional(),
+  final: z.literal(true).optional(),
+  facts: z.array(z.string()),
+});
+
+const GraphTransitionSchema = z.strictObject({
+  id: z.string().regex(/^tr[1-9][0-9]*$/, 'transition ids look like tr1'),
+  from: z.string().regex(WORKFLOW_WORD_PATTERN),
+  event: z.string().regex(WORKFLOW_WORD_PATTERN),
+  to: z.string().regex(WORKFLOW_WORD_PATTERN),
+  actor: z.string().regex(WORKFLOW_WORD_PATTERN).optional(),
+  guard: z.string().regex(SPEC_ENTITY_ID_PATTERN).optional(),
+  object: z.string().regex(WORKFLOW_WORD_PATTERN),
+  fact: z.string().regex(SPEC_FACT_ID_PATTERN),
+  facts: z.array(z.string()),
+});
+
+const FlowSchema = z.strictObject({
+  id: z.string().regex(WORKFLOW_ID_PATTERN),
+  title: z.string().min(1),
+  expect: z.enum(['accepted', 'rejected']),
+  rejectAt: z.number().int().positive().optional(),
+  transitions: z.array(z.string().regex(/^tr[1-9][0-9]*$/)),
+  forbidden: z.string().regex(SPEC_FACT_ID_PATTERN).optional(),
+  origin: z.enum(['rule', 'agent']),
+}).superRefine((flow, context) => {
+  if (flow.expect === 'accepted' && flow.transitions.length < 1) {
+    context.addIssue({ code: 'custom', message: 'an accepted flow needs a transition', path: ['transitions'] });
+  }
+  if (flow.expect === 'rejected' && flow.rejectAt === undefined) {
+    context.addIssue({ code: 'custom', message: 'a rejected flow needs rejectAt', path: ['rejectAt'] });
+  }
+  if (flow.expect === 'rejected' && flow.transitions.length === 0 && flow.forbidden === undefined) {
+    context.addIssue({ code: 'custom', message: 'a rejected flow needs a transition or a forbidden fact', path: ['forbidden'] });
+  }
+});
+
+const GraphFileSchema = z.strictObject({
+  schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
+  objects: z.array(z.string()),
+  states: z.array(GraphStateSchema),
+  transitions: z.array(GraphTransitionSchema),
+  flows: z.array(FlowSchema),
 });
 
 function isSessionId(id: string): boolean {
@@ -306,6 +359,17 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
     for (const raw of factsParsed.data.facts) facts.push(toFact(raw));
     snapshot.facts = facts;
   }
+
+  const graphFile = join(dir, 'graph.json');
+  if (existsSync(graphFile)) {
+    const graphRead = readJson(graphFile);
+    if (!graphRead.ok) return graphRead;
+    const graphVersion = versionFault(graphRead.value, graphFile);
+    if (graphVersion !== undefined) return { ok: false, fault: graphVersion.fault, message: graphVersion.message };
+    const graphParsed = GraphFileSchema.safeParse(graphRead.value);
+    if (!graphParsed.success) return { ok: false, ...zodFault(graphFile, graphParsed.error) };
+    snapshot.graph = toGraph(graphParsed.data);
+  }
   return { ok: true, snapshot };
 }
 
@@ -341,6 +405,100 @@ function toFact(raw: z.infer<typeof FactSchema>): Fact {
   if (raw.note !== undefined) fact.note = raw.note;
   if (raw.removed === true) fact.removed = true;
   return fact;
+}
+
+function toGraph(raw: z.infer<typeof GraphFileSchema>): DraftGraph {
+  const objects: string[] = [];
+  for (const object of raw.objects) objects.push(object);
+  const states: GraphState[] = [];
+  for (const state of raw.states) {
+    const facts: string[] = [];
+    for (const fact of state.facts) facts.push(fact);
+    const built: GraphState = { id: state.id, object: state.object, facts };
+    if (state.initial === true) built.initial = true;
+    if (state.final === true) built.final = true;
+    states.push(built);
+  }
+  const transitions: GraphTransition[] = [];
+  for (const transition of raw.transitions) {
+    const facts: string[] = [];
+    for (const fact of transition.facts) facts.push(fact);
+    const built: GraphTransition = {
+      id: transition.id,
+      from: transition.from,
+      event: transition.event,
+      to: transition.to,
+      object: transition.object,
+      fact: transition.fact,
+      facts,
+    };
+    if (transition.actor !== undefined) built.actor = transition.actor;
+    if (transition.guard !== undefined) built.guard = transition.guard;
+    transitions.push(built);
+  }
+  const flows: SpecFlow[] = [];
+  for (const flow of raw.flows) {
+    const transitionIds: string[] = [];
+    for (const id of flow.transitions) transitionIds.push(id);
+    const built: SpecFlow = {
+      id: flow.id,
+      title: flow.title,
+      expect: flow.expect,
+      transitions: transitionIds,
+      origin: flow.origin,
+    };
+    if (flow.rejectAt !== undefined) built.rejectAt = flow.rejectAt;
+    if (flow.forbidden !== undefined) built.forbidden = flow.forbidden;
+    flows.push(built);
+  }
+  return { objects, states, transitions, flows };
+}
+
+function graphRecord(schemaVersion: number, graph: DraftGraph): z.infer<typeof GraphFileSchema> {
+  const objects: string[] = [];
+  for (const object of graph.objects) objects.push(object);
+  const states: z.infer<typeof GraphStateSchema>[] = [];
+  for (const state of graph.states) {
+    const facts: string[] = [];
+    for (const fact of state.facts) facts.push(fact);
+    const record: z.infer<typeof GraphStateSchema> = { id: state.id, object: state.object, facts };
+    if (state.initial === true) record.initial = true;
+    if (state.final === true) record.final = true;
+    states.push(record);
+  }
+  const transitions: z.infer<typeof GraphTransitionSchema>[] = [];
+  for (const transition of graph.transitions) {
+    const facts: string[] = [];
+    for (const fact of transition.facts) facts.push(fact);
+    const record: z.infer<typeof GraphTransitionSchema> = {
+      id: transition.id,
+      from: transition.from,
+      event: transition.event,
+      to: transition.to,
+      object: transition.object,
+      fact: transition.fact,
+      facts,
+    };
+    if (transition.actor !== undefined) record.actor = transition.actor;
+    if (transition.guard !== undefined) record.guard = transition.guard;
+    transitions.push(record);
+  }
+  const flows: z.infer<typeof FlowSchema>[] = [];
+  for (const flow of graph.flows) {
+    const transitionIds: string[] = [];
+    for (const id of flow.transitions) transitionIds.push(id);
+    const record: z.infer<typeof FlowSchema> = {
+      id: flow.id,
+      title: flow.title,
+      expect: flow.expect,
+      transitions: transitionIds,
+      origin: flow.origin,
+    };
+    if (flow.rejectAt !== undefined) record.rejectAt = flow.rejectAt;
+    if (flow.forbidden !== undefined) record.forbidden = flow.forbidden;
+    flows.push(record);
+  }
+  return { schemaVersion: schemaVersion as typeof SPEC_SCHEMA_VERSION, objects, states, transitions, flows };
 }
 
 function sentenceRecord(sentence: Sentence): z.infer<typeof SentenceSchema> {
@@ -413,6 +571,9 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
     for (const fact of snapshot.facts) facts.push(factRecord(fact));
     writeJson(join(dir, 'facts.json'), { schemaVersion: snapshot.schemaVersion, facts });
   }
+  if (snapshot.graph !== undefined) {
+    writeJson(join(dir, 'graph.json'), graphRecord(snapshot.schemaVersion, snapshot.graph));
+  }
   if (history !== undefined) appendFileSync(join(dir, 'history.jsonl'), `${JSON.stringify(historyRecord(history))}\n`);
 }
 
@@ -468,6 +629,8 @@ function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; 
   if (entry.args.kind !== undefined) args.kind = entry.args.kind;
   if (entry.args.reason !== undefined) args.reason = entry.args.reason;
   if (entry.args.from !== undefined) args.from = entry.args.from;
+  if (entry.args.at !== undefined) args.at = entry.args.at;
+  if (entry.args.title !== undefined) args.title = entry.args.title;
   const before: string[] = [];
   for (const id of entry.before) before.push(id);
   const after: string[] = [];
