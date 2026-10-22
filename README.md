@@ -57,7 +57,11 @@ bash scripts/install-venom.sh
 bin/venom run tests/venom --format=xml --output-dir=venom-results --html-report --var "root=$PWD" --var "clew=node_modules/.bin/tsx src/cli.ts"
 ```
 
-Venom is pinned to v1.3.0. GitHub Actions runs the same command on pull requests and on `main`. A failing case is an annotation on the Actions run, and the same text is in the job summary. The HTML report and JUnit XML are the `venom-report` artifact.
+Venom is pinned to v1.3.0. GitHub Actions runs the same command on pull requests and on `main`, in the `venom` workflow.
+
+Open that run and read the venom job summary. It has one row per suite (suite, tests, passed, failed, time) and a collapsible section per suite. Each test is listed there, failures first, with the assertion text. A failing case is also an annotation on the run and on the pull request, on that test's line in `tests/venom/`.
+
+The `venom-report` artifact on the same run contains the JUnit XML, the HTML report, and `venom.log`. GitHub keeps the artifact for 14 days.
 
 ## Architecture
 
