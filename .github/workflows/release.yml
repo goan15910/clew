@@ -75,7 +75,7 @@ jobs:
           ].join('\n');
           writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, notes);
           NODE
-          # A hyphen marks a SemVer pre-release (0.1.0-alpha.1). Keep it off Latest.
+          # A hyphen marks a SemVer pre-release (0.1.0-alpha.2). Keep it off Latest.
           release_args=()
           case "$version" in
             *-*) release_args=(--prerelease --latest=false) ;;
