@@ -6,9 +6,10 @@ import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
-import type { SpecEntitiesDocument, SpecFactsDocument, SpecStatusDocument, SpecTraceDocument } from '../../src/application/documents.js';
-import { entityFindings } from '../../src/domain/spec-entities.js';
-import type { Entity } from '../../src/domain/spec.js';
+import type { SpecEntitiesDocument, SpecFactsDocument, SpecStatusDocument, SpecTagDocument, SpecTraceDocument } from '../../src/application/documents.js';
+import { contradictionFindings } from '../../src/domain/spec-facts.js';
+import { entityFindings, pastParticiple } from '../../src/domain/spec-entities.js';
+import type { Entity, Fact, FactType } from '../../src/domain/spec.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -87,12 +88,59 @@ describe('spec entities and facts', { concurrency: false }, () => {
       assert.deepEqual(guard.sources, ['s1.t12']);
       assert.deepEqual(codes(facts.findings), ['transition-without-from', 'unused-entity']);
       assert.equal(historyCount(dir, 'order-sentence'), 4);
+      const proposedHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.facts.propose');
+      assert.deepEqual(proposedHistory[0]?.before, []);
+      assert.deepEqual(proposedHistory[0]?.after, ['f1', 'f2', 'f3', 'f4', 'f5']);
       run(dir, ['spec', 'entities', 'list', '--json']);
       run(dir, ['spec', 'facts', 'propose', '--json']);
       assert.equal(historyCount(dir, 'order-sentence'), 4);
       const one = run(dir, ['spec', 'facts', 'propose', '--sentence', 's1', '--json']);
       assert.equal(one.status, 0);
       assert.equal(json<SpecFactsDocument>(one).facts?.length, 5);
+    });
+  });
+
+  test('a short verb doubles its final consonant, including after a consonant cluster', () => {
+    assert.equal(pastParticiple('ship'), 'shipped');
+    assert.equal(pastParticiple('ship', 'ships'), 'shipped');
+    assert.equal(pastParticiple('stop'), 'stopped');
+    assert.equal(pastParticiple('plan'), 'planned');
+    assert.equal(pastParticiple('submit'), 'submitted');
+    assert.equal(pastParticiple('cancel'), 'cancelled');
+    assert.equal(pastParticiple('cancel', 'cancelled'), 'cancelled');
+    assert.equal(pastParticiple('approve'), 'approved');
+  });
+
+  test('a forbidden fact next to a transition is not a second warning', () => {
+    const transition = liveFact('f1', 'transition', { object: 'object:order', action: 'action:approve', from: 'submitted', to: 'approved' });
+    const forbidden = liveFact('f2', 'forbidden', { object: 'object:order', action: 'action:approve' });
+    assert.deepEqual(contradictionFindings([transition, forbidden]), []);
+    const other = liveFact('f3', 'transition', { object: 'object:order', action: 'action:approve', from: 'submitted', to: 'rejected' });
+    const warnings = contradictionFindings([transition, other]);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0]?.code, 'contradicting-facts');
+    assert.match(warnings[0]?.message ?? '', /disagreeing transitions/);
+  });
+
+  test('ships becomes shipped, and a noun that is not tagged Actor stays an object', () => {
+    withData((dir) => {
+      const file = writeSpec(dir, 'ship.md', 'The warehouse ships the order.\n');
+      prepare(dir, file);
+      run(dir, ['spec', 'entities', 'list', '--json']);
+      const proposed = run(dir, ['spec', 'facts', 'propose', '--json']);
+      assert.equal(proposed.status, 0, proposed.stderr);
+      const transition = json<SpecFactsDocument>(proposed).facts?.find((fact) => fact.type === 'transition');
+      assert.equal(transition?.to, 'shipped');
+    });
+    withData((dir) => {
+      const file = writeSpec(dir, 'shipper.md', 'The shipper picks up the parcel.\n');
+      prepare(dir, file);
+      const tagged = run(dir, ['spec', 'tag', '--json']);
+      assert.equal(json<SpecTagDocument>(tagged).findings.some((finding) => finding.code === 'no-actor'), true);
+      const listed = run(dir, ['spec', 'entities', 'list', '--json']);
+      const entities = json<SpecEntitiesDocument>(listed).entities ?? [];
+      assert.equal(entities.some((item) => item.kind === 'actor'), false);
+      assert.equal(entities.some((item) => item.id === 'object:shipper'), true);
     });
   });
 
@@ -368,9 +416,20 @@ function writeSpec(dir: string, name: string, text: string): string {
 }
 
 function historyCount(dir: string, session: string): number {
+  return historyEntries(dir, session).length;
+}
+
+function historyEntries(dir: string, session: string): { command: string; before: string[]; after: string[] }[] {
   const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }, root), 'history.jsonl');
   const text = readFileSync(file, 'utf8').trim();
-  return text === '' ? 0 : text.split('\n').length;
+  if (text === '') return [];
+  const entries: { command: string; before: string[]; after: string[] }[] = [];
+  for (const line of text.split('\n')) entries.push(JSON.parse(line) as { command: string; before: string[]; after: string[] });
+  return entries;
+}
+
+function liveFact(id: string, type: FactType, fields: Partial<Fact>): Fact {
+  return { id, type, origin: 'rule', confidence: 1, sources: [], status: 'current', ...fields };
 }
 
 function codes(findings: { code: string }[]): string[] {

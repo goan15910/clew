@@ -37,15 +37,13 @@ export function proposeSpecFacts(command: ProposeFactsCommand, store: SpecStore)
     const now = new Date().toISOString();
     const snapshot = copySnapshot(current, now);
     snapshot.facts = proposed.facts;
-    const ids: string[] = [];
-    for (const fact of proposed.facts) {
-      if (fact.removed !== true) ids.push(fact.id);
-    }
+    const before = liveFactIds(current.facts ?? []);
+    const after = liveFactIds(proposed.facts);
     const args: { session: string; sentence?: string } = { session: current.id };
     if (command.sentenceId !== undefined) args.sentence = command.sentenceId;
     return {
       snapshot,
-      history: { at: now, command: 'spec.facts.propose', args, before: ids, after: ids },
+      history: { at: now, command: 'spec.facts.propose', args, before, after },
     };
   });
   if (!result.ok) return invalid(result.fault === 'missing' ? 'session' : result.fault, result.message);
@@ -91,6 +89,15 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
   return snapshot;
+}
+
+function liveFactIds(facts: readonly { id: string; removed?: boolean }[]): string[] {
+  const ids: string[] = [];
+  for (const fact of facts) {
+    if (fact.removed === true) continue;
+    ids.push(fact.id);
+  }
+  return ids;
 }
 
 function invalid(fault: SpecFactsDocument['fault'], message: string): Outcome<SpecFactsDocument> {
