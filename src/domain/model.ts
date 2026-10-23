@@ -9,6 +9,39 @@ export const NAME_PATTERN = /^[a-z][A-Za-z0-9]*$/;
 export const NAME_MESSAGE = 'names are camelCase';
 export const EVENT_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 export const EVENT_MESSAGE = 'events are UPPER_SNAKE_CASE';
+
+/**
+ * Spec vocabulary is kebab-case. Emit writes a chart state id.
+ * A token that already matches {@link NAME_PATTERN} is kept (`inProgress` stays `inProgress`).
+ * `mark-shipped` becomes `markShipped`.
+ */
+export function chartStateId(name: string): string {
+  if (NAME_PATTERN.test(name)) return name;
+  const parts = name.split(/[-_\s]+/).filter((part) => part.length > 0);
+  if (parts.length === 0) return name;
+  let id = '';
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (part === undefined) continue;
+    const lower = part.toLowerCase();
+    id += index === 0 ? lower : lower.charAt(0).toUpperCase() + lower.slice(1);
+  }
+  return NAME_PATTERN.test(id) ? id : name;
+}
+
+/**
+ * Spec actions are kebab-case. Emit writes a chart event.
+ * A token that already matches {@link EVENT_PATTERN} is kept.
+ * `mark-shipped` and `markShipped` become `MARK_SHIPPED`.
+ */
+export function chartEventName(name: string): string {
+  if (EVENT_PATTERN.test(name)) return name;
+  const spaced = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2');
+  const parts = spaced.split(/[-_\s]+/).filter((part) => part.length > 0);
+  if (parts.length === 0) return name;
+  const event = parts.map((part) => part.toUpperCase()).join('_');
+  return EVENT_PATTERN.test(event) ? event : name;
+}
 export const FIELD_NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 export const FIELD_NAME_MESSAGE = 'field names are lower_snake_case';
 

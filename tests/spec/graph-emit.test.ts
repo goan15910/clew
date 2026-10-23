@@ -6,7 +6,8 @@ import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
-import type { SpecEmitDocument, SpecGraphDocument, SpecStatusDocument, SpecTraceDocument } from '../../src/application/documents.js';
+import type { SpecEmitDocument, SpecFactsDocument, SpecGraphDocument, SpecStatusDocument, SpecTraceDocument, VerifyDocument } from '../../src/application/documents.js';
+import { chartEventName, chartStateId } from '../../src/domain/model.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -220,7 +221,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(dry.status, 0, dry.stdout);
       const yaml = json<SpecEmitDocument>(dry).yaml ?? '';
       assert.match(yaml, /start: shipped/);
-      assert.match(yaml, /event: "cancel"/);
+      assert.match(yaml, /event: "CANCEL"/);
       assert.match(yaml, /to: "cancelled"/);
       assert.match(yaml, /The customer cannot cancel a shipped order/);
       assert.equal(codes(json<SpecEmitDocument>(dry).findings).includes('guard-without-else'), false);
@@ -282,6 +283,81 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const one = run(dir, ['spec', 'graph', 'group', '--id', 'W1', '--json']);
       assert.equal(one.status, 2);
       assert.match(one.stderr, /at least two/);
+    });
+  });
+
+  test('chart name helpers keep a token that is already a chart id', () => {
+    assert.equal(chartStateId('mark-shipped'), 'markShipped');
+    assert.equal(chartStateId('in-progress'), 'inProgress');
+    assert.equal(chartStateId('inProgress'), 'inProgress');
+    assert.equal(chartStateId('draft'), 'draft');
+    assert.equal(chartEventName('mark-shipped'), 'MARK_SHIPPED');
+    assert.equal(chartEventName('submit'), 'SUBMIT');
+    assert.equal(chartEventName('markShipped'), 'MARK_SHIPPED');
+    assert.equal(chartEventName('MARK_SHIPPED'), 'MARK_SHIPPED');
+  });
+
+  test('an emitted workflow set verifies against a chart that uses the same names', () => {
+    withData((dir) => {
+      const file = writeSpec(dir, 'ship.md', 'The customer submits an order.\n');
+      prepare(dir, file);
+      assert.equal(run(dir, ['spec', 'entities', 'list', '--json']).status, 0);
+      const renamed = run(dir, ['spec', 'entities', 'rename', '--id', 'action:submit', '--name', 'mark-shipped', '--json']);
+      assert.equal(renamed.status, 0, `${renamed.stderr}\n${renamed.stdout}`);
+      const proposed = json<SpecFactsDocument>(run(dir, ['spec', 'facts', 'propose', '--json']));
+      const transition = proposed.facts?.find((fact) => fact.type === 'transition');
+      assert.ok(transition);
+      const edited = run(dir, ['spec', 'facts', 'edit', '--id', transition.id, '--from-state', 'draft', '--to-state', 'in-progress', '--json']);
+      assert.equal(edited.status, 0, `${edited.stderr}\n${edited.stdout}`);
+      assert.equal(run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json']).status, 0);
+      assert.equal(run(dir, ['spec', 'facts', 'add', '--type', 'final', '--object', 'object:order', '--state', 'in-progress', '--json']).status, 0);
+      const built = run(dir, ['spec', 'graph', 'build', '--json']);
+      assert.equal(built.status, 0, `${built.stderr}\n${built.stdout}`);
+      assert.equal(json<SpecGraphDocument>(built).graph?.transitions[0]?.event, 'mark-shipped');
+      const flows = join(dir, 'flows.yaml');
+      const dry = run(dir, ['spec', 'emit', '--out', flows, '--json']);
+      assert.equal(dry.status, 0, `${dry.stderr}\n${dry.stdout}`);
+      const yaml = readFileSync(flows, 'utf8');
+      assert.match(yaml, /id: "in-progress"/);
+      assert.match(yaml, /state: "inProgress"/);
+      assert.match(yaml, /event: "MARK_SHIPPED"/);
+      assert.doesNotMatch(yaml, /event: "mark-shipped"/);
+      const chart = join(dir, 'chart.yaml');
+      writeFileSync(chart, [
+        'id: parcel',
+        'initial: draft',
+        'guards: []',
+        'effects:',
+        '  - { name: noteShipped, sets: shipped }',
+        'states:',
+        '  - id: draft',
+        '    label: Draft',
+        '    data:',
+        '      title: string',
+        '  - id: inProgress',
+        '    label: In Progress',
+        '    final: true',
+        '    data:',
+        '      title: string',
+        '      shipped: boolean',
+        'transitions:',
+        '  - { from: draft, event: MARK_SHIPPED, to: inProgress, actor: customer, effect: noteShipped }',
+        '',
+      ].join('\n'));
+      const proof = run(dir, ['verify', chart, flows, '--json']);
+      assert.equal(proof.status, 0, `${proof.stderr}\n${proof.stdout}`);
+      const verified = json<VerifyDocument>(proof);
+      assert.equal(verified.ok, true);
+      assert.equal(verified.summary?.failed, 0);
+      assert.ok((verified.flows?.length ?? 0) > 0);
+      assert.equal(verified.flows?.every((flow) => flow.pass), true);
+      const step = verified.flows?.[0]?.trace[0];
+      assert.equal(step?.workflow.from, 'draft');
+      assert.equal(step?.workflow.event, 'MARK_SHIPPED');
+      assert.equal(step?.workflow.to, 'inProgress');
+      assert.equal(step?.chart.from, 'draft');
+      assert.equal(step?.chart.event, 'MARK_SHIPPED');
+      assert.equal(step?.chart.to, 'inProgress');
     });
   });
 

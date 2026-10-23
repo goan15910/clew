@@ -2,6 +2,7 @@
 // One accepted path per transition, plus one rejected path per forbidden fact.
 // Agent-owned flows are kept. Gap findings are recomputed, not stored.
 import type { Issue } from './issue.js';
+import { chartEventName, chartStateId } from './model.js';
 import type {
   DraftGraph,
   Entity,
@@ -510,11 +511,11 @@ function flowDraft(
   let cursor = start;
   for (const transition of transitions) {
     const current = nodes[nodes.length - 1];
-    if (current === undefined || current.state !== transition.from) return { problem: `${flow.id} breaks at ${transition.id}` };
+    if (current === undefined || current.state !== chartStateId(transition.from)) return { problem: `${flow.id} breaks at ${transition.id}` };
     const to = addNode(nodes, used, transition.to);
     edges.push({
       from: cursor,
-      event: transition.event,
+      event: chartEventName(transition.event),
       to,
       text: transitionText(transition, flow, entities, facts, sentences, tagged),
     });
@@ -562,10 +563,10 @@ function syntheticRejected(
     start: initial.id,
     rejectAt: flow.rejectAt ?? 1,
     nodes: [
-      { id: initial.id, state: initial.id },
-      { id: to, state: to },
+      { id: initial.id, state: chartStateId(initial.id) },
+      { id: to, state: chartStateId(to) },
     ],
-    edges: [{ from: initial.id, event, to, text }],
+    edges: [{ from: initial.id, event: chartEventName(event), to, text }],
   };
   return { workflow };
 }
@@ -1015,16 +1016,17 @@ function ensureState(states: GraphState[], object: string, id: string): GraphSta
 }
 
 function addNode(nodes: { id: string; state: string }[], used: Set<string>, state: string): string {
+  const chartState = chartStateId(state);
   if (!used.has(state)) {
     used.add(state);
-    nodes.push({ id: state, state });
+    nodes.push({ id: state, state: chartState });
     return state;
   }
   let number = 2;
   while (used.has(`${state}-${number}`)) number += 1;
   const id = `${state}-${number}`;
   used.add(id);
-  nodes.push({ id, state });
+  nodes.push({ id, state: chartState });
   return id;
 }
 

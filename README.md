@@ -122,7 +122,7 @@ transitions:
   - { from: draft, event: SUBMIT, to: todo, actor: user, guard: titleNotEmpty, effect: markListed }
 ```
 
-State ids are camelCase. Events are `UPPER_SNAKE_CASE`. Each state declares `data` fields as `string`, `boolean`, `number`, or `timestamp`. A guard may only read a field declared on the source state. An effect may only set a field declared on the target state. The initial state and every transition target are checked when the file is loaded. `final: true` marks a state that must not have outgoing transitions.
+State ids are camelCase. Events are `UPPER_SNAKE_CASE`. `spec emit` writes that same convention from kebab-case spec names (`mark-shipped` becomes event `MARK_SHIPPED`; `in-progress` becomes state `inProgress`). Node ids stay kebab-case. Each state declares `data` fields as `string`, `boolean`, `number`, or `timestamp`. A guard may only read a field declared on the source state. An effect may only set a field declared on the target state. The initial state and every transition target are checked when the file is loaded. `final: true` marks a state that must not have outgoing transitions.
 
 **Workflow set.** A YAML file of named linked lists. Each workflow is one disconnected sub-graph. A node's `state` is the chart state id. An edge's `event` is the chart event. Node ids are local, so one state can be visited twice.
 
