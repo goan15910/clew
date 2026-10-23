@@ -1,7 +1,0 @@
-# chart and workflowSet ids match. The flow's closed state is not mapped.
-chart: gapChart
-workflowSet: gapFlows
-states:
-  - { chart: start, workflow: editing }
-events:
-  - { chart: GO, workflow: submit }

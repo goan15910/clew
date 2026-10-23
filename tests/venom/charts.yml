@@ -9,7 +9,7 @@ testcases:
     script: |
       cd '{{.root}}'
       out=$(mktemp -d)
-      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --out "$out" --json > "$out/verify.json"
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --out "$out" --json > "$out/verify.json"
       cat "$out/state-chart.svg"
       rm -rf "$out"
     assertions:
@@ -33,7 +33,7 @@ testcases:
     script: |
       cd '{{.root}}'
       out=$(mktemp -d)
-      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W2 --highlight W2 --out "$out" --json > "$out/verify.json"
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --flow W2 --highlight W2 --out "$out" --json > "$out/verify.json"
       cat "$out/overview-W2.svg"
       rm -rf "$out"
     assertions:
@@ -52,7 +52,7 @@ testcases:
     script: |
       cd '{{.root}}'
       out=$(mktemp -d)
-      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --out "$out" --json > "$out/verify.json"
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --out "$out" --json > "$out/verify.json"
       cat "$out/workflow-chains.svg"
       rm -rf "$out"
     assertions:

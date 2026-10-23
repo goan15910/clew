@@ -1,7 +1,63 @@
 // Reachability, dead ends, and workflow replay. The traversal port supplies the engine.
-import type { MappedStep } from './mapping.js';
 import type { Model } from './model.js';
 import type { Traversal } from './traversal.js';
+import type { ChainStep } from './workflow.js';
+
+/** One linked-list edge after the workflow name has been checked against the chart. The two sides use the same string. */
+export interface AlignedStep {
+  n: number;
+  text: string;
+  workflowFrom: string;
+  workflowEvent: string;
+  workflowTo: string;
+  chartFrom: string;
+  chartEvent: string;
+  chartTo: string;
+}
+
+function remember(gaps: string[], seen: Set<string>, gap: string): void {
+  if (seen.has(gap)) return;
+  seen.add(gap);
+  gaps.push(gap);
+}
+
+/**
+ * Match each chain step to the chart by exact name.
+ * A workflow state that is not a chart state is a name gap (the command stops).
+ * An event is copied through even when the chart never declares it, so only that flow fails.
+ */
+export function alignChain(
+  chain: readonly ChainStep[],
+  chartStates: ReadonlySet<string>,
+): { ok: true; steps: AlignedStep[] } | { ok: false; gaps: string[] } {
+  const gaps: string[] = [];
+  const seen = new Set<string>();
+  const steps: AlignedStep[] = [];
+  for (const step of chain) {
+    let missing = false;
+    if (!chartStates.has(step.stateFrom)) {
+      remember(gaps, seen, `name gap: workflow state "${step.stateFrom}" is not on the chart`);
+      missing = true;
+    }
+    if (!chartStates.has(step.stateTo)) {
+      remember(gaps, seen, `name gap: workflow state "${step.stateTo}" is not on the chart`);
+      missing = true;
+    }
+    if (missing) continue;
+    steps.push({
+      n: step.n,
+      text: step.text,
+      workflowFrom: step.stateFrom,
+      workflowEvent: step.event,
+      workflowTo: step.stateTo,
+      chartFrom: step.stateFrom,
+      chartEvent: step.event,
+      chartTo: step.stateTo,
+    });
+  }
+  if (gaps.length > 0) return { ok: false, gaps };
+  return { ok: true, steps };
+}
 
 export interface TraceStep {
   n: number;
@@ -39,7 +95,7 @@ export interface ChartFlow {
   title: string;
   expect: 'accepted' | 'rejected';
   rejectAt?: number;
-  steps: readonly MappedStep[];
+  steps: readonly AlignedStep[];
 }
 
 export function structuralChecks(model: Model, traversal: Traversal): Structure {
@@ -52,7 +108,7 @@ export function structuralChecks(model: Model, traversal: Traversal): Structure 
   return { reachable, unreachable, deadEnds, shortestPaths: shortest };
 }
 
-function traceOf(step: MappedStep, from: string, to: string | null, accepted: boolean): TraceStep {
+function traceOf(step: AlignedStep, from: string, to: string | null, accepted: boolean): TraceStep {
   return {
     n: step.n,
     text: step.text,

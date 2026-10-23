@@ -3,7 +3,7 @@
 // clew chart check <chart.yaml> [--json]
 // clew chart analyze <chart.yaml> [--json]
 // clew workflows check <set.yaml> [--json]
-// clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow W1] [--select file] [--highlight W2] [--heatmap] [--replay] [--out dir] [--json]
+// clew verify <chart.yaml> <set.yaml> [--flow W1] [--select file] [--highlight W2] [--heatmap] [--replay] [--out dir] [--json]
 // clew compare <verify.json>... [--out dir] [--json]
 // clew spec init <spec.md> [--session id] [--json]
 // clew spec tag [--session id] [--sentence s1] [--json]
@@ -34,7 +34,6 @@ import { fileReportWriter } from './adapters/report/file-report-writer.js';
 import { humanSummary } from './adapters/text/summary.js';
 import { xstateTraversalEngine } from './adapters/xstate/traversal-engine.js';
 import { locatedErrors } from './adapters/yaml/issue-lines.js';
-import { yamlMappingLoader } from './adapters/yaml/mapping-loader.js';
 import { yamlModelLoader } from './adapters/yaml/model-loader.js';
 import { yamlWorkflowLoader } from './adapters/yaml/workflow-loader.js';
 import { yamlWorkflowWriter } from './adapters/yaml/workflow-writer.js';
@@ -67,7 +66,6 @@ const EXIT_INVALID = 2;
 const verifyPorts: VerifyPorts = {
   models: yamlModelLoader,
   workflows: yamlWorkflowLoader,
-  mappings: yamlMappingLoader,
   selections: jsonSelectionLoader,
   engine: xstateTraversalEngine,
   reports: fileReportWriter,
@@ -381,10 +379,9 @@ workflows
 
 program
   .command('verify')
-  .description('Prove each selected flow in a workflow set against a state chart.')
+  .description('Prove each selected flow against a chart. State and event names must match exactly.')
   .argument('<chart>', 'YAML state chart')
   .argument('<workflows>', 'YAML workflow set')
-  .argument('<mapping>', 'YAML chart-to-workflow mapping')
   .option('--flow <id>', 'named sub-graph to verify (repeatable)', collectFlow, [] as string[])
   .option('--select <file>', 'JSON selection: { "flows": ["W1"] } or a workflows.check document')
   .option('--highlight <workflowId>', 'highlight this workflow on the state chart')
@@ -392,14 +389,13 @@ program
   .option('--replay', 'write a replay GIF for each selected workflow into --out')
   .option('--out <dir>', 'write reports, charts, and proof views to this directory')
   .option('--json', 'print the result document as JSON on stdout')
-  .action((chartFile, workflowsFile, mappingFile, opts) => {
+  .action((chartFile, workflowsFile, opts) => {
     const parsed = VerifyFlags.safeParse(opts);
     if (!parsed.success) usage('verify', opts, parsed.error);
     const flags = parsed.data;
     emit(verifyFlows({
       chartFile,
       workflowsFile,
-      mappingFile,
       flowIds: flags.flow ?? [],
       selectFile: flags.select,
       highlight: flags.highlight,
@@ -759,9 +755,9 @@ Examples:
   clew chart check examples/todo/b-full.yaml --json
   clew chart analyze examples/todo/b-full.yaml --json
   clew workflows check examples/todo/workflows.yaml --json
-  clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json
-  clew verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W8 --json
-  clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --replay --out out --json
+  clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml --json
+  clew verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --flow W8 --json
+  clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml --heatmap --replay --out out --json
   clew compare b-full.json a-basic.json --json
   clew spec init examples/spec/order.md --json
   clew spec tag --json

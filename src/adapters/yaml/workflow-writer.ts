@@ -1,4 +1,4 @@
-// Workflow-set YAML. The domain draft is rendered here; Clew does not emit a chart or a mapping.
+// Workflow-set YAML. The domain draft is rendered here; Clew does not emit a chart.
 import { existsSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { WorkflowSetWriter } from '../../application/ports.js';

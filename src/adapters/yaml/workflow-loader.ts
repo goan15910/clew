@@ -6,8 +6,12 @@ import {
   assembleWorkflowSet,
   EXPECTATION_MESSAGE,
   expectationHolds,
+  WORKFLOW_EVENT_MESSAGE,
+  WORKFLOW_EVENT_PATTERN,
   WORKFLOW_ID_MESSAGE,
   WORKFLOW_ID_PATTERN,
+  WORKFLOW_STATE_MESSAGE,
+  WORKFLOW_STATE_PATTERN,
   WORKFLOW_WORD_MESSAGE,
   WORKFLOW_WORD_PATTERN,
   workflowSetIssues,
@@ -19,6 +23,8 @@ import { readYaml } from './read-yaml.js';
 
 const IdSchema = z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE);
 const WordSchema = z.string().regex(WORKFLOW_WORD_PATTERN, WORKFLOW_WORD_MESSAGE);
+const StateSchema = z.string().regex(WORKFLOW_STATE_PATTERN, WORKFLOW_STATE_MESSAGE);
+const EventSchema = z.string().regex(WORKFLOW_EVENT_PATTERN, WORKFLOW_EVENT_MESSAGE);
 
 const WorkflowSchema = z.strictObject({
   id: IdSchema,
@@ -28,11 +34,11 @@ const WorkflowSchema = z.strictObject({
   rejectAt: z.number().int().positive().optional(),
   nodes: z.array(z.strictObject({
     id: WordSchema,
-    state: WordSchema,
+    state: StateSchema,
   })).min(2),
   edges: z.array(z.strictObject({
     from: WordSchema,
-    event: WordSchema,
+    event: EventSchema,
     to: WordSchema,
     text: z.string().min(1),
   })).min(1),
@@ -72,7 +78,7 @@ function workflowHints(value: unknown): LocatedError[] {
   if ('machineId' in value) {
     hints.push({
       path: 'machineId',
-      message: 'machineId was removed and is not compared; name the chart in the mapping file and set id on the workflow set',
+      message: 'machineId was removed and is not compared; set id on the workflow set',
     });
   }
   const workflows = 'workflows' in value ? value.workflows : undefined;

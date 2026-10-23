@@ -6,7 +6,7 @@ testcases:
 - name: b-full passes every flow
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -15,7 +15,7 @@ testcases:
 - name: b-full json
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -28,11 +28,17 @@ testcases:
     - result.systemoutjson.summary.failed ShouldEqual 0
     - result.systemoutjson.summary.total ShouldEqual 8
     - result.systemoutjson.issues ShouldHaveLength 0
+    - result.systemoutjson.flows.flows0.trace.trace0.workflow.from ShouldEqual draft
+    - result.systemoutjson.flows.flows0.trace.trace0.chart.from ShouldEqual draft
+    - result.systemoutjson.flows.flows0.trace.trace0.workflow.event ShouldEqual SUBMIT
+    - result.systemoutjson.flows.flows0.trace.trace0.chart.event ShouldEqual SUBMIT
+    - result.systemoutjson.flows.flows0.trace.trace0.workflow.to ShouldEqual todo
+    - result.systemoutjson.flows.flows0.trace.trace0.chart.to ShouldEqual todo
 
 - name: a-basic fails W6 W7 and W8
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml"
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
@@ -44,7 +50,7 @@ testcases:
 - name: a-basic json names the three failures
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --json"
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
@@ -67,7 +73,7 @@ testcases:
 - name: one passing flow
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W1 --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --flow W1 --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -79,7 +85,7 @@ testcases:
 - name: one failing flow
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W8 --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --flow W8 --json"
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
@@ -90,7 +96,7 @@ testcases:
 - name: flow and select are unioned
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W1 --select tests/fixtures/selections/only-w8.json --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --flow W1 --select tests/fixtures/selections/only-w8.json --json"
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
@@ -103,7 +109,7 @@ testcases:
 - name: short selection file
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --select tests/fixtures/selections/only-w1.json --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --select tests/fixtures/selections/only-w1.json --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -113,7 +119,7 @@ testcases:
 - name: select dash is not stdin
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --select - --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --select - --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "cannot read -"
@@ -124,7 +130,7 @@ testcases:
 - name: unknown flow is exit 2
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --select tests/fixtures/selections/unknown-flow.json --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --select tests/fixtures/selections/unknown-flow.json --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "unknown workflow"
@@ -133,7 +139,7 @@ testcases:
 - name: selection file is neither shape
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --select tests/fixtures/selections/not-a-selection.json --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --select tests/fixtures/selections/not-a-selection.json --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "selection must be"
@@ -153,36 +159,49 @@ testcases:
       {{.clew}} workflows check tests/fixtures/workflows/branching.yaml --json > '{{.dir}}/failed.json'
       status=$?
       if [ "$status" -ne 1 ]; then exit "$status"; fi
-      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --select '{{.dir}}/failed.json' --json
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --select '{{.dir}}/failed.json' --json
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "not valid"
     - result.systemoutjson.fault ShouldEqual selection
 
-- name: mapping chart id mismatch
+- name: undeclared event fails only that flow
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml tests/fixtures/mappings/wrong-chart.yaml --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --flow W1 --flow W6 --json"
     assertions:
-    - result.code ShouldEqual 2
-    - result.systemerr ShouldContainSubstring "does not match chart id"
-    - result.systemoutjson.fault ShouldEqual mismatch
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
     - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.summary.passed ShouldEqual 1
+    - result.systemoutjson.summary.failed ShouldEqual 1
+    - result.systemoutjson.flows.flows0.id ShouldEqual W1
+    - result.systemoutjson.flows.flows0.pass ShouldBeTrue
+    - result.systemoutjson.flows.flows1.id ShouldEqual W6
+    - result.systemoutjson.flows.flows1.pass ShouldBeFalse
+    - result.systemoutjson.flows.flows1.reason ShouldContainSubstring "RESTORE"
+    - result.systemoutjson.flows.flows1.trace.trace2.workflow.event ShouldEqual RESTORE
+    - result.systemoutjson.flows.flows1.trace.trace2.chart.event ShouldEqual RESTORE
 
-- name: mapping gap is exit 2
+- name: name gap is exit 2
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify tests/fixtures/gap/chart.yaml tests/fixtures/gap/workflows.yaml tests/fixtures/gap/mapping.yaml --json"
+    script: "cd '{{.root}}' && {{.clew}} verify tests/fixtures/gap/chart.yaml tests/fixtures/gap/workflows.yaml --json"
     assertions:
     - result.code ShouldEqual 2
-    - result.systemerr ShouldContainSubstring "has no chart state"
-    - result.systemoutjson.fault ShouldEqual mapping-gap
+    - 'result.systemerr ShouldContainSubstring "name gap: workflow state"'
+    - 'result.systemerr ShouldContainSubstring "is not on the chart"'
+    - result.systemoutjson.fault ShouldEqual name-gap
     - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.issues.issues0.kind ShouldEqual graph
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring editing
+    - result.systemoutjson.issues.issues1.message ShouldContainSubstring closed
+    - result.systemout ShouldNotContainSubstring '"flows"'
 
 - name: highlight outside the selection
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W1 --highlight W2 --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --flow W1 --highlight W2 --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "not in the selected workflows"
@@ -191,7 +210,7 @@ testcases:
 - name: highlight without out does not need graphviz
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --flow W2 --highlight W2 --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --flow W2 --highlight W2 --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -201,7 +220,7 @@ testcases:
 - name: empty out directory is a usage error
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --out '' --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --out '' --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "output directory must not be empty"

@@ -4,6 +4,12 @@ import type { Issue } from './issue.js';
 
 export const WORKFLOW_WORD_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 export const WORKFLOW_WORD_MESSAGE = 'workflow names are lowercase words or kebab-case';
+/** Chart state ids are camelCase. Kebab-case still loads; verify requires the exact chart id. */
+export const WORKFLOW_STATE_PATTERN = /^[a-z][A-Za-z0-9]*(-[a-z0-9]+)*$/;
+export const WORKFLOW_STATE_MESSAGE = 'state names are camelCase chart ids, or lowercase kebab-case';
+/** Chart events are UPPER_SNAKE_CASE. Kebab-case still loads; verify replays the exact event string. */
+export const WORKFLOW_EVENT_PATTERN = /^(?:[A-Z][A-Z0-9_]*|[a-z][a-z0-9]*(-[a-z0-9]+)*)$/;
+export const WORKFLOW_EVENT_MESSAGE = 'event names are UPPER_SNAKE_CASE chart events, or lowercase kebab-case';
 export const WORKFLOW_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const WORKFLOW_ID_MESSAGE = 'ids start with a letter and then use letters, digits, underscores, or hyphens';
 

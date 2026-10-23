@@ -247,7 +247,7 @@ testcases:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.yaml ShouldContainSubstring "shipped"
-    - result.systemoutjson.yaml ShouldContainSubstring "cancel"
+    - result.systemoutjson.yaml ShouldContainSubstring "CANCEL"
     - result.systemoutjson.yaml ShouldContainSubstring "cancelled"
     - result.systemoutjson.yaml ShouldContainSubstring "The customer cannot cancel a shipped order"
     - result.systemoutjson.issues ShouldHaveLength 0

@@ -8,13 +8,15 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 
 **`compare` is kept, and it no longer replays.** It ranks JSON documents produced by `clew verify --json`. An agent verifies each candidate, then compares those documents. The candidate name is the chart file’s basename (`examples/todo/b-full.yaml` is `b-full`), carried on the verify document, because two charts can share one chart id.
 
-**The chart-to-workflow mapping is its own file.** `chart check`, `chart analyze`, and `workflows check` do not take it. Only `verify` does. The chart does not store workflow names, and the workflow set does not store chart names.
+**Chart and workflow names match directly.** There is no mapping file. A workflow node's `state` is the chart state id, and an edge's `event` is the chart event. `verify` compares those strings exactly. A selected workflow whose state is not on the chart exits 2 with fault `name-gap` and a message that names the missing state. An event the chart never declares does not stop the command: that flow fails (exit 1) and the other selected flows still run. That is why `a-basic` fails W6, W7, and W8 while `b-full` passes all eight. States a selected flow does not use are not checked. Chart ids and workflow-set ids are not compared.
+
+**Naming contract between workflow sets and charts.** Spec sessions and the draft graph keep kebab-case words (`mark-shipped`, `in-progress`). `spec emit` is the translation onto the chart. A node's `state` becomes a camelCase chart id (`markShipped`, `inProgress`). An edge's `event` becomes `UPPER_SNAKE` (`MARK_SHIPPED`). A token that is already in that form is left as it is, so `inProgress` does not become `inprogress` and `SUBMIT` stays `SUBMIT`. Node ids, and edge `from`, `to`, and `start`, stay kebab-case. `verify` then matches those `state` and `event` strings to the chart exactly. A chart written by hand uses the same ids and events, so an emitted set and that chart name the same things.
 
 **The first analyses are the chart-only checks already in Clew:** states reachable from the initial state, unreachable states, dead ends (non-final states with no outgoing transition), and the shortest event path to each reachable state. Transitions no selected flow exercises are reported by `verify`, because that check needs a workflow set. Further analyses are not in this command set.
 
-**A workflow set is a meta-graph of named linked lists.** The file has an `id` and a `workflows` array. Each workflow has a unique `id` (the sub-graph name), nodes, and edges. Node ids are unique inside that workflow. A node’s `state` is the shared workflow vocabulary, so a list may visit the same state twice under two node ids. Edges form a single path from `start`: one head, one outgoing edge, one incoming edge, no cycles, no disconnected nodes. Walk order follows the links, not the order of the YAML list. There is no reader for the old `machineId` / `steps` / `end` shape. Those files fail schema validation with a migration hint.
+**A workflow set is a meta-graph of named linked lists.** The file has an `id` and a `workflows` array. Each workflow has a unique `id` (the sub-graph name), nodes, and edges. Node ids are unique inside that workflow. A node’s `state` is the chart state id, so a list may visit the same state twice under two node ids. Edges form a single path from `start`: one head, one outgoing edge, one incoming edge, no cycles, no disconnected nodes. Walk order follows the links, not the order of the YAML list. There is no reader for the old `machineId` / `steps` / `end` shape. Those files fail schema validation with a migration hint.
 
-**`machineId` is not compared.** It was removed. `verify` compares the mapping’s `chart` to the chart id and the mapping’s `workflowSet` to the workflow-set id. A mismatch is exit 2.
+**`machineId` is not compared.** It was removed. The workflow set has its own `id`. `verify` does not compare that id to the chart id.
 
 ## Commands
 
@@ -22,7 +24,7 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 clew chart check <chart.yaml> [--json]
 clew chart analyze <chart.yaml> [--json]
 clew workflows check <set.yaml> [--json]
-clew verify <chart.yaml> <set.yaml> <mapping.yaml> [--flow <id>] [--select <file>] [--highlight <id>] [--heatmap] [--replay] [--out <dir>] [--json]
+clew verify <chart.yaml> <set.yaml> [--flow <id>] [--select <file>] [--highlight <id>] [--heatmap] [--replay] [--out <dir>] [--json]
 clew compare <verify.json>... [--out <dir>] [--json]
 clew spec init <spec.md> [--session <id>] [--json]
 clew spec tag [--session <id>] [--sentence <id>] [--json]
@@ -219,7 +221,7 @@ The path cover is one accepted flow per transition (`Submit order` for event `su
 | `overlap` | blocking | a flow shares some named transitions and keeps others |
 | `duplicate-flow` | blocking | `--into` names a flow that is not one of the inputs |
 
-`spec emit` renders the workflow set only. It does not write a chart or a mapping. `--dry-run` prints the YAML in the JSON document and does not write a file, even with `--force`. `--out` is required otherwise. `--dry-run` and `--out` together are exit 2. `--out -` is rejected. Edge text is the clause that contains the action, extended through the object, with a leading when, after, before, or once removed. A guard’s text is appended when the clause does not already contain it. A rejected flow that cites a transition uses the forbidden fact’s source sentence.
+`spec emit` renders the workflow set only. It does not write a chart. It writes the naming contract above: camelCase state ids and `UPPER_SNAKE` events. The draft graph stays kebab-case. `--dry-run` prints the YAML in the JSON document and does not write a file, even with `--force`. `--out` is required otherwise. `--dry-run` and `--out` together are exit 2. `--out -` is rejected. Edge text is the clause that contains the action, extended through the object, with a leading when, after, before, or once removed. A guard’s text is appended when the clause does not already contain it. A rejected flow that cites a transition uses the forbidden fact’s source sentence.
 
 Emit refuses while a blocking finding remains on the graph layer. `--force` writes the file anyway, sets `forced: true`, lists the findings, and still exits 1. Earlier-layer warnings, such as an unreviewed entity, do not block emit. There is no per-finding waiver. A graph that no longer matches the facts is a blocking `stale-graph`; rebuild before emit. Emit does not write the session. Check failures from the workflow-set rules are `workflow-check` findings, with refs to the flow, its transitions, its facts, and their sources. They are not `issues`. The set id is the object name plus `Flows` (`order` becomes `orderFlows`). Two objects join as `orderAndShipmentFlows`.
 
@@ -255,7 +257,7 @@ Unknown ids, a failing check document, and a file that is neither shape are exit
 |---|---|
 | 0 | Chart schema and graph are valid; or the analysis is clean; or the workflow set is valid; or every selected flow passed; or compare has a winner; or a spec command left no blocking findings |
 | 1 | Schema or graph is invalid; or the analysis found an unreachable state or a dead end; or a selected flow failed; or compare has no winner; or a spec command reported a blocking finding |
-| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; the mapping does not apply; the selection names a missing flow; the spec file, session, or id cannot be read |
+| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; a workflow state is not on the chart; the selection names a missing flow; the spec file, session, or id cannot be read |
 
 Schema is checked before the graph. Graph findings are produced only after the schema is valid (`graphChecked` tells them apart). YAML and JSON syntax errors are exit 2: there is no document to judge yet.
 
@@ -275,36 +277,23 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: editing }
-      - { id: working, state: active }
-      - { id: snoozed, state: paused }
-      - { id: resumed, state: active }
+      - { id: edit, state: draft }
+      - { id: working, state: inProgress }
+      - { id: snoozed, state: snoozed }
+      - { id: resumed, state: inProgress }
     edges:
-      - { from: edit, event: submit, to: working, text: "Start it" }
-      - { from: working, event: snooze, to: snoozed, text: "Snooze" }
-      - { from: snoozed, event: resume, to: resumed, text: "Resume" }
+      - { from: edit, event: SUBMIT, to: working, text: "Start it" }
+      - { from: working, event: SNOOZE, to: snoozed, text: "Snooze" }
+      - { from: snoozed, event: RESUME, to: resumed, text: "Resume" }
 ```
 
-`expect: rejected` adds `rejectAt` (1-based index in walk order) and must not be combined with an accepted flow. Workflow ids match `^[A-Za-z][A-Za-z0-9_-]*$`. State names, node ids, and events match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. That vocabulary is deliberately not the chart’s.
+`expect: rejected` adds `rejectAt` (1-based index in walk order) and must not be combined with an accepted flow. Workflow ids match `^[A-Za-z][A-Za-z0-9_-]*$`. Node ids match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. State names match `^[a-z][A-Za-z0-9]*(-[a-z0-9]+)*$`, so a camelCase chart id (`draft`, `inProgress`) is valid, and lowercase kebab-case still loads. Events match `^(?:[A-Z][A-Z0-9_]*|[a-z][a-z0-9]*(-[a-z0-9]+)*)$`, so a chart event (`SUBMIT`) is valid, and lowercase kebab-case still loads. `spec emit` writes only the chart form of those fields. Kebab-case still loads so an older file or a name-gap fixture can be read; `verify` then requires the exact chart string.
 
-**Mapping.**
-
-```yaml
-chart: todoTask
-workflowSet: todoFlows
-states:
-  - { chart: draft, workflow: editing }
-events:
-  - { chart: SUBMIT, workflow: submit }
-```
-
-The workflow side is a function: one workflow state or event names one chart state or event. Several workflow names may share a chart name. Rows a selected flow does not use are not checked, so a partial mapping can prove one flow. A mapped chart state that is not on the chart is exit 2. A mapped chart event that the chart never declares is a failed flow (exit 1), which is how a weaker candidate such as `a-basic` shares a mapping with `b-full`.
-
-A flow may start at any mapped chart state. Flows that start at the chart’s initial state are also proved with `@xstate/graph` `getPathsFromEvents`. Other flows are proved by replay.
+`verify` uses the strings as written. A workflow state that is not a chart state id is exit 2, fault `name-gap`, and the message names that state. The verify document then has no `flows`. An event the chart never declares is replayed anyway, and only that flow fails (exit 1). `a-basic` never declares `RESTORE`, so W6 fails and W1 still passes. A flow may start at any chart state. Flows that start at the chart’s initial state are also proved with `@xstate/graph` `getPathsFromEvents`. Other flows are proved by replay.
 
 ## JSON documents
 
-These are shapes. Captured command output is in the pull request. Every `--json` document has `command` and `ok`. `issues` is an array of `{ "kind", "file", "path", "message" }`. `kind` is `schema`, `graph`, `input`, or `mapping`. A verify trace lists every attempted step.
+These are shapes. Captured command output is in the pull request. Every `--json` document has `command` and `ok`. `issues` is an array of `{ "kind", "file", "path", "message" }`. `kind` is `schema`, `graph`, or `input`. A name gap is `graph`. A verify trace lists every attempted step. Each step still has `workflow` and `chart`, each `{ from, event, to }`. Those strings are equal, because the names match directly. On a refused step, both `to` values are null.
 
 `chart.check`, valid:
 
@@ -359,15 +348,15 @@ These are shapes. Captured command output is in the pull request. Every `--json`
         "title": "Create and complete a task",
         "expect": "accepted",
         "start": "edit",
-        "nodes": [{ "id": "edit", "state": "editing" }],
+        "nodes": [{ "id": "edit", "state": "draft" }],
         "edges": [
           {
             "from": "edit",
-            "event": "submit",
+            "event": "SUBMIT",
             "to": "listed",
             "text": "Add the draft to my list",
-            "stateFrom": "editing",
-            "stateTo": "open"
+            "stateFrom": "draft",
+            "stateTo": "todo"
           }
         ]
       }
@@ -396,13 +385,13 @@ These are shapes. Captured command output is in the pull request. Every `--json`
       "pass": false,
       "reason": "should have been refused at step 3",
       "provedBy": "replay",
-      "finalState": { "chart": "archived", "workflow": "kept" },
+      "finalState": { "chart": "archived", "workflow": "archived" },
       "trace": [
         {
           "n": 3,
           "text": "Try to archive it before it is done",
           "accepted": true,
-          "workflow": { "from": "active", "event": "archive", "to": "kept" },
+          "workflow": { "from": "inProgress", "event": "ARCHIVE", "to": "archived" },
           "chart": { "from": "inProgress", "event": "ARCHIVE", "to": "archived" }
         }
       ]
@@ -413,7 +402,7 @@ These are shapes. Captured command output is in the pull request. Every `--json`
 }
 ```
 
-`ok` is true only when every selected flow passed. `unusedTransitions` does not change the exit code. Preconditions (`fault` of `unreadable`, `invalid-chart`, `invalid-workflows`, `invalid-mapping`, `mismatch`, `selection`, or `mapping-gap`) are exit 2 and omit `flows`. `transitionCoverage` and `views` are omitted unless `--heatmap` or `--replay` was passed.
+`ok` is true only when every selected flow passed. `unusedTransitions` does not change the exit code. Preconditions (`fault` of `unreadable`, `invalid-chart`, `invalid-workflows`, `selection`, or `name-gap`) are exit 2 and omit `flows`. `transitionCoverage` and `views` are omitted unless `--heatmap` or `--replay` was passed.
 
 `--heatmap --replay --out` adds:
 
@@ -627,7 +616,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
   "session": "order-sentence",
   "dryRun": true,
   "id": "orderFlows",
-  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", state: \"draft\" }\n      - { id: \"submitted\", state: \"submitted\" }\n    edges:\n      - { from: \"draft\", event: \"submit\", to: \"submitted\", text: \"The customer submits an order\" }\n",
+  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", state: \"draft\" }\n      - { id: \"submitted\", state: \"submitted\" }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submitted\", text: \"The customer submits an order\" }\n",
   "findings": [],
   "issues": []
 }
@@ -637,11 +626,12 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 
 | Old | New |
 |---|---|
-| `machineId` on the workflow file | Removed. Not compared. The mapping file names `chart` and `workflowSet`. The set has its own `id`. |
-| `workflowState` on a chart state | Removed. State pairs live under `mapping.states`. |
+| `machineId` on the workflow file | Removed. Not compared. The set has its own `id`. |
+| `workflowState` on a chart state | Removed. The workflow state name is the chart state id. |
 | `steps: [{ text, event }]` and `end` | `nodes` (`id`, `state`) and `edges` (`from`, `event`, `to`, `text`). `start` is the head. The old `end` is the state of the last node. |
-| One implicit chain from the chart’s initial state | The list may start at any mapped state. Revisiting a state uses a second node id with the same `state`. |
-| `clew verify chart workflows` and `clew compare workflows chart...` | `clew verify chart workflows mapping`. `clew compare` reads verify JSON files. |
+| One implicit chain from the chart’s initial state | The list may start at any chart state. Revisiting a state uses a second node id with the same `state`. |
+| `clew verify chart workflows` and `clew compare workflows chart...` | `clew verify chart workflows`. `clew compare` reads verify JSON files. |
+| `mapping.yaml` as the third argument to `clew verify` | Removed. This is a breaking change. State and event names match exactly. A workflow state that is not on the chart is exit 2 (`name-gap`). An event the chart never declares fails only that flow (exit 1). The verify step shape is unchanged: each trace step still has `workflow` and `chart`. |
 
 `examples/todo/workflows.yaml` is the migrated to-do set: eight named sub-graphs. `examples/todo/a-basic.yaml` fails W6, W7, and W8. `examples/todo/b-full.yaml` passes all eight. The old `machineId` / `steps` / `end` shape and a chart that still carries `workflowState` are `tests/fixtures/workflows/legacy.yaml` and `tests/fixtures/charts/legacy-chart.yaml`. Those files fail schema validation with a migration hint. Other boundary files (a dead end, a branching list, a misspelled state, an effect that sets an undeclared field) are under `tests/fixtures/` and are covered by the Venom suites.
 

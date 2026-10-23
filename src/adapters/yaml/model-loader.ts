@@ -97,7 +97,7 @@ function chartHints(value: unknown): LocatedError[] {
   if (!Array.isArray(states)) return [];
   const legacy = states.some((state) => typeof state === 'object' && state !== null && 'workflowState' in state);
   if (!legacy) return [];
-  return [{ path: '', message: 'workflowState was removed from chart states; put state correspondence in the mapping file' }];
+  return [{ path: '', message: 'workflowState was removed from chart states; a workflow state name is the chart state id' }];
 }
 
 export function loadModel(input: unknown): FileLoad<Model> {

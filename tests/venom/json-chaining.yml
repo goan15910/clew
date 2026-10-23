@@ -27,7 +27,7 @@ testcases:
   - type: exec
     script: |
       cd '{{.root}}'
-      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --select '{{.dir}}/selection.json' --json > '{{.dir}}/b-full.json'
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --select '{{.dir}}/selection.json' --json > '{{.dir}}/b-full.json'
       status=$?
       cat '{{.dir}}/b-full.json'
       exit $status
@@ -43,7 +43,7 @@ testcases:
   - type: exec
     script: |
       cd '{{.root}}'
-      {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/a-basic.json'
+      {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --json > '{{.dir}}/a-basic.json'
       status=$?
       cat '{{.dir}}/a-basic.json'
       exit $status
