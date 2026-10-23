@@ -89,9 +89,13 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     };
     if (entities !== undefined) snapshot.entities = entities;
     if (facts !== undefined) snapshot.facts = facts;
-    const touched: string[] = [];
+    const before: string[] = [];
+    const after: string[] = [];
     for (const sentence of live) {
-      if (command.sentenceId === undefined || sentence.id === command.sentenceId) touched.push(sentence.id);
+      if (command.sentenceId !== undefined && sentence.id !== command.sentenceId) continue;
+      after.push(sentence.id);
+      const previous = existing.get(sentence.id);
+      if (previous !== undefined && previous.status === 'current' && previous.tokens.length > 0) before.push(sentence.id);
     }
     const history: { spec?: string; session: string; sentence?: string } = { session: current.id };
     if (command.sentenceId !== undefined) history.sentence = command.sentenceId;
@@ -101,8 +105,8 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
         at: now,
         command: 'spec.tag',
         args: history,
-        before: touched,
-        after: touched,
+        before,
+        after,
       },
     };
   });

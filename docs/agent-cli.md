@@ -18,6 +18,8 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 
 **`machineId` is not compared.** It was removed. The workflow set has its own `id`. `verify` does not compare that id to the chart id.
 
+**A noun is an actor only when the tagger tags it `Actor`.** A noun tagged only `Noun` stays an object, and the sentence gets `no-actor`. Clew does not guess the grammatical subject, and it does not invent `system` or `actor`. The agent promotes that noun with `spec entities promote --id <id> --kind actor`.
+
 ## Commands
 
 ```bash
@@ -67,7 +69,7 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 Running `spec init` again on the same file refreshes that session. Unchanged sentence text keeps its id. Changed or removed sentences stay in the store as `stale` and are reported. They are not deleted. A sentence that comes back with the same hash is revived, and token spans shift if the text moved in the file.
 
-`spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. Entity and fact edits are what set `origin` to `agent`.
+`spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A tag history line lists sentence ids: `before` is the targeted sentences that already had current tokens, and `after` is every targeted sentence id. The first tag has an empty `before`. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. Entity and fact edits are what set `origin` to `agent`.
 
 `--session` selects a session. When it is omitted, Clew uses the only open session for this repo. Zero sessions, or more than one, is exit 2.
 
@@ -82,10 +84,11 @@ The session store is outside the repo. Nothing is written next to the spec, and 
   facts.json
   graph.json
   history.jsonl
-  .lock
 ```
 
-`<repo-name>` is the git root’s directory name (the working directory when there is no `.git`). `<path-hash>` is the first 12 hex characters of the SHA-256 of that directory’s real path. `<session-id>` defaults to the spec file’s basename. A `.lock` file is the single writer for that session. A lock whose process is gone is taken over. A live lock is exit 2.
+`<repo-name>` is the git root’s directory name, lowercased, with each run of non-alphanumeric characters replaced by one hyphen and a leading or trailing hyphen removed. An empty name becomes `repo`. When there is no `.git`, the working directory is named the same way. `<path-hash>` is the first 12 hex characters of the SHA-256 of that directory’s real path. `<session-id>` defaults to the spec file’s basename. Clew holds a lock only while a command writes the session, and removes that lock before the command exits. The lock is not a file that stays in the session. A lock whose process is gone is taken over. A live lock is exit 2.
+
+`history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, propose records live fact ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec facts propose`, and `spec graph build` have an empty `before`.
 
 `session.json` carries `schemaVersion`. This Clew reads schema 1. A different version is exit 2 and names the missing migration. The store adapter is the only place that validates that JSON with Zod.
 
@@ -114,7 +117,7 @@ Latin-script languages are not detected. Translate those to plain English before
 | `tagger-version` | info | the stored tagger version differs from this one |
 | `stale-sentence` | warning | a stale sentence is still in the session |
 
-`spec entities list` derives candidates from the current tokens and writes them the first time. Running it again, when nothing changed, does not append history. `--kind` and `--status` filter the document. There is no separate extract command. Actor-tagged nouns become actors. Other nouns become objects, except pronouns, currency, units, determiners, and values, so "dollars" is skipped. Verbs become actions, except copulas, auxiliaries, and modals. An adjectival verb between a determiner and a noun ("a shipped order") is not an action. A sentence-initial “When” is a condition only when its clause has no content verb; mid-sentence if, when, and unless are conditions. Same-lemma nouns merge. A single token stays `origin: tagger`. Two sources of the same lemma are `origin: rule`.
+`spec entities list` derives candidates from the current tokens and writes them the first time. Running it again, when nothing changed, does not append history. `--kind` and `--status` filter the document. There is no separate extract command. Actor-tagged nouns become actors. A noun the tagger does not tag `Actor` is not promoted to an actor. Other nouns become objects, except pronouns, currency, units, determiners, and values, so "dollars" is skipped. Verbs become actions, except copulas, auxiliaries, and modals. An adjectival verb between a determiner and a noun ("a shipped order") is not an action. A sentence-initial “When” is a condition only when its clause has no content verb; mid-sentence if, when, and unless are conditions. Same-lemma nouns merge. A single token stays `origin: tagger`. Two sources of the same lemma are `origin: rule`.
 
 `spec entities list` findings:
 
@@ -137,7 +140,7 @@ Latin-script languages are not detected. Translate those to plain English before
 | `normalized-name` | info | the written name was normalized |
 | `stale-fact` | warning | rejecting an entity marked the facts that cite it stale |
 
-`spec facts propose` drafts facts from subject-verb-object frames, clause order, and condition markers. It does not overwrite `origin: agent`. A disagreement is `agent-fact`. Running it again, when nothing changed, does not append history. `--sentence s1` limits the proposal to that sentence. Emission order inside a sentence is performs, then transitions, then forbidden, then guards. The first transition on an object has `from: null` and confidence 0.5. A later transition in a When sentence takes the previous `to` as `from`, confidence 0.6. A past participle is the `to` state (`submit` becomes `submitted`; a surface form such as `cancelled` is kept). Negation (`cannot`, `not`, `never`) emits `forbidden` instead of a transition, and still emits `performs`. Passive voice takes the noun before the verb as the object and the actor after “by”. `initial` and `final` are not proposed. Removed facts stay in the store as tombstones (`removed: true`, `status: stale`, `origin: agent`) so a later propose does not recreate that signature. Documents omit removed facts. Adding a fact with a removed signature revives that id. Adding a live duplicate signature is a blocking `contradicting-facts` finding and does not write.
+`spec facts propose` drafts facts from subject-verb-object frames, clause order, and condition markers. It does not overwrite `origin: agent`. A disagreement is `agent-fact`. Running it again, when nothing changed, does not append history. `--sentence s1` limits the proposal to that sentence. Emission order inside a sentence is performs, then transitions, then forbidden, then guards. The first transition on an object has `from: null` and confidence 0.5. A later transition in a When sentence takes the previous `to` as `from`, confidence 0.6. A past participle is the `to` state (`submit` becomes `submitted`; `ship` becomes `shipped`; a surface form such as `cancelled` is kept). `before` and `after` on a propose history line are the live fact ids, omitting removed tombstones. The first propose has an empty `before`. A forbidden fact for the same object and action is the rejected path, not a `contradicting-facts` warning. Disagreeing transitions, and disagreeing initial or final states, still warn. Negation (`cannot`, `not`, `never`) emits `forbidden` instead of a transition, and still emits `performs`. Passive voice takes the noun before the verb as the object and the actor after “by”. `initial` and `final` are not proposed. Removed facts stay in the store as tombstones (`removed: true`, `status: stale`, `origin: agent`) so a later propose does not recreate that signature. Documents omit removed facts. Adding a fact with a removed signature revives that id. Adding a live duplicate signature is a blocking `contradicting-facts` finding and does not write.
 
 `spec facts add`, `edit`, and `remove` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. `--from-state` and `--to-state` name transition states, because `--from` is the patch file. `--source` and `--id` are repeatable on the commands that accept them. Confidence is a number from 0 to 1. An edit sets confidence to 1 unless the patch sets it. An unknown fact id is exit 2. A well-formed entity id that is not in the session is a blocking finding, not an input issue.
 
@@ -181,9 +184,9 @@ Latin-script languages are not detected. Translate those to plain English before
 | `facts-absent` | info | `spec facts propose` or an edit has not been run |
 | `graph-absent` | info | `spec graph build` has not been run |
 
-`spec graph build` reads the current facts and writes `graph.json`. Schema version stays 1; a session from an earlier slice still opens, and `graph.json` appears only after a build. Running build again, when the graph and the paths are unchanged, does not append history. Transition ids stay with the fact that produced them (`tr1` keeps the fact `f3`). A fact that no longer matches is not given a retired id. States are the `from` and `to` of each transition, then any `initial` or `final` fact. A state’s `facts` list every current initial, final, or transition fact that names that state, sorted by fact number. A transition with `from: null` is left out, with a blocking `transition-without-from` finding.
+`spec graph build` reads the current facts and writes `graph.json`. Schema version stays 1; a session from an earlier slice still opens, and `graph.json` appears only after a build. Running build again, when the graph and the paths are unchanged, does not append history. A build history line’s `before` lists the flow ids already stored, and `after` lists the flow ids written. The first build has an empty `before`. Split and group record the same way: every flow id before the edit, then every flow id after it. Transition ids stay with the fact that produced them (`tr1` keeps the fact `f3`). A fact that no longer matches is not given a retired id. States are the `from` and `to` of each transition, then any `initial` or `final` fact. A state’s `facts` list every current initial, final, or transition fact that names that state, sorted by fact number. A transition with `from: null` is left out, with a blocking `transition-without-from` finding.
 
-The path cover is one accepted flow per transition (`Submit order` for event `submit` on object `order`) and one rejected flow per `forbidden` fact (`Cannot approve order`, `rejectAt` 1). A forbidden fact that matches a transition cites that transition. A forbidden fact with no transition is a rejected flow with an empty transition list; emit draws it from the object’s initial state to the past participle (`cancel` to `cancelled`) and uses the source sentence as the edge text. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden fact, keep their ids.
+The path cover is one accepted flow per provable transition (`Submit order` for event `submit` on object `order`) and one rejected flow per `forbidden` fact (`Cannot approve order`, `rejectAt` 1). A guarded transition with no else is not given an accepted flow, because that path cannot be proved. `guard-without-else` stays blocking and is not also reported as `uncovered-transition`. Once a forbidden fact or another guard supplies the else, the accepted flow is proposed and can be grouped. A forbidden fact that matches a transition cites that transition. A forbidden fact with no transition is a rejected flow with an empty transition list; emit draws it from the object’s initial state to the past participle (`cancel` to `cancelled`) and uses the source sentence as the edge text. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden fact, keep their ids.
 
 `spec graph split --id W1 --at 2` cuts an accepted path before the second edge. `--at tr2` names that edge instead. The first path keeps `W1`. The second path gets the next workflow id. Both become `origin: agent`. A rejected path is a blocking `rejected-split` and is not written. A cut that would leave a path with no edge is `unsplittable` and is not written. An unknown flow or split point is exit 2.
 
@@ -230,7 +233,7 @@ Emit refuses while a blocking finding remains on the graph layer. `--force` writ
 | Code | Severity | When |
 |---|---|---|
 | `stale-graph` | blocking | stored states or transitions differ from a fresh assembly |
-| `uncovered-transition` | blocking | a transition is not on an accepted path |
+| `uncovered-transition` | blocking | a provable transition is not on an accepted path. A guard with no else is `guard-without-else` instead |
 | `overlap` | blocking | a transition is on more than one accepted path |
 | `path-not-linear` | blocking | a flow does not chain |
 | `missing-transition` | blocking | a flow cites a transition that is gone |
@@ -596,8 +599,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
     ]
   },
   "flows": [
-    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["tr1"], "origin": "rule" },
-    { "id": "W2", "title": "Approve order", "expect": "accepted", "transitions": ["tr2"], "origin": "rule" }
+    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["tr1"], "origin": "rule" }
   ],
   "findings": [
     { "id": "no-final-state:order:approved", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approved has no outgoing transition and is not marked final", "refs": ["approved"] },
@@ -607,7 +609,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 }
 ```
 
-`spec.emit --dry-run` for that graph. `yaml` below is only the start of W1. The findings match the build, and they are omitted here. No file is written. `spec graph group --id W1 --id W2 --title "Submit and approve an order"` joins the two paths first when the agent wants one happy path. `--force` with `--out` writes the full YAML even while `guard-without-else` is open, sets `forced: true`, and still exits 1.
+`spec.emit --dry-run` for that graph. The guarded approve transition is not an accepted flow, so the set contains only W1. `workflowSet` is that set as structured views, including each edge’s `stateFrom` and `stateTo`. The findings match the build, and they are omitted here. No file is written. Grouping W1 with an approve flow waits until a forbidden fact or another guard supplies the else. `--force` with `--out` writes the YAML even while `guard-without-else` is open, sets `forced: true`, and still exits 1.
 
 ```json
 {
@@ -616,6 +618,31 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
   "session": "order-sentence",
   "dryRun": true,
   "id": "orderFlows",
+  "workflowSet": {
+    "id": "orderFlows",
+    "workflows": [
+      {
+        "id": "W1",
+        "title": "Submit order",
+        "expect": "accepted",
+        "start": "draft",
+        "nodes": [
+          { "id": "draft", "state": "draft" },
+          { "id": "submitted", "state": "submitted" }
+        ],
+        "edges": [
+          {
+            "from": "draft",
+            "event": "SUBMIT",
+            "to": "submitted",
+            "text": "The customer submits an order",
+            "stateFrom": "draft",
+            "stateTo": "submitted"
+          }
+        ]
+      }
+    ]
+  },
   "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", state: \"draft\" }\n      - { id: \"submitted\", state: \"submitted\" }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submitted\", text: \"The customer submits an order\" }\n",
   "findings": [],
   "issues": []

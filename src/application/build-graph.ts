@@ -32,11 +32,13 @@ export function buildSpecGraph(command: BuildGraphCommand, store: SpecStore): Ou
     const now = new Date().toISOString();
     const snapshot = copySnapshot(current, now);
     snapshot.graph = built.graph;
-    const ids: string[] = [];
-    for (const flow of built.graph.flows) ids.push(flow.id);
+    const before: string[] = [];
+    for (const flow of current.graph?.flows ?? []) before.push(flow.id);
+    const after: string[] = [];
+    for (const flow of built.graph.flows) after.push(flow.id);
     return {
       snapshot,
-      history: { at: now, command: 'spec.graph.build', args: { session: current.id }, before: ids, after: ids },
+      history: { at: now, command: 'spec.graph.build', args: { session: current.id }, before, after },
     };
   });
   if (!result.ok) return invalid(result.fault === 'missing' ? 'session' : result.fault, result.message);

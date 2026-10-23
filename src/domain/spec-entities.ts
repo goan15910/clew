@@ -660,7 +660,8 @@ function findEntity(entities: readonly Entity[], id: string): Entity | undefined
 }
 
 function isSingleSyllableCvc(lemma: string): boolean {
-  return /^[^aeiou][aeiou][^aeiouwxy]$/.test(lemma);
+  // A leading consonant cluster still doubles: ship -> shipped, not shiped.
+  return /^[^aeiou]+[aeiou][^aeiouwxy]$/.test(lemma);
 }
 
 function editDistance(left: string, right: string): number {

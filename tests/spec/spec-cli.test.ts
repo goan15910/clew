@@ -123,6 +123,10 @@ describe('spec commands', { concurrency: false }, () => {
       const session = specSessionDir('flow', { CLEW_DATA_DIR: dir }, root);
       const history = () => readFileSync(join(session, 'history.jsonl'), 'utf8').trim().split('\n');
       assert.equal(history().length, 2);
+      const tagLine = JSON.parse(history()[1] ?? '{}') as { command: string; before: string[]; after: string[] };
+      assert.equal(tagLine.command, 'spec.tag');
+      assert.deepEqual(tagLine.before, []);
+      assert.deepEqual(tagLine.after, ['s1', 's2']);
       const second = initSpec({ file }, specTextSource, jsonSpecStore);
       assert.equal(second.exit, 'pass');
       assert.equal(history().length, 2);

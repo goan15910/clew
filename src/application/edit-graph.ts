@@ -48,9 +48,13 @@ export function editGraph(command: EditGraphCommand, store: SpecStore): Outcome<
       if (command.into !== undefined) args.into = command.into;
       if (command.title !== undefined) args.title = command.title;
     }
+    const before: string[] = [];
+    for (const flow of current.graph.flows) before.push(flow.id);
+    const after: string[] = [];
+    for (const flow of (edited.graph ?? current.graph).flows) after.push(flow.id);
     return {
       snapshot,
-      history: { at: now, command: commandName, args, before: changed, after: changed },
+      history: { at: now, command: commandName, args, before, after },
     };
   });
   if (!result.ok) return invalid(commandName, result.fault === 'missing' ? 'session' : result.fault, result.message);

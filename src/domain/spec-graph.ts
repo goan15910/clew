@@ -1,6 +1,7 @@
 // Draft graph assembly, path cover, and the workflow-set draft.
-// One accepted path per transition, plus one rejected path per forbidden fact.
-// Agent-owned flows are kept. Gap findings are recomputed, not stored.
+// One accepted path per provable transition, plus one rejected path per forbidden fact.
+// A guard with no else is not an accepted flow. Agent-owned flows are kept.
+// Gap findings are recomputed, not stored.
 import type { Issue } from './issue.js';
 import { chartEventName, chartStateId } from './model.js';
 import type {
@@ -268,6 +269,7 @@ function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: 
   }
   for (const transition of assembled.transitions) {
     if (transition.from === transition.to || covered.has(transition.id)) continue;
+    if (!provableTransition(transition, assembled.transitions, live, entities)) continue;
     const id = freshFlowId(used);
     flows.push(acceptedFlow(id, [transition.id], assembled.transitions, 'rule'));
     covered.add(transition.id);
@@ -293,6 +295,7 @@ function keepRuleFlow(
     if (id === undefined || covered.has(id)) return undefined;
     const transition = findTransition(assembled.transitions, id);
     if (transition === undefined || transition.from === transition.to) return undefined;
+    if (!provableTransition(transition, assembled.transitions, live, entities)) return undefined;
     return acceptedFlow(flow.id, [id], assembled.transitions, 'rule');
   }
   if (flow.expect !== 'rejected' || flow.forbidden === undefined || keptForbidden.has(flow.forbidden)) return undefined;
@@ -330,6 +333,7 @@ function flowCoverage(graph: DraftGraph, facts: readonly Fact[], entities: reado
     if (transition.from === transition.to) continue;
     const owners = accepted.get(transition.id) ?? [];
     if (owners.length === 0) {
+      if (!provableTransition(transition, graph.transitions, currentFacts(facts), entities)) continue;
       findings.push(blocked('uncovered-transition', `${transition.id} is not on an accepted path`, [transition.id]));
     } else if (owners.length > 1) {
       findings.push(blocked('overlap', `${transition.id} is on ${owners.join(' and ')}`, [transition.id, ...owners]));
@@ -808,6 +812,11 @@ function guardFindings(transitions: readonly GraphTransition[], live: readonly F
     ));
   }
   return findings;
+}
+
+function provableTransition(transition: GraphTransition, transitions: readonly GraphTransition[], live: readonly Fact[], entities: readonly Entity[]): boolean {
+  if (transition.guard === undefined) return true;
+  return hasElse(transition, transitions, live, entities);
 }
 
 function hasElse(transition: GraphTransition, transitions: readonly GraphTransition[], live: readonly Fact[], entities: readonly Entity[]): boolean {

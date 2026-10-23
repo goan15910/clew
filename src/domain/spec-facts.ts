@@ -116,32 +116,17 @@ export function contradictionFindings(facts: readonly Fact[]): Finding[] {
   const initials = new Map<string, Fact[]>();
   const finals = new Map<string, Fact[]>();
   const transitions = new Map<string, Fact[]>();
-  const forbidden = new Set<string>();
   for (const fact of live) {
     if (fact.type === 'initial' && fact.object !== undefined) pushMap(initials, fact.object, fact);
     if (fact.type === 'final' && fact.object !== undefined) pushMap(finals, fact.object, fact);
     if (fact.type === 'transition' && fact.object !== undefined && fact.action !== undefined) {
       pushMap(transitions, `${fact.object}|${fact.action}`, fact);
     }
-    if (fact.type === 'forbidden' && fact.action !== undefined) {
-      forbidden.add(`${fact.object ?? ''}|${fact.action}`);
-    }
   }
   disagree(initials, findings, 'initial');
   disagree(finals, findings, 'final');
   for (const [key, group] of transitions) {
-    if (forbidden.has(key)) {
-      const first = group[0];
-      findings.push({
-        id: `contradicting:${key}`,
-        kind: 'conflict',
-        code: 'contradicting-facts',
-        severity: 'warning',
-        message: `${key} has both a transition and a forbidden fact`,
-        refs: refsOf(group),
-      });
-      if (first === undefined) continue;
-    }
+    // A forbidden fact for the same object and action is the rejected path, not a second warning.
     if (group.length < 2) continue;
     let differ = false;
     const head = group[0];
