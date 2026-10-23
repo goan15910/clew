@@ -11,11 +11,11 @@ The command contract, JSON shapes, and file format are in [docs/agent-cli.md](do
 Clew is published as a tarball on GitHub Releases. Install that file. The tarball includes Clew's runtime dependencies, so this install does not use the npm registry.
 
 ```bash
-npm install -g https://github.com/goan15910/clew/releases/download/v0.1.0/clew-0.1.0.tgz
+npm install -g https://github.com/goan15910/clew/releases/download/v0.1.0-alpha.2/clew-0.1.0-alpha.2.tgz
 clew --help
 ```
 
-The asset name is `clew-<version>.tgz`, and the tag is `v` plus the version in `package.json`. The same release includes `SHA256SUMS`. Check it with `sha256sum -c SHA256SUMS`. v0.1.0 appears after that tag is pushed.
+The asset name is `clew-<version>.tgz`, and the tag is `v` plus the version in `package.json`. The same release includes `SHA256SUMS`. Check it with `sha256sum -c SHA256SUMS`. Another release uses that version in the tag and in the asset name.
 
 Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`) on your `PATH`. Ubuntu's `apt install graphviz` is 2.42; `bash scripts/install-graphviz.sh` installs 16.1.0. `clew verify` proves flows without Graphviz. Charts are written only when you pass `--out`. `--heatmap` writes an SVG coverage matrix and does not need Graphviz. `--replay` writes one GIF per selected workflow and uses `neato`.
 

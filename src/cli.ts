@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// clew (-V|--version)
 // clew chart check <chart.yaml> [--json]
 // clew chart analyze <chart.yaml> [--json]
 // clew workflows check <set.yaml> [--json]
@@ -21,6 +22,7 @@
 import { Command, CommanderError } from '@commander-js/extra-typings';
 import { z } from 'zod';
 import { jsonSelectionLoader } from './adapters/json/selection-loader.js';
+import { packageVersion } from './adapters/package/package-version.js';
 import { compromiseTagger } from './adapters/pos/compromise-tagger.js';
 import { loadAddedFacts, loadFactEdit, loadRemovedFacts } from './adapters/spec-store/fact-patch.js';
 import { loadGroupPatch, loadSplitPatch } from './adapters/spec-store/flow-patch.js';
@@ -327,10 +329,17 @@ function draftFromFlags(flags: {
   return draft;
 }
 
+const installed = packageVersion();
+if (!installed.ok) {
+  console.error(installed.error);
+  process.exit(EXIT_INVALID);
+}
+
 const program = new Command();
 program
   .name('clew')
   .description('Check state charts and workflow sets, and prove each named flow.')
+  .version(installed.version, '-V, --version', 'print the version from package.json')
   .exitOverride();
 
 const chart = program.command('chart').description('Check or analyze one state chart.');
