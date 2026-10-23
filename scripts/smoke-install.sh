@@ -27,7 +27,6 @@ cp -R "$root/examples" "$smoke/examples"
 "$prefix/bin/clew" --help
 "$prefix/bin/clew" verify \
   "$smoke/examples/todo/b-full.yaml" \
-  "$smoke/examples/todo/workflows.yaml" \
-  "$smoke/examples/todo/mapping.yaml"
+  "$smoke/examples/todo/workflows.yaml"
 
 echo "smoke ok: $tarball"

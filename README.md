@@ -30,7 +30,7 @@ npm install
 npm run --silent clew -- chart check <chart.yaml> [--json]
 npm run --silent clew -- chart analyze <chart.yaml> [--json]
 npm run --silent clew -- workflows check <workflows.yaml> [--json]
-npm run --silent clew -- verify <chart.yaml> <workflows.yaml> <mapping.yaml> [--flow W8] [--select file] [--highlight W2] [--heatmap] [--replay] [--out dir] [--json]
+npm run --silent clew -- verify <chart.yaml> <workflows.yaml> [--flow W8] [--select file] [--highlight W2] [--heatmap] [--replay] [--out dir] [--json]
 npm run --silent clew -- compare <verify.json>... [--out dir] [--json]
 npm run --silent clew -- spec init <spec.md> [--session id] [--json]
 npm run --silent clew -- spec tag [--session id] [--sentence s1] [--json]
@@ -56,7 +56,7 @@ Exit codes:
 
 Errors go to stderr. `--json` prints one result document on stdout.
 
-The to-do example is in `examples/todo/`. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8. The workflow set and the chart use different names; `mapping.yaml` is the correspondence.
+The to-do example is in `examples/todo/`. Workflow state and event names are the chart's names. There is no mapping file. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8: it never declares `RESTORE`, it has no `COMPLETE` from `todo`, and it accepts `ARCHIVE` from In Progress. Dropping the mapping file is a breaking change. The version in `package.json` is unchanged.
 
 `examples/spec/order.md` is a plain-English spec for `clew spec init`, `clew spec tag`, `clew spec entities`, `clew spec facts`, `clew spec graph`, and `clew spec emit`. The session is stored outside the repo. See [docs/agent-cli.md](docs/agent-cli.md).
 
@@ -81,7 +81,7 @@ The CLI is the composition root. It parses arguments, wires adapters into the us
 
 ```mermaid
 flowchart BT
-  domain["Domain — chart, workflow set, mapping, verification"]
+  domain["Domain — chart, workflow set, verification"]
   application["Application — check, analyze, verify, compare"]
   adapters["Adapters — YAML + Zod, JSON selection, XState, reports, DOT / Mermaid / Graphviz"]
   cli["CLI"]
@@ -94,13 +94,13 @@ flowchart BT
 
 An arrow means "depends on".
 
-The domain holds states, transitions, typed data fields, guards, effects, named workflow lists, the mapping between the two vocabularies, and the verification results. Invariants live there. It does not import XState, Zod, YAML, the file system, Graphviz, or the GIF encoder. Zod runs only while reading a YAML file, a JSON selection, or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports.
+The domain holds states, transitions, typed data fields, guards, effects, named workflow lists, and the verification results. A workflow state name is a chart state id, and a workflow event is a chart event. Invariants live there. It does not import XState, Zod, YAML, the file system, Graphviz, or the GIF encoder. Zod runs only while reading a YAML file, a JSON selection, or the command line. The XState and `@xstate/graph` engine, the JSON and Markdown writers, and the diagram renderer are adapters behind ports.
 
 `npm run check:dependencies` runs dependency-cruiser. Domain modules import only the domain. Application modules import the domain, other application modules (including ports), and `node:path`. Adapters import inward and may use libraries. The CLI is the composition root. Cycles fail the check. Type-only imports count, and `tsconfig` `paths` are resolved. `npm run check:imports` runs Semgrep on local rules, with no Semgrep account: the domain may not import XState, Zod, YAML, the file system, Graphviz, application, or adapters. Both are steps in the `check` job. Planted violations live in `tests/architecture/plants` and are outside that product scan. `npm run check` runs the typecheck, both gates, and the tests.
 
 ## Your files
 
-**Chart.** A YAML file. Clew validates it with Zod once, then builds a flat XState machine with `createMachine`. Guards and effects are named declarations, not code. Nested and parallel states are out of scope. The chart does not name workflow states.
+**Chart.** A YAML file. Clew validates it with Zod once, then builds a flat XState machine with `createMachine`. Guards and effects are named declarations, not code. Nested and parallel states are out of scope. Workflow files use these state ids and event names.
 
 ```yaml
 id: todoTask
@@ -124,7 +124,7 @@ transitions:
 
 State ids are camelCase. Events are `UPPER_SNAKE_CASE`. Each state declares `data` fields as `string`, `boolean`, `number`, or `timestamp`. A guard may only read a field declared on the source state. An effect may only set a field declared on the target state. The initial state and every transition target are checked when the file is loaded. `final: true` marks a state that must not have outgoing transitions.
 
-**Workflow set.** A YAML file of named linked lists. Each workflow is one disconnected sub-graph. Node `state` and edge `event` use the workflow vocabulary, not chart ids.
+**Workflow set.** A YAML file of named linked lists. Each workflow is one disconnected sub-graph. A node's `state` is the chart state id. An edge's `event` is the chart event. Node ids are local, so one state can be visited twice.
 
 ```yaml
 id: todoFlows
@@ -134,25 +134,13 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: editing }
-      - { id: finished, state: closed }
+      - { id: edit, state: draft }
+      - { id: finished, state: done }
     edges:
-      - { from: edit, event: submit, to: finished, text: "Finish the work" }
+      - { from: edit, event: SUBMIT, to: finished, text: "Finish the work" }
 ```
 
-`expect: rejected` sets `rejectAt` to the edge the chart must refuse. The full rules are in [docs/agent-cli.md](docs/agent-cli.md).
-
-**Mapping.** A third YAML file, passed only to `verify`. It pairs chart states with workflow states and chart events with workflow events, and it names which chart and workflow set it applies to.
-
-```yaml
-chart: todoTask
-workflowSet: todoFlows
-states:
-  - { chart: draft, workflow: editing }
-  - { chart: done, workflow: closed }
-events:
-  - { chart: SUBMIT, workflow: submit }
-```
+`expect: rejected` sets `rejectAt` to the edge the chart must refuse. `verify` matches those names exactly. A workflow state that is not on the chart exits 2. An event the chart never declares fails only that flow (exit 1). The full rules are in [docs/agent-cli.md](docs/agent-cli.md).
 
 `--highlight W2` draws that workflow's path on the state chart when you also pass `--out`. `--select` takes the JSON from `workflows check` (or `{ "flows": ["W1"] }`) and verifies only those named sub-graphs.
 

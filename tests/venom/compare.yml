@@ -14,14 +14,14 @@ testcases:
   - type: exec
     script: |
       cd '{{.root}}'
-      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/b-full.json'
+      {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --json > '{{.dir}}/b-full.json'
       status=$?
       if [ "$status" -ne 0 ]; then exit "$status"; fi
       cp examples/todo/b-full.yaml '{{.dir}}/alt-full.yaml'
-      {{.clew}} verify '{{.dir}}/alt-full.yaml' examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/alt-full.json'
+      {{.clew}} verify '{{.dir}}/alt-full.yaml' examples/todo/workflows.yaml --json > '{{.dir}}/alt-full.json'
       status=$?
       if [ "$status" -ne 0 ]; then exit "$status"; fi
-      {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --json > '{{.dir}}/a-basic.json'
+      {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --json > '{{.dir}}/a-basic.json'
       status=$?
       if [ "$status" -ne 1 ]; then exit "$status"; fi
       exit 0

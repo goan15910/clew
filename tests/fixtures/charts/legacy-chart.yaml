@@ -1,4 +1,4 @@
-# Old shape. workflowState is not the chart-to-workflow mapping.
+# Old shape. workflowState was removed; a workflow state name is the chart state id.
 id: todoTask
 initial: draft
 guards: []

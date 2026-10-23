@@ -5,7 +5,7 @@ import type { EntityKind, EntityReview, EntityStatus, FactType, Finding, FlowOri
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
 export interface OutputIssue {
-  kind: 'schema' | 'graph' | 'input' | 'mapping';
+  kind: 'schema' | 'graph' | 'input';
   file?: string;
   path: string;
   message: string;
@@ -142,7 +142,7 @@ export interface VerifyDocument {
   unusedTransitions?: string[];
   transitionCoverage?: TransitionCoverage[];
   views?: VerifyViews;
-  fault?: 'unreadable' | 'invalid-chart' | 'invalid-workflows' | 'invalid-mapping' | 'mismatch' | 'selection' | 'mapping-gap';
+  fault?: 'unreadable' | 'invalid-chart' | 'invalid-workflows' | 'selection' | 'name-gap';
   issues: OutputIssue[];
 }
 

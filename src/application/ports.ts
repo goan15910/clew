@@ -1,5 +1,4 @@
 // Ports the use cases need. Adapters implement these; the use cases do not import adapters.
-import type { Mapping } from '../domain/mapping.js';
 import type { Model } from '../domain/model.js';
 import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
 import type { Traversal } from '../domain/traversal.js';
@@ -17,10 +16,6 @@ export interface ModelLoader {
 
 export interface WorkflowSetLoader {
   load(file: string): FileLoad<WorkflowSet>;
-}
-
-export interface MappingLoader {
-  load(file: string): FileLoad<Mapping>;
 }
 
 export interface SelectionLoader {
@@ -55,7 +50,6 @@ export interface DiagramRenderer {
 export interface VerifyPorts {
   models: ModelLoader;
   workflows: WorkflowSetLoader;
-  mappings: MappingLoader;
   selections: SelectionLoader;
   engine: TraversalEngine;
   reports: ReportWriter;

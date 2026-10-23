@@ -1,6 +1,5 @@
-// Use case: prove each selected named sub-graph against a chart, through an explicit mapping.
-import { mapChain } from '../domain/mapping.js';
-import { transitionCoverage, unusedTransitions, verifyFlow, type ChartFlow, type WorkflowResult } from '../domain/verification.js';
+// Use case: prove each selected named sub-graph against a chart. Names match directly.
+import { alignChain, transitionCoverage, unusedTransitions, verifyFlow, type ChartFlow, type WorkflowResult } from '../domain/verification.js';
 import type { LinkedWorkflow, WorkflowSet } from '../domain/workflow.js';
 import { candidateName } from './candidate-name.js';
 import {
@@ -17,7 +16,6 @@ import type { VerifyPorts } from './ports.js';
 export interface VerifyFlowsCommand {
   chartFile: string;
   workflowsFile: string;
-  mappingFile: string;
   flowIds: readonly string[];
   selectFile?: string;
   highlight?: string;
@@ -67,41 +65,21 @@ function invalid(fault: VerifyDocument['fault'], issues: OutputIssue[]): Outcome
 export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Outcome<VerifyDocument> {
   const chart = ports.models.load(command.chartFile);
   const workflows = ports.workflows.load(command.workflowsFile);
-  const mapping = ports.mappings.load(command.mappingFile);
   const issues: OutputIssue[] = [];
   if (!chart.ok) issues.push(...tagIssues(command.chartFile, chart.fault === 'unreadable' ? 'input' : chart.fault, chart.errors));
   if (!workflows.ok) issues.push(...tagIssues(command.workflowsFile, workflows.fault === 'unreadable' ? 'input' : workflows.fault, workflows.errors));
-  if (!mapping.ok) issues.push(...tagIssues(command.mappingFile, mapping.fault === 'unreadable' ? 'input' : mapping.fault, mapping.errors));
-  if (!chart.ok || !workflows.ok || !mapping.ok) {
-    let fault: VerifyDocument['fault'] = 'invalid-mapping';
+  if (!chart.ok || !workflows.ok) {
+    let fault: VerifyDocument['fault'] = 'invalid-workflows';
     if (!chart.ok) fault = chart.fault === 'unreadable' ? 'unreadable' : 'invalid-chart';
     else if (!workflows.ok) fault = workflows.fault === 'unreadable' ? 'unreadable' : 'invalid-workflows';
-    else if (!mapping.ok) fault = mapping.fault === 'unreadable' ? 'unreadable' : 'invalid-mapping';
     return invalid(fault, issues);
   }
 
   const model = chart.value;
   const set = workflows.value;
-  const map = mapping.value;
-  if (map.chart !== model.id) {
-    issues.push({
-      kind: 'mapping',
-      file: command.mappingFile,
-      path: 'chart',
-      message: `mapping chart "${map.chart}" does not match chart id "${model.id}"`,
-    });
-  }
-  if (map.workflowSet !== set.id) {
-    issues.push({
-      kind: 'mapping',
-      file: command.mappingFile,
-      path: 'workflowSet',
-      message: `mapping workflowSet "${map.workflowSet}" does not match workflow set id "${set.id}"`,
-    });
-  }
 
   const ids = collectIds(command, set, ports, issues);
-  if (ids === undefined) return invalid(issues.some((issue) => issue.kind === 'mapping') ? 'mismatch' : 'selection', issues);
+  if (ids === undefined) return invalid('selection', issues);
 
   if (command.highlight !== undefined && !ids.includes(command.highlight)) {
     issues.push({
@@ -114,11 +92,13 @@ export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Ou
   const selected = selectWorkflows(set, ids, issues);
   const states = new Set(model.states().map((state) => state.id));
   const flows: ChartFlow[] = [];
+  let nameGap = false;
   for (const workflow of selected) {
-    const mapped = mapChain(map, workflow.chain, states);
-    if (!mapped.ok) {
-      for (const gap of mapped.gaps) {
-        issues.push({ kind: 'mapping', file: command.mappingFile, path: workflow.id, message: gap });
+    const aligned = alignChain(workflow.chain, states);
+    if (!aligned.ok) {
+      nameGap = true;
+      for (const gap of aligned.gaps) {
+        issues.push({ kind: 'graph', file: command.workflowsFile, path: workflow.id, message: gap });
       }
       continue;
     }
@@ -126,19 +106,12 @@ export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Ou
       id: workflow.id,
       title: workflow.title,
       expect: workflow.expect,
-      steps: mapped.steps,
+      steps: aligned.steps,
     };
     if (workflow.rejectAt !== undefined) flow.rejectAt = workflow.rejectAt;
     flows.push(flow);
   }
-  if (issues.length > 0) {
-    const fault = issues.some((issue) => issue.kind === 'mapping' && (issue.path === 'chart' || issue.path === 'workflowSet'))
-      ? 'mismatch'
-      : issues.some((issue) => issue.kind === 'mapping')
-        ? 'mapping-gap'
-        : 'selection';
-    return invalid(fault, issues);
-  }
+  if (issues.length > 0) return invalid(nameGap ? 'name-gap' : 'selection', issues);
 
   const traversal = ports.engine.open(model);
   const results: WorkflowResult[] = [];

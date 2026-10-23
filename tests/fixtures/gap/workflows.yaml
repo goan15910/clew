@@ -1,3 +1,5 @@
+# States editing and closed are not on the chart. Verify exits 2 with a name gap.
+# The event is also absent; that would fail only this flow if the states matched.
 id: gapFlows
 workflows:
   - id: W1

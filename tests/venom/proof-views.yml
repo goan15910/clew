@@ -6,7 +6,7 @@ testcases:
 - name: heatmap without out is exit 2
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --heatmap --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "need --out"
@@ -17,7 +17,7 @@ testcases:
 - name: replay without out is exit 2
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --replay --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --replay --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemerr ShouldContainSubstring "need --out"
@@ -33,7 +33,7 @@ testcases:
         from: result.systemout
         regex: '(.+)'
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --out '{{.dir}}' --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --heatmap --out '{{.dir}}' --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -60,7 +60,7 @@ testcases:
         from: result.systemout
         regex: '(.+)'
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --replay --flow W8 --out '{{.dir}}' --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --replay --flow W8 --out '{{.dir}}' --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -84,7 +84,7 @@ testcases:
         from: result.systemout
         regex: '(.+)'
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --replay --flow W8 --out '{{.dir}}' --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --replay --flow W8 --out '{{.dir}}' --json"
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
@@ -107,7 +107,7 @@ testcases:
         from: result.systemout
         regex: '(.+)'
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --replay --flow W1 --out '{{.dir}}' --json"
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml examples/todo/workflows.yaml --heatmap --replay --flow W1 --out '{{.dir}}' --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -129,7 +129,7 @@ testcases:
         from: result.systemout
         regex: '(.+)'
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} verify tests/fixtures/charts/not-yaml.txt examples/todo/workflows.yaml examples/todo/mapping.yaml --heatmap --out '{{.dir}}' --json"
+    script: "cd '{{.root}}' && {{.clew}} verify tests/fixtures/charts/not-yaml.txt examples/todo/workflows.yaml --heatmap --out '{{.dir}}' --json"
     assertions:
     - result.code ShouldEqual 2
     - result.systemoutjson.ok ShouldBeFalse

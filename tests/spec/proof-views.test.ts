@@ -201,7 +201,7 @@ describe('proof views', () => {
 
   test('--heatmap and --replay need --out', () => {
     for (const flag of ['--heatmap', '--replay']) {
-      const result = clew(['verify', 'examples/todo/b-full.yaml', 'examples/todo/workflows.yaml', 'examples/todo/mapping.yaml', flag, '--json']);
+      const result = clew(['verify', 'examples/todo/b-full.yaml', 'examples/todo/workflows.yaml', flag, '--json']);
       assert.equal(result.status, 2, flag);
       assert.match(result.stderr, /need --out/);
       const document = JSON.parse(result.stdout) as { fault?: string; ok: boolean };
@@ -213,14 +213,14 @@ describe('proof views', () => {
   test('b-full heatmap and W8 replay are written, and a-basic still fails', () => {
     const dir = mkdtempSync(join(tmpdir(), 'clew-views-'));
     try {
-      const heat = clew(['verify', 'examples/todo/b-full.yaml', 'examples/todo/workflows.yaml', 'examples/todo/mapping.yaml', '--heatmap', '--out', dir]);
+      const heat = clew(['verify', 'examples/todo/b-full.yaml', 'examples/todo/workflows.yaml', '--heatmap', '--out', dir]);
       assert.equal(heat.status, 0, heat.stderr);
       assert.match(heat.stdout, /heatmap: coverage-heatmap\.svg/);
       const svg = readFileSync(join(dir, 'coverage-heatmap.svg'), 'utf8');
       assert.match(svg, /draft — SUBMIT → todo: 7 \(W1, W2, W3, W4, W6, W7, W8\)/);
       assert.match(svg, /archived — UNARCHIVE → done: 0/);
 
-      const replay = clew(['verify', 'examples/todo/b-full.yaml', 'examples/todo/workflows.yaml', 'examples/todo/mapping.yaml', '--replay', '--flow', 'W8', '--out', dir, '--json']);
+      const replay = clew(['verify', 'examples/todo/b-full.yaml', 'examples/todo/workflows.yaml', '--replay', '--flow', 'W8', '--out', dir, '--json']);
       assert.equal(replay.status, 0, replay.stderr);
       const document = JSON.parse(replay.stdout) as { views?: { replays?: { id: string; file: string; frames: number }[] }; transitionCoverage?: TransitionCoverage[] };
       assert.equal(document.transitionCoverage, undefined);
@@ -229,7 +229,7 @@ describe('proof views', () => {
       assert.equal(gif.subarray(0, 6).toString('ascii'), 'GIF89a');
       assert.equal(gifFrameCount(gif), 4);
 
-      const basic = clew(['verify', 'examples/todo/a-basic.yaml', 'examples/todo/workflows.yaml', 'examples/todo/mapping.yaml', '--replay', '--flow', 'W8', '--out', dir, '--json']);
+      const basic = clew(['verify', 'examples/todo/a-basic.yaml', 'examples/todo/workflows.yaml', '--replay', '--flow', 'W8', '--out', dir, '--json']);
       assert.equal(basic.status, 1, basic.stderr);
       assert.equal(basic.stderr, '');
       const failed = JSON.parse(basic.stdout) as { ok: boolean; views?: { replays?: { frames: number }[] } };
@@ -263,7 +263,7 @@ describe('proof views', () => {
 });
 
 function clewJson(chart: string): WorkflowResult {
-  const result = clew(['verify', chart, 'examples/todo/workflows.yaml', 'examples/todo/mapping.yaml', '--flow', 'W8', '--json']);
+  const result = clew(['verify', chart, 'examples/todo/workflows.yaml', '--flow', 'W8', '--json']);
   assert.equal(result.status === 0 || result.status === 1, true, result.stderr);
   const document = JSON.parse(result.stdout) as {
     ok: boolean;
