@@ -4,7 +4,8 @@ on:
   push:
     tags:
       - "v*"
-  # A manual run uses this same job and does not create a GitHub Release.
+  pull_request:
+  # A pull request or a manual run uses this same job and does not create a GitHub Release.
   workflow_dispatch:
 
 permissions:
