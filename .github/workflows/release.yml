@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
+  # A pull request or a manual run uses this same job and does not create a GitHub Release.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,6 +23,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Require the tag to match package.json
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"
@@ -28,6 +32,8 @@ jobs:
             exit 1
           fi
       - run: npm ci
+      - name: Install Graphviz 16.1.0
+        run: bash scripts/install-graphviz.sh
       - run: npm run check
       - run: npm run build
       - run: npm test
@@ -36,12 +42,14 @@ jobs:
       - name: Write SHA256 checksums
         run: sha256sum clew-*.tgz > SHA256SUMS
       - name: Attest build provenance
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: |
             ${{ github.workspace }}/clew-*.tgz
             ${{ github.workspace }}/SHA256SUMS
       - name: Create GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -67,7 +75,7 @@ jobs:
           ].join('\n');
           writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, notes);
           NODE
-          # A hyphen marks a SemVer pre-release (0.1.0-alpha.1). Keep it off Latest.
+          # A hyphen marks a SemVer pre-release (0.1.0-alpha.2). Keep it off Latest.
           release_args=()
           case "$version" in
             *-*) release_args=(--prerelease --latest=false) ;;
