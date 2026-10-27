@@ -234,14 +234,14 @@ describe('spec session list and remove', { concurrency: false }, () => {
   });
 
   test('help lists session list and remove', () => {
-    const help = clew(['--help'], tmpdir());
+    const help = clew(['help'], tmpdir());
     assert.equal(help.status, 0);
     assert.match(help.stdout, /spec session list/);
     assert.match(help.stdout, /spec session remove/);
     const nested = clew(['spec', 'session', '--help'], tmpdir());
     assert.equal(nested.status, 0);
-    assert.match(nested.stdout, /session list/);
-    assert.match(nested.stdout, /session remove/);
+    assert.match(nested.stdout, /^  list /m);
+    assert.match(nested.stdout, /^  remove /m);
   });
 });
 
