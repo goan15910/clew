@@ -17,6 +17,8 @@
 // clew spec emit (--dry-run | --out file) [--force] [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
+// clew spec session list [--json]
+// clew spec session remove <id> [--json]
 //
 // Composition root: parse arguments, wire adapters into use cases, map results to output and exit codes.
 import { Command, CommanderError } from '@commander-js/extra-typings';
@@ -48,10 +50,12 @@ import { editGraph } from './application/edit-graph.js';
 import { emitSpec } from './application/emit-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listEntities } from './application/list-entities.js';
+import { listSpecSessions } from './application/list-spec-sessions.js';
 import { formatIssues, type CommandDocument, type Outcome, type OutputIssue } from './application/documents.js';
 import type { ComparePorts, VerifyPorts } from './application/ports.js';
 import { proposeSpecFacts } from './application/propose-facts.js';
 import { readSpecStatus } from './application/spec-status.js';
+import { removeSpecSession } from './application/remove-spec-session.js';
 import { tagSpec } from './application/tag-spec.js';
 import { traceSpec } from './application/trace-spec.js';
 import { verifyFlows } from './application/verify-flows.js';
@@ -742,6 +746,31 @@ spec
     emit(readSpecStatus({ sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
   });
 
+const session = spec.command('session').description('List or delete spec sessions for this repo.');
+
+session
+  .command('list')
+  .description('List spec sessions for this repo.')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = JsonFlag.safeParse(opts);
+    if (!parsed.success) usage('spec.session.list', opts, parsed.error);
+    emit(listSpecSessions(jsonSpecStore), parsed.data.json === true);
+  });
+
+session
+  .command('remove')
+  .description('Delete one spec session for this repo.')
+  .argument('<id>', 'session to delete')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((id, opts) => {
+    const parsed = JsonFlag.safeParse(opts);
+    if (!parsed.success) usage('spec.session.remove', opts, parsed.error);
+    const parsedId = z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).safeParse(id);
+    if (!parsedId.success) usage('spec.session.remove', opts, parsedId.error);
+    emit(removeSpecSession({ id: parsedId.data }, jsonSpecStore), parsed.data.json === true);
+  });
+
 program.addHelpText('afterAll', `
 Exit codes:
   0  check passed, analysis is clean, every selected flow passed, compare has a winner, or a spec command left no blocking findings
@@ -770,6 +799,8 @@ Examples:
   clew spec emit --out flows.yaml --json
   clew spec trace actor:customer --json
   clew spec status --json
+  clew spec session list --json
+  clew spec session remove order --json
 `);
 
 try {

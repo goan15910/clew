@@ -77,6 +77,19 @@ export interface SessionRef {
   specPath: string;
 }
 
+/** Live sentences, facts, and flows. Stale sentences, stale facts, and removed facts are omitted. */
+export interface SpecSessionCounts {
+  sentences: number;
+  facts: number;
+  flows: number;
+}
+
+/** A `listSessions` row. `id` and `specPath` stay what that listing already returned. */
+export interface SpecSessionSummary extends SessionRef {
+  updated: string;
+  summary: SpecSessionCounts;
+}
+
 export interface SpecMutation {
   snapshot: SpecSnapshot;
   history?: SpecHistoryEntry;
@@ -86,8 +99,13 @@ export type SpecStoreResult =
   | { ok: true; snapshot: SpecSnapshot }
   | { ok: false; fault: 'missing' | 'schema' | 'locked' | 'unreadable'; message: string };
 
+export type SpecRemovalResult =
+  | { ok: true }
+  | { ok: false; fault: 'missing' | 'locked' | 'unreadable'; message: string };
+
 export interface SpecStore {
-  listSessions(): SessionRef[];
+  listSessions(): SpecSessionSummary[];
+  removeSession(id: string): SpecRemovalResult;
   update(
     id: string,
     options: { create: boolean },

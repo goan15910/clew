@@ -1,8 +1,8 @@
 // JSON spec sessions under the per-user data directory. Zod runs only while reading those files.
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync, type Stats } from 'node:fs';
+import { basename, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
-import type { SpecMutation, SpecStore, SpecStoreResult, SessionRef } from '../../application/ports.js';
+import type { SpecMutation, SpecRemovalResult, SpecSessionCounts, SpecSessionSummary, SpecStore, SpecStoreResult } from '../../application/ports.js';
 import {
   ENTITY_KINDS,
   FACT_TYPES,
@@ -712,17 +712,115 @@ function listSpecPath(dir: string): string {
   return '';
 }
 
+function sessionIdMessage(id: string): string {
+  return `session id "${id}" is not a safe name`;
+}
+
+function locateSession(id: string): { ok: true; root: string; dir: string } | { ok: false; message: string } {
+  if (!isSessionId(id)) return { ok: false, message: sessionIdMessage(id) };
+  const root = specRoot();
+  const dir = join(root, id);
+  if (resolve(dir) !== join(resolve(root), id)) return { ok: false, message: sessionIdMessage(id) };
+  return { ok: true, root, dir };
+}
+
+function confinedToSession(root: string, dir: string, id: string): boolean {
+  try {
+    return relative(realpathSync(root), realpathSync(dir)) === id;
+  } catch {
+    return false;
+  }
+}
+
+function liveCounts(snapshot: SpecSnapshot): { sentences: number; facts: number; flows: number } {
+  let sentences = 0;
+  for (const sentence of snapshot.sentences) {
+    if (sentence.status === 'current') sentences += 1;
+  }
+  let facts = 0;
+  for (const fact of snapshot.facts ?? []) {
+    if (fact.status === 'current' && fact.removed !== true) facts += 1;
+  }
+  return { sentences, facts, flows: snapshot.graph?.flows.length ?? 0 };
+}
+
+function lastWritten(dir: string): string {
+  const sessionFile = join(dir, 'session.json');
+  try {
+    return statSync(sessionFile).mtime.toISOString();
+  } catch {
+    try {
+      return statSync(dir).mtime.toISOString();
+    } catch {
+      return '';
+    }
+  }
+}
+
+function sessionDetail(dir: string, id: string): { updated: string; summary: SpecSessionCounts } {
+  try {
+    const loaded = readSnapshot(dir, id);
+    if (loaded.ok && loaded.snapshot !== undefined) {
+      return { updated: loaded.snapshot.updated, summary: liveCounts(loaded.snapshot) };
+    }
+  } catch {
+    // listSessions still returns the directory. Callers only require id and specPath.
+  }
+  return { updated: lastWritten(dir), summary: { sentences: 0, facts: 0, flows: 0 } };
+}
+
 export const jsonSpecStore: SpecStore = {
   listSessions() {
     const root = specRoot();
     if (!existsSync(root)) return [];
-    const refs: SessionRef[] = [];
+    const refs: SpecSessionSummary[] = [];
     for (const entry of readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory() || !isSessionId(entry.name)) continue;
-      refs.push({ id: entry.name, specPath: listSpecPath(join(root, entry.name)) });
+      const dir = join(root, entry.name);
+      const detail = sessionDetail(dir, entry.name);
+      refs.push({
+        id: entry.name,
+        specPath: listSpecPath(dir),
+        updated: detail.updated,
+        summary: detail.summary,
+      });
     }
     refs.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
     return refs;
+  },
+
+  removeSession(id): SpecRemovalResult {
+    const located = locateSession(id);
+    if (!located.ok) return { ok: false, fault: 'unreadable', message: located.message };
+    let info: Stats;
+    try {
+      info = lstatSync(located.dir);
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return { ok: false, fault: 'missing', message: `no spec session "${id}"` };
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, fault: 'unreadable', message: `cannot remove spec session "${id}": ${message}` };
+    }
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      return { ok: false, fault: 'unreadable', message: `spec session "${id}" is not a directory` };
+    }
+    if (!confinedToSession(located.root, located.dir, id)) {
+      return { ok: false, fault: 'unreadable', message: sessionIdMessage(id) };
+    }
+    const lock = acquireLock(located.dir, id);
+    if (!lock.ok) return { ok: false, fault: 'locked', message: lock.message };
+    try {
+      const again = lstatSync(located.dir);
+      if (again.isSymbolicLink() || !again.isDirectory() || !confinedToSession(located.root, located.dir, id)) {
+        return { ok: false, fault: 'unreadable', message: sessionIdMessage(id) };
+      }
+      rmSync(located.dir, { recursive: true });
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, fault: 'unreadable', message: `cannot remove spec session "${id}": ${message}` };
+    } finally {
+      lock.release();
+    }
   },
 
   update(id, options, mutate) {

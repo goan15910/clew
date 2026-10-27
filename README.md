@@ -42,6 +42,8 @@ npm run --silent clew -- spec graph group --id W1 --id W2 [--title text] [--sess
 npm run --silent clew -- spec emit (--dry-run | --out file) [--force] [--session id] [--json]
 npm run --silent clew -- spec trace <id> [--session id] [--json]
 npm run --silent clew -- spec status [--session id] [--json]
+npm run --silent clew -- spec session list [--json]
+npm run --silent clew -- spec session remove <id> [--json]
 ```
 
 `--silent` keeps npm's own banner off stdout, so a `--json` document stays one JSON value.
@@ -58,11 +60,11 @@ Errors go to stderr. `--json` prints one result document on stdout.
 
 The to-do example is in `examples/todo/`. Workflow state and event names are the chart's names. There is no mapping file. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8: it never declares `RESTORE`, it has no `COMPLETE` from `todo`, and it accepts `ARCHIVE` from In Progress. Dropping the mapping file is a breaking change. The version in `package.json` is unchanged.
 
-`examples/spec/order.md` is a plain-English spec for `clew spec init`, `clew spec tag`, `clew spec entities`, `clew spec facts`, `clew spec graph`, and `clew spec emit`. The session is stored outside the repo. See [docs/agent-cli.md](docs/agent-cli.md).
+`examples/spec/order.md` is a plain-English spec for `clew spec init`, `clew spec tag`, `clew spec entities`, `clew spec facts`, `clew spec graph`, and `clew spec emit`. The session is stored outside the repo. `clew spec session list` shows the sessions for this repo, and `clew spec session remove <id>` deletes one of them. See [docs/agent-cli.md](docs/agent-cli.md).
 
 ## Tests
 
-Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `spec init`, `spec tag`, `spec entities`, `spec facts`, `spec graph`, `spec emit`, `spec trace`, `spec status`, `--heatmap`, `--replay`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
+Venom drives the commands in [docs/agent-cli.md](docs/agent-cli.md): `chart check`, `chart analyze`, `workflows check`, `verify`, `compare`, `spec init`, `spec tag`, `spec entities`, `spec facts`, `spec graph`, `spec emit`, `spec trace`, `spec status`, `spec session list`, `spec session remove`, `--heatmap`, `--replay`, `--json` chaining, exit codes, and stderr. The suites are `tests/venom/`. Boundary charts and workflow sets live in `tests/fixtures/`. `examples/todo/` is the walkthrough.
 
 ```bash
 bash scripts/install-venom.sh
