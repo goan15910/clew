@@ -356,6 +356,30 @@ export interface SpecStatusDocument {
   issues: OutputIssue[];
 }
 
+export interface SpecSessionListRow {
+  id: string;
+  specPath: string;
+  updated: string;
+  summary: { sentences: number; facts: number; flows: number };
+}
+
+export interface SpecSessionListDocument {
+  command: 'spec.session.list';
+  ok: boolean;
+  sessions: SpecSessionListRow[];
+  findings: Finding[];
+  issues: OutputIssue[];
+}
+
+export interface SpecSessionRemoveDocument {
+  command: 'spec.session.remove';
+  ok: boolean;
+  session?: string;
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
 export type CommandDocument =
   | ChartCheckDocument
   | ChartAnalyzeDocument
@@ -368,6 +392,8 @@ export type CommandDocument =
   | SpecFactsDocument
   | SpecTraceDocument
   | SpecStatusDocument
+  | SpecSessionListDocument
+  | SpecSessionRemoveDocument
   | SpecGraphDocument
   | SpecEmitDocument;
 

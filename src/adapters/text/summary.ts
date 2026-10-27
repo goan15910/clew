@@ -6,6 +6,10 @@ function list(ids: readonly string[]): string {
   return ids.length > 0 ? ` (${ids.join(', ')})` : '';
 }
 
+function countPhrase(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 export function humanSummary(document: CommandDocument): string {
   if (document.command === 'chart.check') {
     if (document.ok && document.chart) {
@@ -113,6 +117,19 @@ export function humanSummary(document: CommandDocument): string {
     const lines = [`session ${document.session}: ${sentences.mapped.length} mapped, ${sentences.pending.length} pending, ${sentences.stale.length} stale`];
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
+  }
+  if (document.command === 'spec.session.list') {
+    if (document.sessions.length === 0) return 'no spec sessions';
+    const lines: string[] = [];
+    for (const session of document.sessions) {
+      const counts = session.summary;
+      lines.push(`${session.id}  ${session.specPath}  ${countPhrase(counts.sentences, 'sentence', 'sentences')}, ${countPhrase(counts.facts, 'fact', 'facts')}, ${countPhrase(counts.flows, 'flow', 'flows')}  ${session.updated}`);
+    }
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.session.remove') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    return `removed session ${document.session}`;
   }
   if (document.command !== 'compare' || document.fault !== undefined) return '';
   const lines = [document.winner ? `winner: ${document.winner}` : 'no winner'];

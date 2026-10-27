@@ -1,0 +1,98 @@
+name: spec session list and remove
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: list and remove a session
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.session.list
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.sessions ShouldHaveLength 0
+    - result.systemoutjson.findings ShouldHaveLength 0
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session list"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "no spec sessions"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init examples/spec/order.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.session ShouldEqual order
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.session.list
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.sessions ShouldHaveLength 1
+    - result.systemoutjson.sessions.sessions0.id ShouldEqual order
+    - result.systemoutjson.sessions.sessions0.specPath ShouldContainSubstring examples/spec/order.md
+    - result.systemoutjson.sessions.sessions0.updated ShouldNotBeEmpty
+    - result.systemoutjson.sessions.sessions0.summary.sentences ShouldEqual 3
+    - result.systemoutjson.sessions.sessions0.summary.facts ShouldEqual 0
+    - result.systemoutjson.sessions.sessions0.summary.flows ShouldEqual 0
+    - result.systemoutjson.findings ShouldHaveLength 0
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session list"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "order"
+    - result.systemout ShouldContainSubstring "3 sentences, 0 facts, 0 flows"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session remove missing --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "no spec session"
+    - result.systemoutjson.command ShouldEqual spec.session.remove
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session
+    - result.systemoutjson.issues.issues0.kind ShouldEqual input
+  - type: exec
+    script: "printf keep > '{{.dir}}/secret.txt'"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session remove ../secret --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "session ids start with a letter"
+    - result.systemoutjson.command ShouldEqual spec.session.remove
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual usage
+  - type: exec
+    script: "test -f '{{.dir}}/secret.txt'"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session remove order"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "removed session order"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.sessions ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session remove order --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session

@@ -45,6 +45,8 @@ clew spec graph group (--id <id> --id <id> | --transition <id> --transition <id>
 clew spec emit (--dry-run | --out <file>) [--force] [--session <id>] [--json]
 clew spec trace <id> [--session <id>] [--json]
 clew spec status [--session <id>] [--json]
+clew spec session list [--json]
+clew spec session remove <id> [--json]
 ```
 
 `--flow` is repeatable. `--select` reads a JSON file. Passing neither verifies every workflow, in file order. Passing both unions them, `--flow` first, dropping duplicates. `--select -` is rejected: Clew never reads stdin, so it cannot wait for input.
@@ -63,7 +65,7 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec trace` and `spec status` read the result back. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions for this repo. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
@@ -87,6 +89,10 @@ The session store is outside the repo. Nothing is written next to the spec, and 
 ```
 
 `<repo-name>` is the git root’s directory name, lowercased, with each run of non-alphanumeric characters replaced by one hyphen and a leading or trailing hyphen removed. An empty name becomes `repo`. When there is no `.git`, the working directory is named the same way. `<path-hash>` is the first 12 hex characters of the SHA-256 of that directory’s real path. `<session-id>` defaults to the spec file’s basename. Clew holds a lock only while a command writes the session, and removes that lock before the command exits. The lock is not a file that stays in the session. A lock whose process is gone is taken over. A live lock is exit 2.
+
+`spec session list` lists the sessions for this repo. Each row has the id, the spec source path, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence is `status: current`. A live fact is current and is not a removed tombstone. Flows are the paths stored in `graph.json`; a session with no graph counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
+
+`spec session remove <id>` deletes that session directory and nothing else. An unknown id is exit 2. A live lock is exit 2 and the directory stays. A lock whose process is gone is taken over, the same way as any other write, and then the directory is deleted. The id is one session name: a letter, then letters, digits, underscores, or hyphens. `..`, a slash, or any other unsafe id is exit 2. Clew deletes the directory only when its real path is `<spec-root>/<id>`. A symlink is left in place. Sessions for other repos are not touched.
 
 `history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, propose records live fact ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec facts propose`, and `spec graph build` have an empty `before`.
 
@@ -553,6 +559,39 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
   "issues": []
 }
 ```
+
+`spec.session.list` after `spec init` of `examples/spec/order.md`. `updated` is the timestamp stored in `session.json`. `specPath` is the absolute path stored there. Counts are the live sentences, facts, and flows.
+
+```json
+{
+  "command": "spec.session.list",
+  "ok": true,
+  "sessions": [
+    {
+      "id": "order",
+      "specPath": "/work/examples/spec/order.md",
+      "updated": "2026-10-27T01:24:00.000Z",
+      "summary": { "sentences": 3, "facts": 0, "flows": 0 }
+    }
+  ],
+  "findings": [],
+  "issues": []
+}
+```
+
+An empty repo is `"sessions": []` and exit 0. `spec.session.remove` of that session:
+
+```json
+{
+  "command": "spec.session.remove",
+  "ok": true,
+  "session": "order",
+  "findings": [],
+  "issues": []
+}
+```
+
+An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`. A live lock is exit 2 with `fault: "locked"`. A session id that fails the name rule is exit 2 with `fault: "usage"`.
 
 `spec.status` before `spec graph build`. Other warnings are omitted. `graph-absent` is info, so the exit is still 0.
 
