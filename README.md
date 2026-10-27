@@ -27,6 +27,7 @@ Image export needs Graphviz 16.1.0 (`dot`, `gvpack`, `neato`). Reports and chart
 
 ```bash
 npm install
+npm run --silent clew -- help [command...]
 npm run --silent clew -- chart check <chart.yaml> [--json]
 npm run --silent clew -- chart analyze <chart.yaml> [--json]
 npm run --silent clew -- workflows check <workflows.yaml> [--json]
@@ -48,7 +49,7 @@ npm run --silent clew -- spec session remove <id> [--json]
 
 `--silent` keeps npm's own banner off stdout, so a `--json` document stays one JSON value.
 
-`clew --help` lists the commands. There are no prompts, and Clew does not read stdin.
+`clew --help` lists the top-level commands. `clew help` lists every command. `clew help <command>` prints that command's examples and exit codes. There are no prompts, and Clew does not read stdin.
 
 Exit codes:
 

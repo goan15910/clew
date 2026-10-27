@@ -365,7 +365,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
   });
 
   test('help lists graph and emit', () => {
-    const help = clew(['--help'], tmpdir());
+    const help = clew(['help'], tmpdir());
     assert.equal(help.status, 0);
     assert.match(help.stdout, /spec graph build/);
     assert.match(help.stdout, /spec graph split/);
