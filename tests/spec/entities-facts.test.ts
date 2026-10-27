@@ -389,7 +389,7 @@ describe('spec entities and facts', { concurrency: false }, () => {
   });
 
   test('help lists the entity and fact commands', () => {
-    const help = clew(['--help'], tmpdir());
+    const help = clew(['help'], tmpdir());
     assert.equal(help.status, 0);
     assert.match(help.stdout, /spec entities/);
     assert.match(help.stdout, /spec facts/);

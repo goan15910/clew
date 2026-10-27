@@ -206,11 +206,12 @@ describe('semgrep', { concurrency: false }, () => {
 });
 
 describe('source layout', () => {
-  test('every src file is domain, application, adapters, or cli.ts', () => {
+  test('every src file is domain, application, adapters, or the CLI', () => {
     const allowed = walkTs(join(root, 'src')).map((file) => relative(root, file));
     const stray = allowed.filter(
       (file) =>
         file !== 'src/cli.ts' &&
+        !file.startsWith('src/cli/') &&
         !file.startsWith('src/domain/') &&
         !file.startsWith('src/application/') &&
         !file.startsWith('src/adapters/'),

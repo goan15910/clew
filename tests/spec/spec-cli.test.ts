@@ -340,7 +340,7 @@ describe('spec commands', { concurrency: false }, () => {
   });
 
   test('help lists spec init', () => {
-    const help = clew(['--help'], tmpdir());
+    const help = clew(['help'], tmpdir());
     assert.equal(help.status, 0);
     assert.match(help.stdout, /spec init/);
     assert.match(help.stdout, /spec tag/);

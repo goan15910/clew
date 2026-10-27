@@ -19,9 +19,9 @@ module.exports = {
     {
       name: 'domain-no-outer-layer',
       severity: 'error',
-      comment: 'Domain does not import application, ports, or adapters.',
+      comment: 'Domain does not import application, ports, adapters, or the CLI.',
       from: { path: '(^|/)domain/' },
-      to: { path: '(^|/)(application|adapters)/|(^|/)cli\\.ts$' },
+      to: { path: '(^|/)(application|adapters)/|(^|/)cli\\.ts$|(^|/)cli/' },
     },
     {
       name: 'domain-no-library',
@@ -52,8 +52,8 @@ module.exports = {
     {
       name: 'cli-inward',
       severity: 'error',
-      comment: 'The CLI is the composition root. It may import src, zod, and commander.',
-      from: { path: '^src/cli\\.ts$' },
+      comment: 'CLI modules are the composition root. They may import src, zod, and commander.',
+      from: { path: '^src/cli(\\.ts$|/)' },
       to: {
         pathNot: ['^src/', '^node_modules/zod/', '^node_modules/commander/', '^node_modules/@commander-js/extra-typings/'],
       },

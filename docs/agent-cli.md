@@ -23,6 +23,8 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 ## Commands
 
 ```bash
+clew help
+clew help <command>...
 clew chart check <chart.yaml> [--json]
 clew chart analyze <chart.yaml> [--json]
 clew workflows check <set.yaml> [--json]
@@ -48,6 +50,8 @@ clew spec status [--session <id>] [--json]
 clew spec session list [--json]
 clew spec session remove <id> [--json]
 ```
+
+`clew --help` and `-h` print usage, a short description, arguments, options, and subcommands. `clew help` lists every command. `clew help <command>` prints the long help for that command: the same usage text, then examples, exit codes, and notes. Use `clew help <command>` for examples and exit codes. An unknown command path exits 2.
 
 `--flow` is repeatable. `--select` reads a JSON file. Passing neither verifies every workflow, in file order. Passing both unions them, `--flow` first, dropping duplicates. `--select -` is rejected: Clew never reads stdin, so it cannot wait for input.
 
@@ -261,6 +265,8 @@ Input failures use `issues` with `{ kind, file, path, message }` and `kind: "inp
 Unknown ids, a failing check document, and a file that is neither shape are exit 2. Ids are the workflow `id`s, not node ids.
 
 ### Exit codes
+
+`clew help <command>` prints the exit codes for that command.
 
 | Code | Meaning |
 |---|---|

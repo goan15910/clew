@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // clew (-V|--version)
+// clew help [command...]
 // clew chart check <chart.yaml> [--json]
 // clew chart analyze <chart.yaml> [--json]
 // clew workflows check <set.yaml> [--json]
@@ -59,6 +60,7 @@ import { removeSpecSession } from './application/remove-spec-session.js';
 import { tagSpec } from './application/tag-spec.js';
 import { traceSpec } from './application/trace-spec.js';
 import { verifyFlows } from './application/verify-flows.js';
+import { assertManuals, findCommand, fullHelp, jsonNote, listCommands, sessionNote, setManual, specExits } from './cli/help.js';
 import type { FactDraft } from './domain/spec-facts.js';
 import { ENTITY_KINDS, FACT_TYPES, SPEC_ENTITY_ID_MESSAGE, SPEC_ENTITY_ID_PATTERN, SPEC_FACT_ID_MESSAGE, SPEC_FACT_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
 import { WORKFLOW_ID_MESSAGE, WORKFLOW_ID_PATTERN } from './domain/workflow.js';
@@ -253,6 +255,13 @@ const SpecSessionFlags = z.object({
   json: z.boolean().optional(),
   session: SessionOption,
 });
+const HelpPath = z.array(z.string()).superRefine((values, context) => {
+  for (const value of values) {
+    if (!/^[a-z][a-z0-9-]*$/.test(value)) {
+      context.addIssue({ code: 'custom', message: 'command names use letters, digits, and hyphens', path: ['command'] });
+    }
+  }
+});
 const VerifyFlags = z.object({
   json: z.boolean().optional(),
   out: z.string().min(1, 'output directory must not be empty').optional(),
@@ -344,9 +353,10 @@ program
   .version(installed.version, '-V, --version', 'print the version from package.json')
   .exitOverride();
 
-const chart = program.command('chart').description('Check or analyze one state chart.');
+// Group commands turn Commander's implicit help subcommand off. Long help is `clew help`.
+const chart = program.command('chart').description('Check or analyze one state chart.').helpCommand(false);
 
-chart
+setManual(chart
   .command('check')
   .description('Check a state chart\'s schema and graph.')
   .argument('<chart>', 'YAML state chart')
@@ -355,9 +365,17 @@ chart
     const parsed = JsonFlag.safeParse(opts);
     if (!parsed.success) usage('chart.check', opts, parsed.error);
     emit(checkChart(file, yamlModelLoader), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew chart check examples/todo/b-full.yaml --json'],
+  exitCodes: [
+    { code: 0, meaning: 'the chart schema and graph are valid' },
+    { code: 1, meaning: 'the schema or the graph is invalid' },
+    { code: 2, meaning: 'the file is unreadable or the arguments are wrong' },
+  ],
+  notes: [jsonNote],
+});
 
-chart
+setManual(chart
   .command('analyze')
   .description('Report reachability, dead ends, and shortest paths.')
   .argument('<chart>', 'YAML state chart')
@@ -366,11 +384,19 @@ chart
     const parsed = JsonFlag.safeParse(opts);
     if (!parsed.success) usage('chart.analyze', opts, parsed.error);
     emit(analyzeChart(file, yamlModelLoader, xstateTraversalEngine), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew chart analyze examples/todo/b-full.yaml --json'],
+  exitCodes: [
+    { code: 0, meaning: 'every state is reachable and no state is a dead end' },
+    { code: 1, meaning: 'a state is unreachable or a non-final state has no outgoing transition' },
+    { code: 2, meaning: 'the file is unreadable, the arguments are wrong, or the chart is too invalid to analyze' },
+  ],
+  notes: [jsonNote],
+});
 
-const workflows = program.command('workflows').description('Check a workflow set.');
+const workflows = program.command('workflows').description('Check a workflow set.').helpCommand(false);
 
-workflows
+setManual(workflows
   .command('check')
   .description('Check a workflow set\'s schema and linked-list graph.')
   .argument('<workflows>', 'YAML workflow set')
@@ -379,9 +405,17 @@ workflows
     const parsed = JsonFlag.safeParse(opts);
     if (!parsed.success) usage('workflows.check', opts, parsed.error);
     emit(checkWorkflows(file, yamlWorkflowLoader), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew workflows check examples/todo/workflows.yaml --json'],
+  exitCodes: [
+    { code: 0, meaning: 'the workflow set schema and graph are valid' },
+    { code: 1, meaning: 'the schema or the graph is invalid' },
+    { code: 2, meaning: 'the file is unreadable or the arguments are wrong' },
+  ],
+  notes: [jsonNote],
+});
 
-program
+setManual(program
   .command('verify')
   .description('Prove each selected flow against a chart. State and event names must match exactly.')
   .argument('<chart>', 'YAML state chart')
@@ -407,9 +441,24 @@ program
       heatmap: flags.heatmap,
       replay: flags.replay,
     }, verifyPorts), flags.json === true);
-  });
+  }), {
+  examples: [
+    'clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml --json',
+    'clew verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --flow W8 --json',
+    'clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml --heatmap --replay --out out --json',
+  ],
+  exitCodes: [
+    { code: 0, meaning: 'every selected flow passed' },
+    { code: 1, meaning: 'a selected flow failed' },
+    { code: 2, meaning: 'the input is unreadable, the arguments are wrong, a workflow state is not on the chart, or the selection names a missing flow' },
+  ],
+  notes: [
+    jsonNote,
+    '--heatmap and --replay need --out. A workflow state that is not on the chart exits 2. An event the chart never declares fails only that flow.',
+  ],
+});
 
-program
+setManual(program
   .command('compare')
   .description('Rank verify JSON documents. Does not replay flows.')
   .argument('<results...>', 'JSON documents from clew verify --json')
@@ -419,11 +468,19 @@ program
     const parsed = OutFlag.safeParse(opts);
     if (!parsed.success) usage('compare', opts, parsed.error);
     emit(compareResults({ resultFiles, outDir: parsed.data.out }, comparePorts), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew compare b-full.json a-basic.json --json'],
+  exitCodes: [
+    { code: 0, meaning: 'compare has a winner' },
+    { code: 1, meaning: 'compare has no winner' },
+    { code: 2, meaning: 'a result file is unreadable or the arguments are wrong' },
+  ],
+  notes: [jsonNote],
+});
 
-const spec = program.command('spec').description('Turn a plain-English spec into a workflow set, one layer at a time.');
+const spec = program.command('spec').description('Turn a plain-English spec into a workflow set, one layer at a time.').helpCommand(false);
 
-spec
+setManual(spec
   .command('init')
   .description('Split a Markdown spec into sentences and open a session.')
   .argument('<spec>', 'Markdown or plain-text spec')
@@ -433,9 +490,13 @@ spec
     const parsed = SpecInitFlags.safeParse(opts);
     if (!parsed.success) usage('spec.init', opts, parsed.error);
     emit(initSpec({ file, sessionId: parsed.data.session }, specTextSource, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec init examples/spec/order.md --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-spec
+setManual(spec
   .command('tag')
   .description('Tag sentences with parts of speech.')
   .option('--session <id>', 'session to tag; defaults to the only open session')
@@ -445,11 +506,15 @@ spec
     const parsed = SpecTagFlags.safeParse(opts);
     if (!parsed.success) usage('spec.tag', opts, parsed.error);
     emit(tagSpec({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore, compromiseTagger), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec tag --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-const entities = spec.command('entities').description('List and refine entity candidates.');
+const entities = spec.command('entities').description('List and refine entity candidates.').helpCommand(false);
 
-entities
+setManual(entities
   .command('list')
   .description('Derive entity candidates from tagged tokens and list them.')
   .option('--session <id>', 'session to read; defaults to the only open session')
@@ -464,9 +529,13 @@ entities
       kind: parsed.data.kind,
       status: parsed.data.status,
     }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec entities list --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-entities
+setManual(entities
   .command('merge')
   .description('Merge entities of the same kind into one.')
   .option('--into <id>', 'entity that keeps the sources')
@@ -477,9 +546,13 @@ entities
     const parsed = SpecEntityMergeFlags.safeParse(opts);
     if (!parsed.success) usage('spec.entities.merge', opts, parsed.error);
     emit(editEntities({ action: 'merge', sessionId: parsed.data.session, into: parsed.data.into, ids: parsed.data.id }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec entities merge --into actor:customer --id actor:buyer --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-entities
+setManual(entities
   .command('rename')
   .description('Rename an entity. Conditions take --text; other kinds take --name.')
   .option('--id <id>', 'entity to rename')
@@ -497,9 +570,13 @@ entities
       name: parsed.data.name,
       text: parsed.data.text,
     }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec entities rename --id actor:customer --name customer --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-entities
+setManual(entities
   .command('reject')
   .description('Reject an entity so later steps ignore it.')
   .option('--id <id>', 'entity to reject')
@@ -515,9 +592,13 @@ entities
       id: parsed.data.id,
       reason: parsed.data.reason,
     }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec entities reject --id object:draft --reason "not part of the model" --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-entities
+setManual(entities
   .command('promote')
   .description('Confirm an entity, optionally changing its kind.')
   .option('--id <id>', 'entity to confirm')
@@ -533,11 +614,15 @@ entities
       id: parsed.data.id,
       kind: parsed.data.kind,
     }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec entities promote --id object:customer --kind actor --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-const facts = spec.command('facts').description('Propose facts and record agent judgment.');
+const facts = spec.command('facts').description('Propose facts and record agent judgment.').helpCommand(false);
 
-facts
+setManual(facts
   .command('propose')
   .description('Propose draft facts from entities, clauses, and token order.')
   .option('--session <id>', 'session to read; defaults to the only open session')
@@ -547,9 +632,13 @@ facts
     const parsed = SpecFactProposeFlags.safeParse(opts);
     if (!parsed.success) usage('spec.facts.propose', opts, parsed.error);
     emit(proposeSpecFacts({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec facts propose --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-facts
+setManual(facts
   .command('add')
   .description('Add a fact from flags or a JSON file.')
   .option('--from <file>', 'JSON fact, or { "facts": [ ... ] }')
@@ -578,9 +667,13 @@ facts
       emit(editFacts({ action: 'add', sessionId: flags.session, drafts: loaded.drafts }, jsonSpecStore), flags.json === true);
     }
     emit(editFacts({ action: 'add', sessionId: flags.session, drafts: [draftFromFlags(flags)] }, jsonSpecStore), flags.json === true);
-  });
+  }), {
+  examples: ['clew spec facts add --type performs --actor actor:customer --action action:submit --object object:order --source s1 --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-facts
+setManual(facts
   .command('edit')
   .description('Edit a fact from flags or a JSON file.')
   .option('--id <id>', 'fact to edit, for example f3')
@@ -616,9 +709,13 @@ facts
     }
     if (flags.id === undefined) usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: 'edit needs --id', path: ['id'] }]));
     emit(editFacts({ action: 'edit', sessionId: flags.session, id: flags.id, draft: draftFromFlags(flags) }, jsonSpecStore), flags.json === true);
-  });
+  }), {
+  examples: ['clew spec facts edit --id f1 --note "confirmed by the agent" --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-facts
+setManual(facts
   .command('remove')
   .description('Remove facts. A later propose will not recreate them.')
   .option('--id <id>', 'fact to remove (repeatable)', collectFlow, [] as string[])
@@ -637,11 +734,15 @@ facts
       emit(editFacts({ action: 'remove', sessionId: flags.session, ids: loaded.ids }, jsonSpecStore), flags.json === true);
     }
     emit(editFacts({ action: 'remove', sessionId: flags.session, ids: flags.id ?? [] }, jsonSpecStore), flags.json === true);
-  });
+  }), {
+  examples: ['clew spec facts remove --id f1 --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-const graph = spec.command('graph').description('Assemble a draft graph and choose named paths.');
+const graph = spec.command('graph').description('Assemble a draft graph and choose named paths.').helpCommand(false);
 
-graph
+setManual(graph
   .command('build')
   .description('Assemble states and transitions from facts, and propose one path per transition.')
   .option('--session <id>', 'session to read; defaults to the only open session')
@@ -650,9 +751,13 @@ graph
     const parsed = SpecSessionFlags.safeParse(opts);
     if (!parsed.success) usage('spec.graph.build', opts, parsed.error);
     emit(buildSpecGraph({ sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec graph build --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-graph
+setManual(graph
   .command('split')
   .description('Split one accepted path into two. --at is the first edge of the second path.')
   .option('--id <id>', 'flow to split, for example W1')
@@ -671,9 +776,13 @@ graph
     }
     if (flags.id === undefined || flags.at === undefined) usage('spec.graph.split', opts, new z.ZodError([{ code: 'custom', message: 'split needs --id and --at', path: ['id'] }]));
     emit(editGraph({ action: 'split', sessionId: flags.session, id: flags.id, at: flags.at }, jsonSpecStore), flags.json === true);
-  });
+  }), {
+  examples: ['clew spec graph split --id W1 --at tr2 --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-graph
+setManual(graph
   .command('group')
   .description('Join accepted paths into one linear workflow.')
   .option('--id <id>', 'flow to join, in walk order (repeatable)', collectFlow, [] as string[])
@@ -700,9 +809,13 @@ graph
       title: flags.title,
       into: flags.into,
     }, jsonSpecStore), flags.json === true);
-  });
+  }), {
+  examples: ['clew spec graph group --id W1 --id W2 --title "Submit and approve an order" --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-spec
+setManual(spec
   .command('emit')
   .description('Write the chosen paths as a workflow set. Refuses while blocking findings remain.')
   .option('--dry-run', 'print the YAML and check it without writing a file')
@@ -720,9 +833,16 @@ spec
       out: flags.out,
       force: flags.force === true,
     }, jsonSpecStore, yamlWorkflowWriter), flags.json === true);
-  });
+  }), {
+  examples: [
+    'clew spec emit --dry-run --json',
+    'clew spec emit --out flows.yaml --json',
+  ],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote, '--force writes the file while blocking findings remain and lists them.'],
+});
 
-spec
+setManual(spec
   .command('trace')
   .description('Follow an id back to facts, entities, tokens, and the sentence.')
   .argument('<id>', 'entity, fact, token, sentence, or state id')
@@ -733,9 +853,13 @@ spec
     if (!parsed.success) usage('spec.trace', opts, parsed.error);
     if (id.trim() === '') usage('spec.trace', opts, new z.ZodError([{ code: 'custom', message: 'trace needs an id', path: ['id'] }]));
     emit(traceSpec({ sessionId: parsed.data.session, id }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec trace actor:customer --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-spec
+setManual(spec
   .command('status')
   .description('Show sentence coverage and the findings still open on each layer.')
   .option('--session <id>', 'session to read; defaults to the only open session')
@@ -744,11 +868,15 @@ spec
     const parsed = SpecSessionFlags.safeParse(opts);
     if (!parsed.success) usage('spec.status', opts, parsed.error);
     emit(readSpecStatus({ sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec status --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
 
-const session = spec.command('session').description('List or delete spec sessions for this repo.');
+const session = spec.command('session').description('List or delete spec sessions for this repo.').helpCommand(false);
 
-session
+setManual(session
   .command('list')
   .description('List spec sessions for this repo.')
   .option('--json', 'print the result document as JSON on stdout')
@@ -756,9 +884,16 @@ session
     const parsed = JsonFlag.safeParse(opts);
     if (!parsed.success) usage('spec.session.list', opts, parsed.error);
     emit(listSpecSessions(jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec session list --json'],
+  exitCodes: [
+    { code: 0, meaning: 'the sessions for this repo were listed' },
+    { code: 2, meaning: 'the arguments are wrong' },
+  ],
+  notes: [jsonNote, 'List reads the sessions for this repo and does not change the store. An empty list is exit 0.'],
+});
 
-session
+setManual(session
   .command('remove')
   .description('Delete one spec session for this repo.')
   .argument('<id>', 'session to delete')
@@ -769,41 +904,50 @@ session
     const parsedId = z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).safeParse(id);
     if (!parsedId.success) usage('spec.session.remove', opts, parsedId.error);
     emit(removeSpecSession({ id: parsedId.data }, jsonSpecStore), parsed.data.json === true);
-  });
+  }), {
+  examples: ['clew spec session remove order --json'],
+  exitCodes: [
+    { code: 0, meaning: 'the session was deleted' },
+    { code: 2, meaning: 'the id is unknown or unsafe, a live lock is held, or the arguments are wrong' },
+  ],
+  notes: [jsonNote, 'An unknown id, an unsafe id, or a live lock is exit 2. A live lock leaves the session directory in place.'],
+});
 
-program.addHelpText('afterAll', `
-Exit codes:
-  0  check passed, analysis is clean, every selected flow passed, compare has a winner, or a spec command left no blocking findings
-  1  schema or graph invalid, analysis found unreachable states or dead ends, a flow failed, compare has no winner, or a spec command reported a blocking finding
-  2  unreadable input, bad arguments, no spec session, or verify/analyze preconditions failed
-
---json writes one document to stdout. Errors go to stderr. Clew never prompts or reads stdin.
-Spec sessions are stored outside the repo. See docs/agent-cli.md.
-
-Examples:
-  clew chart check examples/todo/b-full.yaml --json
-  clew chart analyze examples/todo/b-full.yaml --json
-  clew workflows check examples/todo/workflows.yaml --json
-  clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml --json
-  clew verify examples/todo/a-basic.yaml examples/todo/workflows.yaml --flow W8 --json
-  clew verify examples/todo/b-full.yaml examples/todo/workflows.yaml --heatmap --replay --out out --json
-  clew compare b-full.json a-basic.json --json
-  clew spec init examples/spec/order.md --json
-  clew spec tag --json
-  clew spec entities list --json
-  clew spec facts propose --json
-  clew spec graph build --json
-  clew spec graph split --id W1 --at tr2 --json
-  clew spec graph group --id W1 --id W2 --title "Submit and approve an order" --json
-  clew spec emit --dry-run --json
-  clew spec emit --out flows.yaml --json
-  clew spec trace actor:customer --json
-  clew spec status --json
-  clew spec session list --json
-  clew spec session remove order --json
-`);
+setManual(program
+  .command('help')
+  .description('Print the long help for a command.')
+  .argument('[command...]', 'command and subcommand names')
+  .action((parts: string[]) => {
+    const parsed = HelpPath.safeParse(parts ?? []);
+    if (!parsed.success) usage('help', {}, parsed.error);
+    if (parsed.data.length === 0) {
+      process.stdout.write(listCommands(program));
+      process.exit(EXIT_PASS);
+    }
+    const command = findCommand(program, parsed.data);
+    if (command === undefined) {
+      console.error(`unknown command: ${parsed.data.join(' ')}`);
+      process.exit(EXIT_INVALID);
+    }
+    process.stdout.write(fullHelp(command));
+    process.exit(EXIT_PASS);
+  }), {
+  examples: [
+    'clew help',
+    'clew help spec facts propose',
+  ],
+  exitCodes: [
+    { code: 0, meaning: 'the help text was written' },
+    { code: 2, meaning: 'the command is unknown or the arguments are wrong' },
+  ],
+  notes: [
+    '-h and --help print usage, the description, arguments, options, and subcommands.',
+    'With no command, this lists every command. With a command path, it adds examples, exit codes, and notes.',
+  ],
+});
 
 try {
+  assertManuals(program);
   program.parse();
 } catch (error) {
   if (error instanceof CommanderError) process.exit(error.exitCode === 0 ? EXIT_PASS : EXIT_INVALID);
