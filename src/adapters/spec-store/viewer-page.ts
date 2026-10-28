@@ -163,24 +163,97 @@ details.lineage > summary {
 details.lineage > summary::-webkit-details-marker { display: none; }
 details.lineage > summary::before { content: "▸ "; }
 details.lineage[open] > summary::before { content: "▾ "; }
-.lineage-body { margin-top: 0.45rem; display: grid; gap: 0.35rem; }
+.lineage-body { margin-top: 0.45rem; display: grid; gap: 0.45rem; }
+.lineage-tabs { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.lineage-tabs button {
+  font: 0.75rem/1.2 var(--mono);
+  border: 1px solid var(--line);
+  background: #fafaf9;
+  color: var(--ink);
+  padding: 0.28rem 0.5rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+}
+.lineage-tabs button[aria-selected="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.lineage-pane { display: grid; gap: 0.35rem; }
+.lineage-pane[hidden] { display: none; }
 .line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.45rem;
   font-size: 0.86rem;
-  padding: 0.35rem 0.45rem;
+  padding: 0.4rem 0.5rem;
   background: #fafaf9;
   border-radius: 0.3rem;
   border: 1px solid #e7e5e4;
 }
-.line .layer { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-right: 0.4rem; }
-.token {
-  display: inline-block;
+.line .layer {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.line code {
   font-family: var(--mono);
   font-size: 0.78rem;
-  margin: 0.15rem 0.2rem 0 0;
-  padding: 0.15rem 0.35rem;
+  padding: 0.05rem 0.32rem;
+  border-radius: 0.2rem;
+}
+.line-id { color: var(--accent); background: var(--accent-soft); }
+.line-ref, .line-up { color: #1d4ed8; background: #dbeafe; }
+.line-down { color: #6d28d9; background: #ede9fe; }
+.line-content { font-weight: 600; color: var(--ink); }
+.line-content.quoted::before,
+.line-content.quoted::after { color: var(--muted); font-weight: 400; }
+.line-content.quoted::before { content: "“"; }
+.line-content.quoted::after { content: "”"; }
+.source-mark {
+  text-decoration-line: underline;
+  text-decoration-color: #c2410c;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 0.16em;
+  color: #9a3412;
+}
+.line-type {
+  font: 0.72rem/1.2 var(--mono);
+  color: var(--warn);
+  background: #ffedd5;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  padding: 0.08rem 0.42rem;
+}
+.line-note { color: var(--muted); font-size: 0.78rem; }
+.tokens { margin-top: 0.45rem; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.token {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.18rem 0.4rem;
   border-radius: 0.25rem;
   background: #ecfeff;
   border: 1px solid #a5f3fc;
+}
+.token-id {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: #fff;
+  border: 1px solid #99f6e4;
+  border-radius: 0.2rem;
+  padding: 0.02rem 0.28rem;
+}
+.token-text {
+  font-family: var(--sans);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 .empty { color: var(--muted); padding: 1.5rem 0; }
 </style>
@@ -313,14 +386,173 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return false;
   }
 
+  const LINEAGE_ORDER = ["token", "sentence", "entity", "fact", "source", "transition", "state", "flow"];
+  const LINEAGE_LABELS = {
+    token: "Tokens",
+    sentence: "Sentences",
+    entity: "Entities",
+    fact: "Facts",
+    source: "Sources",
+    transition: "Transitions",
+    state: "States",
+    flow: "Flows",
+  };
+
+  function lineageLabel(layer) {
+    if (LINEAGE_LABELS[layer]) return LINEAGE_LABELS[layer];
+    return layer.charAt(0).toUpperCase() + layer.slice(1);
+  }
+
   function lineageBlock(rows) {
     if (rows.length === 0) {
       return '<details class="lineage"><summary>Lineage</summary><div class="lineage-body"><div class="line">No lineage links.</div></div></details>';
     }
-    const body = rows.map(function (row) {
-      return '<div class="line"><span class="layer">' + esc(row.layer) + "</span>" + esc(row.text) + "</div>";
+    const groups = new Map();
+    for (const row of rows) {
+      if (!groups.has(row.layer)) groups.set(row.layer, []);
+      groups.get(row.layer).push(row);
+    }
+    const layers = Array.from(groups.keys()).sort(function (a, b) {
+      const left = LINEAGE_ORDER.indexOf(a);
+      const right = LINEAGE_ORDER.indexOf(b);
+      if (left === -1 && right === -1) return a < b ? -1 : a > b ? 1 : 0;
+      if (left === -1) return 1;
+      if (right === -1) return -1;
+      return left - right;
+    });
+    const tabs = layers.map(function (layer, index) {
+      const count = groups.get(layer).length;
+      return '<button type="button" class="lineage-tab" role="tab" data-layer="' + esc(layer) +
+        '" aria-selected="' + (index === 0 ? "true" : "false") + '">' +
+        esc(lineageLabel(layer)) + " (" + count + ")</button>";
     }).join("");
-    return '<details class="lineage"><summary>Lineage (' + rows.length + ')</summary><div class="lineage-body">' + body + '</div></details>';
+    const panes = layers.map(function (layer, index) {
+      const body = groups.get(layer).map(renderLine).join("");
+      return '<div class="lineage-pane" role="tabpanel" data-layer="' + esc(layer) + '"' +
+        (index === 0 ? "" : " hidden") + ">" + body + "</div>";
+    }).join("");
+    return '<details class="lineage"><summary>Lineage (' + rows.length + ')</summary><div class="lineage-body">' +
+      '<div class="lineage-tabs" role="tablist">' + tabs + "</div>" + panes + "</div></details>";
+  }
+
+  function part(kind, value, quoted) {
+    return quoted ? { kind: kind, value: value, quoted: true } : { kind: kind, value: value };
+  }
+
+  function renderPart(piece) {
+    const value = esc(piece.value);
+    if (piece.kind === "id") return '<code class="line-id">' + value + "</code>";
+    if (piece.kind === "ref") return '<code class="line-ref">' + value + "</code>";
+    if (piece.kind === "up") return '<code class="line-up">' + value + "</code>";
+    if (piece.kind === "down") return '<code class="line-down">' + value + "</code>";
+    if (piece.kind === "type") return '<span class="line-type">' + value + "</span>";
+    if (piece.kind === "content") {
+      const inner = piece.raw ? piece.html : value;
+      return '<span class="line-content' + (piece.quoted ? " quoted" : "") + '">' + inner + "</span>";
+    }
+    return '<span class="line-note">' + value + "</span>";
+  }
+
+  function renderLine(row) {
+    const bits = (row.bits || []).map(renderPart).join("");
+    return '<div class="line" data-text="' + esc(row.text) + '"><span class="layer">' + esc(row.layer) + "</span>" +
+      (bits || esc(row.text)) + "</div>";
+  }
+
+  function tokenRow(id, token, withTags) {
+    const tags = (token && token.tags) || [];
+    const text = id + (token ? " “" + token.text + "”" + (withTags ? " [" + tags.join("|") + "]" : "") : "");
+    const bits = [part("id", id)];
+    if (token) {
+      bits.push(part("content", token.text, true));
+      if (withTags && tags.length) bits.push(part("type", tags.join(" · ")));
+    }
+    return { layer: "token", text: text, bits: bits };
+  }
+
+  function tokenIndex(id) {
+    const match = /^s[1-9][0-9]*\.t([1-9][0-9]*)$/.exec(id);
+    return match ? Number(match[1]) : null;
+  }
+
+  function consecutiveTokens(prev, next) {
+    const left = tokenIndex(prev.id);
+    const right = tokenIndex(next.id);
+    return left !== null && right === left + 1;
+  }
+
+  function markedSentenceHtml(sentence, markTokens) {
+    const text = sentence.text || "";
+    const base = sentence.span && sentence.span.length === 2 ? sentence.span[0] : null;
+    if (base === null || !markTokens.length) return esc(text);
+    const ranges = [];
+    for (const token of markTokens) {
+      if (!token.span || token.span.length !== 2) continue;
+      const start = token.span[0] - base;
+      const end = token.span[1] - base;
+      if (start < 0 || end > text.length || end <= start) continue;
+      if (text.slice(start, end) !== token.text) continue;
+      ranges.push([start, end]);
+    }
+    ranges.sort(function (a, b) { return a[0] - b[0]; });
+    const merged = [];
+    for (const range of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && range[0] <= last[1] + 1) last[1] = Math.max(last[1], range[1]);
+      else merged.push([range[0], range[1]]);
+    }
+    if (!merged.length) return esc(text);
+    let html = "";
+    let cursor = 0;
+    for (const range of merged) {
+      html += esc(text.slice(cursor, range[0]));
+      html += '<span class="source-mark">' + esc(text.slice(range[0], range[1])) + "</span>";
+      cursor = range[1];
+    }
+    html += esc(text.slice(cursor));
+    return html;
+  }
+
+  function sentenceRow(sentence, withSection, markTokens) {
+    const text = withSection
+      ? sentence.id + " [" + sentence.section + "] “" + sentence.text + "”"
+      : sentence.id + " “" + sentence.text + "”";
+    const bits = [part("id", sentence.id)];
+    if (withSection) bits.push(part("type", sentence.section));
+    const marks = markTokens || [];
+    if (marks.length) {
+      bits.push({ kind: "content", quoted: true, raw: true, html: markedSentenceHtml(sentence, marks) });
+    } else {
+      bits.push(part("content", sentence.text, true));
+    }
+    return { layer: "sentence", text: text, bits: bits };
+  }
+
+  function appendTokenSources(rows, sources, withSection) {
+    const tokens = indexTokens();
+    let run = [];
+    function flush() {
+      if (!run.length) return;
+      const marks = run.map(function (hit) { return hit.token; });
+      const sentence = sentenceById(run[0].sentenceId);
+      if (sentence) rows.push(sentenceRow(sentence, withSection, marks));
+      else {
+        for (const hit of run) rows.push(tokenRow(hit.token.id, hit.token, true));
+      }
+      run = [];
+    }
+    for (const source of sources || []) {
+      const hit = tokens.get(source);
+      if (!hit) {
+        flush();
+        rows.push({ layer: "source", text: source, bits: [part("id", source)] });
+        continue;
+      }
+      const prev = run[run.length - 1];
+      if (prev && (prev.sentenceId !== hit.sentenceId || !consecutiveTokens(prev.token, hit.token))) flush();
+      run.push(hit);
+    }
+    flush();
   }
 
   function factLineage(fact) {
@@ -333,70 +565,77 @@ details.lineage[open] > summary::before { content: "▾ "; }
       if (!id) continue;
       const entity = entities.get(id);
       const label = entity ? (entity.name || entity.text || id) : id;
-      rows.push({ layer: "entity", text: field + " → " + id + " (" + label + ")" });
-      if (entity) {
-        for (const source of entity.sources || []) {
-          const hit = tokens.get(source);
-          if (hit) {
-            rows.push({ layer: "token", text: source + " “" + hit.token.text + "” [" + (hit.token.tags || []).join("|") + "]" });
-            const sentence = sentenceById(hit.sentenceId);
-            if (sentence) rows.push({ layer: "sentence", text: sentence.id + " “" + sentence.text + "”" });
-          } else {
-            rows.push({ layer: "source", text: source });
-          }
-        }
-      }
+      rows.push({
+        layer: "entity",
+        text: field + " → " + id + " (" + label + ")",
+        bits: [part("type", field), part("note", "→"), part("id", id), part("content", label)],
+      });
+      if (entity) appendTokenSources(rows, entity.sources, false);
     }
     for (const source of fact.sources || []) {
       if (/^s[1-9][0-9]*$/.test(source)) {
         const sentence = sentenceById(source);
-        rows.push({ layer: "sentence", text: source + (sentence ? " “" + sentence.text + "”" : "") });
+        rows.push(sentence
+          ? sentenceRow(sentence, false)
+          : { layer: "sentence", text: source, bits: [part("id", source)] });
       } else if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
         const hit = tokens.get(source);
-        rows.push({ layer: "token", text: source + (hit ? " “" + hit.token.text + "”" : "") });
-        if (hit) {
-          const sentence = sentenceById(hit.sentenceId);
-          if (sentence) rows.push({ layer: "sentence", text: sentence.id + " “" + sentence.text + "”" });
-        }
+        const sentence = hit ? sentenceById(hit.sentenceId) : null;
+        if (sentence) rows.push(sentenceRow(sentence, false, [hit.token]));
+        else rows.push(tokenRow(source, hit ? hit.token : null, false));
       } else {
-        rows.push({ layer: "source", text: source });
+        rows.push({ layer: "source", text: source, bits: [part("id", source)] });
       }
     }
     if (state.graph) {
       for (const transition of state.graph.transitions || []) {
         if (transition.fact === fact.id || (transition.facts || []).indexOf(fact.id) >= 0) {
-          rows.push({ layer: "transition", text: transition.id + " " + transition.from + " -" + transition.event + "→ " + transition.to });
+          rows.push({
+            layer: "transition",
+            text: transition.id + " " + transition.from + " -" + transition.event + "→ " + transition.to,
+            bits: [
+              part("id", transition.id),
+              part("up", transition.from),
+              part("type", transition.event),
+              part("note", "→"),
+              part("down", transition.to),
+            ],
+          });
         }
       }
       for (const graphState of state.graph.states || []) {
         if ((graphState.facts || []).indexOf(fact.id) >= 0) {
-          rows.push({ layer: "state", text: graphState.id + " (" + graphState.object + ")" });
+          rows.push({
+            layer: "state",
+            text: graphState.id + " (" + graphState.object + ")",
+            bits: [part("id", graphState.id), part("content", graphState.object)],
+          });
         }
       }
       for (const flow of state.graph.flows || []) {
-        if (flow.forbidden === fact.id) rows.push({ layer: "flow", text: flow.id + " forbidden " + fact.id });
+        if (flow.forbidden === fact.id) {
+          rows.push({
+            layer: "flow",
+            text: flow.id + " forbidden " + fact.id,
+            bits: [part("id", flow.id), part("type", "forbidden"), part("ref", fact.id)],
+          });
+        }
       }
     }
     return lineageBlock(rows);
   }
 
   function entityLineage(entity) {
-    const tokens = indexTokens();
     const rows = [];
-    for (const source of entity.sources || []) {
-      const hit = tokens.get(source);
-      if (hit) {
-        rows.push({ layer: "token", text: source + " “" + hit.token.text + "” [" + (hit.token.tags || []).join("|") + "]" });
-        const sentence = sentenceById(hit.sentenceId);
-        if (sentence) rows.push({ layer: "sentence", text: sentence.id + " [" + sentence.section + "] “" + sentence.text + "”" });
-      } else {
-        rows.push({ layer: "source", text: source });
-      }
-    }
+    appendTokenSources(rows, entity.sources, true);
     for (const fact of state.facts) {
       const refs = [fact.actor, fact.action, fact.object, fact.condition];
       if (refs.indexOf(entity.id) >= 0) {
-        rows.push({ layer: "fact", text: fact.id + " " + fact.type });
+        rows.push({
+          layer: "fact",
+          text: fact.id + " " + fact.type,
+          bits: [part("id", fact.id), part("type", fact.type)],
+        });
       }
     }
     return lineageBlock(rows);
@@ -406,12 +645,16 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const rows = [];
     const tokens = (tagged && tagged.tokens) || [];
     for (const token of tokens) {
-      rows.push({ layer: "token", text: token.id + " “" + token.text + "” [" + (token.tags || []).join("|") + "]" });
+      rows.push(tokenRow(token.id, token, true));
     }
     for (const entity of state.entities) {
       for (const source of entity.sources || []) {
         if (source === sentence.id || source.indexOf(sentence.id + ".") === 0) {
-          rows.push({ layer: "entity", text: entity.id + " via " + source });
+          rows.push({
+            layer: "entity",
+            text: entity.id + " via " + source,
+            bits: [part("id", entity.id), part("note", "via"), part("ref", source)],
+          });
           break;
         }
       }
@@ -419,7 +662,11 @@ details.lineage[open] > summary::before { content: "▾ "; }
     for (const fact of state.facts) {
       for (const source of fact.sources || []) {
         if (source === sentence.id || source.indexOf(sentence.id + ".") === 0) {
-          rows.push({ layer: "fact", text: fact.id + " " + fact.type + " via " + source });
+          rows.push({
+            layer: "fact",
+            text: fact.id + " " + fact.type + " via " + source,
+            bits: [part("id", fact.id), part("type", fact.type), part("note", "via"), part("ref", source)],
+          });
           break;
         }
       }
@@ -516,14 +763,15 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const row = tagged.get(sentence.id);
       const tokens = ((row && row.tokens) || []).map(function (token) {
         return '<span class="token" title="' + esc((token.tags || []).join(", ")) + '">' +
-          esc(token.id) + " " + esc(token.text) + "</span>";
+          '<code class="token-id">' + esc(token.id) + "</code>" +
+          '<span class="token-text">' + esc(token.text) + "</span></span>";
       }).join("");
       return (
         '<article class="card">' +
         "<h2><span class=\\"id\\">" + esc(sentence.id) + "</span>" +
         pill(sentence.section) + pill(sentence.status, statusTone(sentence.status)) + "</h2>" +
         '<p class="blurb">' + esc(sentence.text) + "</p>" +
-        (tokens ? '<div style="margin-top:0.45rem">' + tokens + "</div>" : "") +
+        (tokens ? '<div class="tokens">' + tokens + "</div>" : "") +
         sentenceLineage(sentence, row) +
         "</article>"
       );
@@ -555,6 +803,21 @@ details.lineage[open] > summary::before { content: "▾ "; }
       selectTab(button.getAttribute("data-tab"));
     });
   }
+  document.addEventListener("click", function (event) {
+    const target = event.target;
+    if (!target || !target.closest) return;
+    const button = target.closest("button.lineage-tab");
+    if (!button) return;
+    const body = button.closest(".lineage-body");
+    if (!body) return;
+    const layer = button.getAttribute("data-layer");
+    for (const tab of body.querySelectorAll("button.lineage-tab")) {
+      tab.setAttribute("aria-selected", tab === button ? "true" : "false");
+    }
+    for (const pane of body.querySelectorAll(".lineage-pane")) {
+      pane.hidden = pane.getAttribute("data-layer") !== layer;
+    }
+  });
   for (const input of [els.text, els.kind, els.type, els.status]) {
     input.addEventListener("input", render);
     input.addEventListener("change", render);
