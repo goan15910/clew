@@ -191,6 +191,22 @@ export interface SpecTaggedView {
   tokens: SpecTokenView[];
 }
 
+export const SPEC_SHOW_LAYERS = ['tagged', 'tokens', 'entities', 'facts'] as const;
+
+export type SpecShowLayer = (typeof SPEC_SHOW_LAYERS)[number];
+
+export interface SpecTokenReadingView {
+  tags: string[];
+  tokens: string[];
+}
+
+export interface SpecUniqueTokenView {
+  text: string;
+  count: number;
+  forms: string[];
+  readings: SpecTokenReadingView[];
+}
+
 export type SpecFault = 'unreadable' | 'locked' | 'schema' | 'session';
 
 export interface SpecInitDocument {
@@ -380,6 +396,20 @@ export interface SpecSessionRemoveDocument {
   issues: OutputIssue[];
 }
 
+interface SpecShowBase {
+  ok: boolean;
+  session?: string;
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export type SpecShowDocument =
+  | (SpecShowBase & { command: 'spec.show.tagged'; sentences?: SpecTaggedView[] })
+  | (SpecShowBase & { command: 'spec.show.tokens'; tokens?: SpecUniqueTokenView[] })
+  | (SpecShowBase & { command: 'spec.show.entities'; entities?: SpecEntityView[] })
+  | (SpecShowBase & { command: 'spec.show.facts'; facts?: SpecFactView[] });
+
 export type CommandDocument =
   | ChartCheckDocument
   | ChartAnalyzeDocument
@@ -392,6 +422,7 @@ export type CommandDocument =
   | SpecFactsDocument
   | SpecTraceDocument
   | SpecStatusDocument
+  | SpecShowDocument
   | SpecSessionListDocument
   | SpecSessionRemoveDocument
   | SpecGraphDocument

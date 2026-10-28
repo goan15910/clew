@@ -47,6 +47,10 @@ clew spec graph group (--id <id> --id <id> | --transition <id> --transition <id>
 clew spec emit (--dry-run | --out <file>) [--force] [--session <id>] [--json]
 clew spec trace <id> [--session <id>] [--json]
 clew spec status [--session <id>] [--json]
+clew spec show tagged [--session <id>] [--json]
+clew spec show tokens [--session <id>] [--json]
+clew spec show entities [--session <id>] [--json]
+clew spec show facts [--session <id>] [--json]
 clew spec session list [--json]
 clew spec session remove <id> [--json]
 ```
@@ -69,7 +73,7 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions for this repo. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions for this repo. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
@@ -178,6 +182,16 @@ Latin-script languages are not detected. Translate those to plain English before
 | `contradicting-facts` | blocking | the signature is already recorded by a live fact |
 
 `spec trace <id>` walks provenance. A transition id (`tr1`) or a flow id (`W1`) is resolved first. Otherwise it walks a state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
+
+`spec show tagged`, `spec show tokens`, `spec show entities`, and `spec show facts` print one stored layer. The command values are `spec.show.tagged`, `spec.show.tokens`, `spec.show.entities`, and `spec.show.facts`. These commands leave the session and `history.jsonl` unchanged, and `updated` stays as it was. `findings` is always an empty list. `spec status` recomputes findings.
+
+Exit 0 means the requested layer has been written. An empty entity list and an empty fact list are written. Exit 2 means the layer has not been written, the session is missing, the session is locked, or the arguments are wrong. The exit is 0 or 2.
+
+The stderr message names only the first missing layer. Tagged sentences and unique tokens need the tag layer, and the message is `no tokens; run clew spec tag first`. Entities need that layer, then a written entity list. When the tag layer is missing, the message is the tag sentence. When the entity list is missing, the message is `no entities; run clew spec entities list first`. Facts need the tag layer, then entities, then a written fact list. The messages follow that order. When the fact list is missing, the message is `no facts; run clew spec facts propose first`.
+
+`spec init` writes an empty `tokens.json` and leaves the tagger unset. That file is not a tag layer. The tag layer is written when the session has a tagger, or when any tagged sentence has tokens.
+
+`spec show tagged` prints `sentences`, the same tagged view as `spec tag`, for the current sentences. `spec show tokens` prints `tokens`. Each item has the lower-cased `text`, a `count`, the original `forms` in first-seen order, and `readings`. A reading has `tags` and the token ids. Unique tokens are grouped words with tag readings and sN.tM ids, not a second entity list. `spec show entities` prints `entities` in stored order, including rejected and stale entities. `spec show facts` prints `facts` and leaves removed facts out.
 
 `spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and stale. A current sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is true after `spec graph build` has written `graph.json`. A missing entities, facts, or graph layer is an info `entities-absent`, `facts-absent`, or `graph-absent` finding. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
 

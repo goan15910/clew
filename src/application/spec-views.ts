@@ -1,7 +1,70 @@
 // Plain document views. Built field by field from domain objects.
-import type { SpecEntityView, SpecFactView, SpecFlowView, SpecGraphView } from './documents.js';
-import type { DraftGraph, Entity, Fact, SpecFlow } from '../domain/spec.js';
+import type { UniqueToken } from '../domain/spec-query.js';
+import type { DraftGraph, Entity, Fact, Sentence, SpecFlow, TaggedSentence, Token } from '../domain/spec.js';
 import { visibleFacts } from '../domain/spec-facts.js';
+import type {
+  SpecEntityView,
+  SpecFactView,
+  SpecFlowView,
+  SpecGraphView,
+  SpecTaggedView,
+  SpecTokenReadingView,
+  SpecTokenView,
+  SpecUniqueTokenView,
+} from './documents.js';
+
+export function taggedViews(sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): SpecTaggedView[] {
+  const byId = new Map<string, TaggedSentence>();
+  for (const item of tagged) byId.set(item.id, item);
+  const views: SpecTaggedView[] = [];
+  for (const sentence of sentences) {
+    const item = byId.get(sentence.id);
+    const clauses: string[] = [];
+    const tokens: SpecTokenView[] = [];
+    if (item !== undefined) {
+      for (const clause of item.clauses) clauses.push(clause);
+      for (const token of item.tokens) tokens.push(tokenView(token));
+    }
+    views.push({
+      id: sentence.id,
+      text: sentence.text,
+      section: sentence.section,
+      clauses,
+      tokens,
+    });
+  }
+  return views;
+}
+
+function tokenView(token: Token): SpecTokenView {
+  const tags: string[] = [];
+  for (const tag of token.tags) tags.push(tag);
+  return {
+    id: token.id,
+    text: token.text,
+    tags,
+    span: [token.span[0], token.span[1]],
+    origin: token.origin,
+  };
+}
+
+export function uniqueTokenViews(tokens: readonly UniqueToken[]): SpecUniqueTokenView[] {
+  const views: SpecUniqueTokenView[] = [];
+  for (const token of tokens) {
+    const forms: string[] = [];
+    for (const form of token.forms) forms.push(form);
+    const readings: SpecTokenReadingView[] = [];
+    for (const reading of token.readings) {
+      const tags: string[] = [];
+      for (const tag of reading.tags) tags.push(tag);
+      const ids: string[] = [];
+      for (const id of reading.tokens) ids.push(id);
+      readings.push({ tags, tokens: ids });
+    }
+    views.push({ text: token.text, count: token.count, forms, readings });
+  }
+  return views;
+}
 
 export function entityView(entity: Entity): SpecEntityView {
   const sources: string[] = [];
