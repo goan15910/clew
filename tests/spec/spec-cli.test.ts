@@ -39,7 +39,7 @@ describe('spec commands', { concurrency: false }, () => {
     assert.equal(readFileSync(join(root, 'README.md'), 'utf8').split('\n')[0], '# 🧶 Clew');
   });
 
-  test('compromise is bundled and imported from one adapter', () => {
+  test('compromise is bundled and imported only from pos adapters', () => {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>;
       bundleDependencies: string[];
@@ -53,7 +53,11 @@ describe('spec commands', { concurrency: false }, () => {
       const source = readFileSync(file, 'utf8');
       if (/from ['"]compromise['"]|require\(['"]compromise['"]\)/.test(source)) imports.push(file);
     }
-    assert.deepEqual(imports, [join(root, 'src', 'adapters', 'pos', 'compromise-tagger.ts')]);
+    const pos = join(root, 'src', 'adapters', 'pos');
+    assert.deepEqual(imports, [
+      join(pos, 'compromise-phrases.ts'),
+      join(pos, 'compromise-tagger.ts'),
+    ]);
   });
 
   test('golden tags for a dozen English specs', () => {

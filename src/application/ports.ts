@@ -128,6 +128,31 @@ export interface PosTaggerPort {
   tag(text: string): PosTagging;
 }
 
+/** One compromise phrase/chunk/pattern hit. Pilot surface; not the production token layer. */
+export interface PhraseUnit {
+  text: string;
+  kind: 'noun' | 'verb' | 'adjective' | 'person' | 'chunk' | 'pattern';
+  words: number;
+}
+
+export interface PhraseExtraction {
+  units: PhraseUnit[];
+  clauses: string[];
+}
+
+/** Optional custom lexicon entries for compromise `nlp.plugin({ words })`. */
+export type PhraseLexicon = Readonly<Record<string, string>>;
+
+/**
+ * Phrase-level view of a sentence. Optional pilot path beside PosTaggerPort.
+ * Production `spec tag` still uses word tokens from PosTaggerPort.
+ */
+export interface PhraseExtractorPort {
+  readonly name: string;
+  readonly version: string;
+  extract(text: string): PhraseExtraction;
+}
+
 export interface WorkflowSetWriter {
   render(draft: WorkflowSetDraft): string;
   write(file: string, yaml: string): { ok: true } | { ok: false; message: string };

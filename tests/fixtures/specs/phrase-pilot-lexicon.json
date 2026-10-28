@@ -1,0 +1,11 @@
+{
+  "support agent": "Person",
+  "case board": "Noun",
+  "Create Ticket": "Noun",
+  "support ticket": "Noun",
+  "customer account": "Noun",
+  "review queue": "Noun",
+  "Escalation Lane": "Noun",
+  "audit trail": "Noun",
+  "minor version": "Noun"
+}
