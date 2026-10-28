@@ -43,6 +43,10 @@ npm run --silent clew -- spec graph group --id W1 --id W2 [--title text] [--sess
 npm run --silent clew -- spec emit (--dry-run | --out file) [--force] [--session id] [--json]
 npm run --silent clew -- spec trace <id> [--session id] [--json]
 npm run --silent clew -- spec status [--session id] [--json]
+npm run --silent clew -- spec show tagged [--session id] [--json]
+npm run --silent clew -- spec show tokens [--session id] [--json]
+npm run --silent clew -- spec show entities [--session id] [--json]
+npm run --silent clew -- spec show facts [--session id] [--json]
 npm run --silent clew -- spec session list [--json]
 npm run --silent clew -- spec session remove <id> [--json]
 ```
@@ -61,7 +65,7 @@ Errors go to stderr. `--json` prints one result document on stdout.
 
 The to-do example is in `examples/todo/`. Workflow state and event names are the chart's names. There is no mapping file. `b-full` passes all eight workflows. `a-basic` fails W6, W7, and W8: it never declares `RESTORE`, it has no `COMPLETE` from `todo`, and it accepts `ARCHIVE` from In Progress. Dropping the mapping file is a breaking change. The version in `package.json` is unchanged.
 
-`examples/spec/order.md` is a plain-English spec for `clew spec init`, `clew spec tag`, `clew spec entities`, `clew spec facts`, `clew spec graph`, and `clew spec emit`. The session is stored outside the repo. `clew spec session list` shows the sessions for this repo, and `clew spec session remove <id>` deletes one of them. See [docs/agent-cli.md](docs/agent-cli.md).
+`examples/spec/order.md` is a plain-English spec for `clew spec init`, `clew spec tag`, `clew spec show`, `clew spec entities`, `clew spec facts`, `clew spec graph`, and `clew spec emit`. The session is stored outside the repo. `clew spec session list` shows the sessions for this repo, and `clew spec session remove <id>` deletes one of them. See [docs/agent-cli.md](docs/agent-cli.md).
 
 ## Tests
 

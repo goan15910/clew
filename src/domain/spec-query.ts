@@ -1,6 +1,6 @@
 // Read-only provenance and coverage over a spec session.
 import type { Entity, Fact, Finding, GraphTransition, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
-import { initFindings, staleFindings, tagFindings } from './spec.js';
+import { currentSentences, initFindings, staleFindings, tagFindings } from './spec.js';
 import { entityFindings } from './spec-entities.js';
 import { contradictionFindings, visibleFacts } from './spec-facts.js';
 import { graphLayerFindings } from './spec-graph.js';
@@ -464,6 +464,70 @@ function findSentence(sentences: readonly Sentence[], id: string): Sentence | un
     if (sentence.id === id) return sentence;
   }
   return undefined;
+}
+
+export interface UniqueToken {
+  text: string;
+  count: number;
+  forms: string[];
+  readings: { tags: string[]; tokens: string[] }[];
+}
+
+function readingKey(tags: readonly string[]): string {
+  return tags.slice().sort().join('\0');
+}
+
+export function uniqueTokens(sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): UniqueToken[] {
+  const byId = new Map<string, TaggedSentence>();
+  for (const item of tagged) byId.set(item.id, item);
+  const groups = new Map<string, { forms: string[]; seenForms: Set<string>; readings: Map<string, { tags: string[]; tokens: string[] }> }>();
+  const order: string[] = [];
+  for (const sentence of currentSentences(sentences)) {
+    const item = byId.get(sentence.id);
+    if (item === undefined || item.status !== 'current') continue;
+    for (const token of item.tokens) {
+      if (token.status !== 'current') continue;
+      const key = token.text.toLowerCase();
+      let group = groups.get(key);
+      if (group === undefined) {
+        group = { forms: [], seenForms: new Set(), readings: new Map() };
+        groups.set(key, group);
+        order.push(key);
+      }
+      if (!group.seenForms.has(token.text)) {
+        group.seenForms.add(token.text);
+        group.forms.push(token.text);
+      }
+      const keyForReading = readingKey(token.tags);
+      let reading = group.readings.get(keyForReading);
+      if (reading === undefined) {
+        const tags: string[] = [];
+        for (const tag of token.tags) tags.push(tag);
+        reading = { tags, tokens: [] };
+        group.readings.set(keyForReading, reading);
+      }
+      reading.tokens.push(token.id);
+    }
+  }
+  const tokens: UniqueToken[] = [];
+  for (const key of order) {
+    const group = groups.get(key);
+    if (group === undefined) continue;
+    const forms: string[] = [];
+    for (const form of group.forms) forms.push(form);
+    const readings: UniqueToken['readings'] = [];
+    let count = 0;
+    for (const reading of group.readings.values()) {
+      const tags: string[] = [];
+      for (const tag of reading.tags) tags.push(tag);
+      const ids: string[] = [];
+      for (const id of reading.tokens) ids.push(id);
+      readings.push({ tags, tokens: ids });
+      count += ids.length;
+    }
+    tokens.push({ text: key, count, forms, readings });
+  }
+  return tokens;
 }
 
 function findToken(snapshot: SpecSnapshot, id: string): { token: Token; sentence: Sentence } | undefined {

@@ -72,6 +72,10 @@ test('short help omits examples and clew help prints them for every command', ()
       assert.ok(examples.some((line) => line.startsWith('clew spec facts add')));
     }
     if (label === 'spec facts propose') assert.ok(examples.every((line) => !line.includes('facts add')));
+    if (label === 'spec show tagged') {
+      assert.ok(examples.includes('clew spec show tagged --json'));
+      assert.equal(codes.some((line) => line.startsWith('1 ')), false);
+    }
     if (label === 'spec session list') assert.ok(examples.includes('clew spec session list --json'));
     if (label === 'spec session remove') assert.ok(examples.includes('clew spec session remove order --json'));
   }

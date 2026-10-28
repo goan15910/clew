@@ -18,6 +18,7 @@
 // clew spec emit (--dry-run | --out file) [--force] [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
+// clew spec show tagged|tokens|entities|facts [--session id] [--json]
 // clew spec session list [--json]
 // clew spec session remove <id> [--json]
 //
@@ -52,10 +53,11 @@ import { emitSpec } from './application/emit-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listEntities } from './application/list-entities.js';
 import { listSpecSessions } from './application/list-spec-sessions.js';
-import { formatIssues, type CommandDocument, type Outcome, type OutputIssue } from './application/documents.js';
+import { SPEC_SHOW_LAYERS, formatIssues, type CommandDocument, type Outcome, type OutputIssue, type SpecShowLayer } from './application/documents.js';
 import type { ComparePorts, VerifyPorts } from './application/ports.js';
 import { proposeSpecFacts } from './application/propose-facts.js';
 import { readSpecStatus } from './application/spec-status.js';
+import { showSpec } from './application/show-spec.js';
 import { removeSpecSession } from './application/remove-spec-session.js';
 import { tagSpec } from './application/tag-spec.js';
 import { traceSpec } from './application/trace-spec.js';
@@ -873,6 +875,50 @@ setManual(spec
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
 });
+
+const showExits = [
+  { code: 0 as const, meaning: 'the requested layer has been written, including an empty list' },
+  { code: 2 as const, meaning: 'the layer has not been written, the session is missing or locked, or the arguments are wrong' },
+];
+
+const SHOW_HELP: Record<SpecShowLayer, { description: string; example: string }> = {
+  tagged: {
+    description: 'Print the tagged sentences.',
+    example: 'clew spec show tagged --json',
+  },
+  tokens: {
+    description: 'Print unique tokens and their tag readings.',
+    example: 'clew spec show tokens --json',
+  },
+  entities: {
+    description: 'Print stored entities, including rejected and stale ones.',
+    example: 'clew spec show entities --json',
+  },
+  facts: {
+    description: 'Print stored facts. Removed facts stay hidden.',
+    example: 'clew spec show facts --json',
+  },
+};
+
+const show = spec.command('show').description('Print one stored spec layer without writing the session.').helpCommand(false);
+
+for (const layer of SPEC_SHOW_LAYERS) {
+  const help = SHOW_HELP[layer];
+  setManual(show
+    .command(layer)
+    .description(help.description)
+    .option('--session <id>', 'session to read; defaults to the only open session')
+    .option('--json', 'print the result document as JSON on stdout')
+    .action((opts) => {
+      const parsed = SpecSessionFlags.safeParse(opts);
+      if (!parsed.success) usage(`spec.show.${layer}`, opts, parsed.error);
+      emit(showSpec({ layer, sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
+    }), {
+    examples: [help.example],
+    exitCodes: showExits,
+    notes: [jsonNote, sessionNote, 'spec show reads the session and does not write the store or history.jsonl.'],
+  });
+}
 
 const session = spec.command('session').description('List or delete spec sessions for this repo.').helpCommand(false);
 

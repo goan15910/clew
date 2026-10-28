@@ -15,11 +15,11 @@ import {
   type Sentence,
   type SpecSnapshot,
   type TaggedSentence,
-  type Token,
 } from '../domain/spec.js';
-import { specInput, type Outcome, type SpecTaggedView, type SpecTagDocument, type SpecTokenView } from './documents.js';
+import { specInput, type Outcome, type SpecTagDocument } from './documents.js';
 import type { PosTaggerPort, SpecStore } from './ports.js';
 import { resolveSession } from './spec-session.js';
+import { taggedViews } from './spec-views.js';
 
 export interface TagSpecCommand {
   sessionId?: string;
@@ -166,41 +166,6 @@ function targeted(snapshot: SpecSnapshot, sentenceId: string | undefined): Sente
     if (sentenceId === undefined || sentence.id === sentenceId) sentences.push(sentence);
   }
   return sentences;
-}
-
-function taggedViews(sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): SpecTaggedView[] {
-  const byId = new Map<string, TaggedSentence>();
-  for (const item of tagged) byId.set(item.id, item);
-  const views: SpecTaggedView[] = [];
-  for (const sentence of sentences) {
-    const item = byId.get(sentence.id);
-    const clauses: string[] = [];
-    const tokens: SpecTokenView[] = [];
-    if (item !== undefined) {
-      for (const clause of item.clauses) clauses.push(clause);
-      for (const token of item.tokens) tokens.push(tokenView(token));
-    }
-    views.push({
-      id: sentence.id,
-      text: sentence.text,
-      section: sentence.section,
-      clauses,
-      tokens,
-    });
-  }
-  return views;
-}
-
-function tokenView(token: Token): SpecTokenView {
-  const tags: string[] = [];
-  for (const tag of token.tags) tags.push(tag);
-  return {
-    id: token.id,
-    text: token.text,
-    tags,
-    span: [token.span[0], token.span[1]],
-    origin: token.origin,
-  };
 }
 
 function invalid(fault: SpecTagDocument['fault'], message: string): Outcome<SpecTagDocument> {

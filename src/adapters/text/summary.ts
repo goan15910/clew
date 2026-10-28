@@ -1,5 +1,5 @@
 // Short stdout for humans. `--json` skips this and prints the command document.
-import type { CommandDocument } from '../../application/documents.js';
+import type { CommandDocument, SpecFactView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import { formatIssues } from '../../application/documents.js';
 
 function list(ids: readonly string[]): string {
@@ -131,6 +131,7 @@ export function humanSummary(document: CommandDocument): string {
     if (document.fault !== undefined || document.session === undefined) return '';
     return `removed session ${document.session}`;
   }
+  if (isSpecShow(document)) return showSummary(document);
   if (document.command !== 'compare' || document.fault !== undefined) return '';
   const lines = [document.winner ? `winner: ${document.winner}` : 'no winner'];
   for (const candidate of document.candidates ?? []) {
@@ -138,4 +139,81 @@ export function humanSummary(document: CommandDocument): string {
     lines.push(`  ${candidate.name}  ${candidate.passed}/${candidate.total}${failed ? `  failed ${failed}` : ''}`);
   }
   return lines.join('\n');
+}
+
+const SPEC_SHOW_COMMANDS = {
+  'spec.show.tagged': true,
+  'spec.show.tokens': true,
+  'spec.show.entities': true,
+  'spec.show.facts': true,
+} satisfies Record<SpecShowDocument['command'], true>;
+
+function isSpecShow(document: CommandDocument): document is SpecShowDocument {
+  return document.command in SPEC_SHOW_COMMANDS;
+}
+
+function showSummary(document: SpecShowDocument): string {
+  if (document.fault !== undefined || document.session === undefined) return '';
+  switch (document.command) {
+    case 'spec.show.tagged': {
+      const sentences = document.sentences ?? [];
+      const lines = [`session ${document.session}: ${countPhrase(sentences.length, 'tagged sentence', 'tagged sentences')}`];
+      for (const sentence of sentences) {
+        lines.push(`  ${sentence.id} [${sentence.section}] ${sentence.text}`);
+        const tokens: string[] = [];
+        for (const token of sentence.tokens) tokens.push(`${token.text}/${token.tags.join('|')}`);
+        if (tokens.length > 0) lines.push(`    ${tokens.join(' ')}`);
+      }
+      return lines.join('\n');
+    }
+    case 'spec.show.tokens': {
+      const tokens = document.tokens ?? [];
+      let total = 0;
+      for (const token of tokens) total += token.count;
+      const lines = [`session ${document.session}: ${countPhrase(tokens.length, 'unique token', 'unique tokens')} from ${countPhrase(total, 'token', 'tokens')}`];
+      for (const token of tokens) {
+        const readings: string[] = [];
+        for (const reading of token.readings) readings.push(readingText(reading));
+        lines.push(`  ${token.text}  ${token.count}  ${readings.join('; ')}`);
+      }
+      return lines.join('\n');
+    }
+    case 'spec.show.entities': {
+      const entities = document.entities ?? [];
+      const lines = [`session ${document.session}: ${countPhrase(entities.length, 'entity', 'entities')}`];
+      for (const entity of entities) {
+        const label = entity.name ?? entity.text ?? '';
+        lines.push(`  ${entity.id}  ${entity.status}  ${label}  <- ${entity.sources.join(' ')}`);
+      }
+      return lines.join('\n');
+    }
+    case 'spec.show.facts': {
+      const facts = document.facts ?? [];
+      const lines = [`session ${document.session}: ${countPhrase(facts.length, 'fact', 'facts')}`];
+      for (const fact of facts) lines.push(factLine(fact));
+      return lines.join('\n');
+    }
+    default: {
+      const unexpected: never = document;
+      return unexpected;
+    }
+  }
+}
+
+function readingText(reading: SpecTokenReadingView): string {
+  return `${reading.tags.join('|')} ${reading.tokens.join(' ')}`;
+}
+
+function factLine(fact: SpecFactView): string {
+  const fields: string[] = [];
+  if (fact.actor !== undefined) fields.push(`actor=${fact.actor}`);
+  if (fact.action !== undefined) fields.push(`action=${fact.action}`);
+  if (fact.object !== undefined) fields.push(`object=${fact.object}`);
+  if (fact.from !== undefined) fields.push(`from=${fact.from === null ? 'null' : fact.from}`);
+  if (fact.to !== undefined) fields.push(`to=${fact.to}`);
+  if (fact.condition !== undefined) fields.push(`condition=${fact.condition}`);
+  if (fact.state !== undefined) fields.push(`state=${fact.state}`);
+  if (fact.note !== undefined) fields.push(`note=${fact.note}`);
+  const head = [fact.id, fact.type, ...fields, String(fact.confidence), fact.status].join(' ');
+  return `  ${head} <- ${fact.sources.join(' ')}`;
 }
