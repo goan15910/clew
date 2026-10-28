@@ -320,7 +320,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const body = rows.map(function (row) {
       return '<div class="line"><span class="layer">' + esc(row.layer) + "</span>" + esc(row.text) + "</div>";
     }).join("");
-    return '<details class="lineage"><summary>Lineage (' + rows.length + ")</summary><div class="lineage-body">' + body + "</div></details>";
+    return '<details class="lineage"><summary>Lineage (' + rows.length + ')</summary><div class="lineage-body">' + body + '</div></details>';
   }
 
   function factLineage(fact) {

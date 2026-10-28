@@ -1,0 +1,106 @@
+name: e2e-viewer
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  playwright-spec-view:
+    name: Playwright spec view
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright e2e (spec view)
+        id: e2e
+        run: npm run test:e2e
+        env:
+          CI: true
+
+      - name: Publish CTRF GitHub summary
+        if: always()
+        uses: ctrf-io/github-test-reporter@v1
+        with:
+          report-path: './ctrf/*.json'
+          github-report: true
+          summary-report: true
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write matrix summary
+        if: always()
+        run: |
+          {
+            echo '## Spec view Playwright e2e'
+            echo
+            echo 'Adds Playwright coverage for the HTML inspector from `clew spec view` (PR #22 viewer).'
+            echo
+            echo '| Dimension | Values |'
+            echo '| --- | --- |'
+            echo '| Views | facts, entities, sentences (3) |'
+            echo '| Entity kind | any, actor, object, action, condition (5) |'
+            echo '| Fact type | any, performs, transition, guard, initial, final, forbidden (7) |'
+            echo '| Fact status | any, current, stale (3) |'
+            echo '| Searches | empty, f1, customer, s1, approve, zzzz-no-match (6) |'
+            echo
+            echo 'Parametrized cases: views×kinds (15) + views×types (21) + views×statuses (9) + views×searches (18) + facts kind×type×status (105) + entities kind×search (30) + lineage/interaction (8) = **206**.'
+            echo
+            if [ -f ctrf/ctrf-report.json ]; then
+              node -e '
+                const r = require("./ctrf/ctrf-report.json");
+                const s = r.results?.summary ?? r.summary ?? {};
+                const tests = s.tests ?? s.total ?? "?";
+                const passed = s.passed ?? "?";
+                const failed = s.failed ?? "?";
+                console.log(`CTRF totals: **${tests}** tests, **${passed}** passed, **${failed}** failed.`);
+              '
+            else
+              echo 'CTRF report was not produced.'
+            fi
+            echo
+            echo 'Artifacts: Allure report (`allure-report-spec-view`), Playwright HTML report, failure traces/videos.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate Allure report
+        if: always()
+        run: npx allure generate allure-results --clean -o allure-report
+
+      - name: Upload Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report-spec-view
+          path: allure-report/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-spec-view
+          path: playwright-report/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload traces and videos on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-spec-view
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn

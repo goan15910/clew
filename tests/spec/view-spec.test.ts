@@ -7,7 +7,7 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import { jsonSpecSessionViewer, serveSessionViewer } from '../../src/adapters/spec-store/session-viewer.js';
-import { VIEWER_FILE } from '../../src/adapters/spec-store/viewer-page.js';
+import { VIEWER_FILE, VIEWER_HTML } from '../../src/adapters/spec-store/viewer-page.js';
 import type { SpecViewDocument } from '../../src/application/documents.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -159,6 +159,14 @@ describe('spec view', { concurrency: false }, () => {
     assert.equal(full.status, 0);
     assert.match(full.stdout, /clew spec view order --open/);
     assert.match(full.stdout, /file:\/\//);
+  });
+
+  test('viewer.html inline script parses', () => {
+    const start = VIEWER_HTML.indexOf('<script>');
+    const end = VIEWER_HTML.indexOf('</script>', start);
+    assert.ok(start >= 0 && end > start);
+    const script = VIEWER_HTML.slice(start + '<script>'.length, end);
+    assert.doesNotThrow(() => new Function(script));
   });
 });
 

@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "entities": [
+    {
+      "id": "actor:customer",
+      "kind": "actor",
+      "sources": [
+        "s1.t3"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "customer"
+    },
+    {
+      "id": "actor:manager",
+      "kind": "actor",
+      "sources": [
+        "s1.t8"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "manager"
+    },
+    {
+      "id": "object:order",
+      "kind": "object",
+      "sources": [
+        "s1.t6",
+        "s1.t11"
+      ],
+      "origin": "rule",
+      "status": "candidate",
+      "name": "order"
+    },
+    {
+      "id": "object:total",
+      "kind": "object",
+      "sources": [
+        "s1.t14"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "total"
+    },
+    {
+      "id": "action:submit",
+      "kind": "action",
+      "sources": [
+        "s1.t4"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "submit"
+    },
+    {
+      "id": "action:approve",
+      "kind": "action",
+      "sources": [
+        "s1.t9"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "approve"
+    },
+    {
+      "id": "condition:c1",
+      "kind": "condition",
+      "sources": [
+        "s1.t12",
+        "s1.t13",
+        "s1.t14",
+        "s1.t15",
+        "s1.t16",
+        "s1.t17",
+        "s1.t18"
+      ],
+      "origin": "rule",
+      "status": "candidate",
+      "text": "the total is under 500 dollars"
+    },
+    {
+      "id": "actor:clerk",
+      "kind": "actor",
+      "sources": [
+        "s2.t2"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "clerk"
+    },
+    {
+      "id": "object:package",
+      "kind": "object",
+      "sources": [
+        "s2.t8"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "package"
+    },
+    {
+      "id": "action:cancel",
+      "kind": "action",
+      "sources": [
+        "s2.t5"
+      ],
+      "origin": "tagger",
+      "status": "candidate",
+      "name": "cancel"
+    },
+    {
+      "id": "actor:ghost",
+      "kind": "actor",
+      "sources": [],
+      "origin": "agent",
+      "status": "rejected",
+      "name": "ghost",
+      "note": "rejected decoy"
+    }
+  ]
+}
