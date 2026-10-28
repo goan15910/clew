@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "objects": [
+    "order",
+    "package"
+  ],
+  "states": [
+    {
+      "id": "draft",
+      "object": "order",
+      "initial": true,
+      "facts": [
+        "f6"
+      ]
+    },
+    {
+      "id": "submitted",
+      "object": "order",
+      "facts": [
+        "f4"
+      ]
+    },
+    {
+      "id": "approved",
+      "object": "order",
+      "facts": [
+        "f4",
+        "f7"
+      ],
+      "final": true
+    }
+  ],
+  "transitions": [
+    {
+      "id": "tr2",
+      "from": "draft",
+      "event": "submit",
+      "to": "submitted",
+      "object": "order",
+      "fact": "f3",
+      "facts": [
+        "f1",
+        "f3"
+      ],
+      "actor": "customer"
+    },
+    {
+      "id": "tr1",
+      "from": "submitted",
+      "event": "approve",
+      "to": "approved",
+      "object": "order",
+      "fact": "f4",
+      "facts": [
+        "f2",
+        "f4",
+        "f5"
+      ],
+      "actor": "manager",
+      "guard": "condition:c1"
+    }
+  ],
+  "flows": [
+    {
+      "id": "HappyPath",
+      "title": "Submit then approve",
+      "expect": "accepted",
+      "transitions": [
+        "tr2",
+        "tr1"
+      ],
+      "origin": "rule"
+    },
+    {
+      "id": "ForbidCancel",
+      "title": "Clerk must not cancel package",
+      "expect": "rejected",
+      "rejectAt": 1,
+      "transitions": [],
+      "forbidden": "f8",
+      "origin": "rule"
+    }
+  ]
+}

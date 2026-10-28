@@ -16,6 +16,7 @@
     "test:architecture": "tsx --test tests/architecture/rules.test.ts",
     "check": "tsc --noEmit && npm run check:dependencies && npm run check:imports && npm run test:architecture && npm run test:spec",
     "test:spec": "tsx --test tests/spec/*.test.ts",
+    "test:e2e": "playwright test",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "test": "node dist/cli.js verify examples/todo/b-full.yaml examples/todo/workflows.yaml"
@@ -50,10 +51,14 @@
     "zod"
   ],
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@swc/core": "^1.16.20",
     "@types/node": "^26.6.5",
+    "allure-commandline": "^2.46.1",
+    "allure-playwright": "^3.14.0",
     "cruiser-typescript": "file:tools/cruiser-typescript",
     "dependency-cruiser": "^18.7.0",
+    "playwright-ctrf-json-reporter": "^0.0.23",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },

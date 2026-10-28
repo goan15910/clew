@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "facts": [
+    {
+      "id": "f1",
+      "type": "performs",
+      "origin": "rule",
+      "confidence": 0.9,
+      "sources": [
+        "s1"
+      ],
+      "status": "current",
+      "actor": "actor:customer",
+      "action": "action:submit"
+    },
+    {
+      "id": "f2",
+      "type": "performs",
+      "origin": "rule",
+      "confidence": 0.9,
+      "sources": [
+        "s1"
+      ],
+      "status": "current",
+      "actor": "actor:manager",
+      "action": "action:approve"
+    },
+    {
+      "id": "f3",
+      "type": "transition",
+      "origin": "rule",
+      "confidence": 0.5,
+      "sources": [
+        "s1.t4",
+        "s1.t6"
+      ],
+      "status": "current",
+      "action": "action:submit",
+      "object": "object:order",
+      "from": null,
+      "to": "submitted"
+    },
+    {
+      "id": "f4",
+      "type": "transition",
+      "origin": "rule",
+      "confidence": 0.6,
+      "sources": [
+        "s1.t9",
+        "s1.t11"
+      ],
+      "status": "current",
+      "action": "action:approve",
+      "object": "object:order",
+      "from": "submitted",
+      "to": "approved",
+      "note": "from inferred from the When-clause order"
+    },
+    {
+      "id": "f5",
+      "type": "guard",
+      "origin": "rule",
+      "confidence": 0.8,
+      "sources": [
+        "s1.t12"
+      ],
+      "status": "current",
+      "action": "action:approve",
+      "condition": "condition:c1"
+    },
+    {
+      "id": "f6",
+      "type": "initial",
+      "origin": "agent",
+      "confidence": 1.0,
+      "sources": [
+        "s1"
+      ],
+      "status": "current",
+      "object": "object:order",
+      "state": "draft"
+    },
+    {
+      "id": "f7",
+      "type": "final",
+      "origin": "agent",
+      "confidence": 1.0,
+      "sources": [
+        "s1"
+      ],
+      "status": "stale",
+      "object": "object:order",
+      "state": "approved"
+    },
+    {
+      "id": "f8",
+      "type": "forbidden",
+      "origin": "rule",
+      "confidence": 0.85,
+      "sources": [
+        "s2"
+      ],
+      "status": "current",
+      "actor": "actor:clerk",
+      "action": "action:cancel",
+      "object": "object:package"
+    },
+    {
+      "id": "f9",
+      "type": "performs",
+      "origin": "rule",
+      "confidence": 0.4,
+      "sources": [
+        "s2"
+      ],
+      "status": "stale",
+      "actor": "actor:clerk",
+      "action": "action:cancel"
+    },
+    {
+      "id": "f10",
+      "type": "guard",
+      "origin": "rule",
+      "confidence": 0.2,
+      "sources": [
+        "s1"
+      ],
+      "status": "current",
+      "action": "action:approve",
+      "condition": "condition:c1",
+      "removed": true
+    }
+  ]
+}

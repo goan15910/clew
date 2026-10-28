@@ -9,6 +9,6 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["src", "scripts", "tests"],
+  "include": ["src", "scripts", "tests", "playwright.config.ts"],
   "exclude": ["tests/architecture/plants"]
 }

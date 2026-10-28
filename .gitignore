@@ -9,3 +9,9 @@ out/
 .DS_Store
 bin/venom
 venom-results/
+/test-results/
+/playwright-report/
+/blob-report/
+/allure-results/
+/allure-report/
+/ctrf/
