@@ -131,6 +131,13 @@ export function humanSummary(document: CommandDocument): string {
     if (document.fault !== undefined || document.session === undefined) return '';
     return `removed session ${document.session}`;
   }
+  if (document.command === 'spec.view') {
+    if (document.fault !== undefined || document.session === undefined || document.htmlPath === undefined) return '';
+    if (document.url !== undefined) {
+      return `session ${document.session}: viewer at ${document.url}\n  ${document.htmlPath}\n  serving until Ctrl+C; reload picks up the latest session JSON`;
+    }
+    return `session ${document.session}: wrote ${document.htmlPath}\n  open with: clew spec view ${document.session} --open`;
+  }
   if (isSpecShow(document)) return showSummary(document);
   if (document.command !== 'compare' || document.fault !== undefined) return '';
   const lines = [document.winner ? `winner: ${document.winner}` : 'no winner'];

@@ -51,6 +51,7 @@ clew spec show tagged [--session <id>] [--json]
 clew spec show tokens [--session <id>] [--json]
 clew spec show entities [--session <id>] [--json]
 clew spec show facts [--session <id>] [--json]
+clew spec view <session-id> [--open] [--json]
 clew spec session list [--json]
 clew spec session remove <id> [--json]
 ```
@@ -73,7 +74,7 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions for this repo. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions for this repo. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
@@ -94,9 +95,14 @@ The session store is outside the repo. Nothing is written next to the spec, and 
   facts.json
   graph.json
   history.jsonl
+  viewer.html
 ```
 
 `<repo-name>` is the git root’s directory name, lowercased, with each run of non-alphanumeric characters replaced by one hyphen and a leading or trailing hyphen removed. An empty name becomes `repo`. When there is no `.git`, the working directory is named the same way. `<path-hash>` is the first 12 hex characters of the SHA-256 of that directory’s real path. `<session-id>` defaults to the spec file’s basename. Clew holds a lock only while a command writes the session, and removes that lock before the command exits. The lock is not a file that stays in the session. A lock whose process is gone is taken over. A live lock is exit 2.
+
+`spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Facts, Entities, and Sentences tabs, collapsed lineage drawers, and filters for entity kind, fact type/status, and text search. It does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
+
+Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `entities.json`, `facts.json`, and `graph.json`. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
 
 `spec session list` lists the sessions for this repo. Each row has the id, the spec source path, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence is `status: current`. A live fact is current and is not a removed tombstone. Flows are the paths stored in `graph.json`; a session with no graph counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
 
@@ -576,6 +582,21 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
   "findings": [
     { "id": "orphan:f6", "kind": "coverage", "code": "orphan", "severity": "warning", "message": "f6 has no sentence source", "refs": ["f6"] }
   ],
+  "issues": []
+}
+```
+
+`spec.view` after `spec init` of a session named `order`. `htmlPath` and `sessionDir` are absolute. Without `--open`, `url` is omitted.
+
+```json
+{
+  "command": "spec.view",
+  "ok": true,
+  "session": "order",
+  "htmlPath": "/home/user/.local/share/clew/repo-aaaaaaaaaaaa/spec/order/viewer.html",
+  "sessionDir": "/home/user/.local/share/clew/repo-aaaaaaaaaaaa/spec/order",
+  "mode": "session-folder",
+  "findings": [],
   "issues": []
 }
 ```
