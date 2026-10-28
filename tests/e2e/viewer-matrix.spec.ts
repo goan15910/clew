@@ -18,6 +18,7 @@ import {
   openLineage,
   readFilterState,
   readLineageRows,
+  readVisibleLineageRows,
   selectView,
   selectedTab,
   visibleCardIds,
@@ -160,6 +161,43 @@ test.describe('lineage + click behaviors', () => {
     await clearFilters(page);
     expect(await readFilterState(page)).toEqual(emptyFilters());
     expect(await visibleCardIds(page, 'facts')).toEqual(expectedVisibleIds('facts', emptyFilters()));
+  });
+
+  test('lineage rows are split into resource tabs on every view', async ({ page }) => {
+    const order = ['token', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
+    const labels: Record<string, string> = {
+      token: 'Tokens',
+      sentence: 'Sentences',
+      entity: 'Entities',
+      fact: 'Facts',
+      source: 'Sources',
+      transition: 'Transitions',
+      state: 'States',
+      flow: 'Flows',
+    };
+    for (const view of VIEWS) {
+      await selectView(page, view);
+      await applyFilters(page, emptyFilters());
+      const id = expectedVisibleIds(view, emptyFilters())[0];
+      expect(id).toBeTruthy();
+      const details = await openLineage(page, view, id!);
+      const rows = expectedLineage(view, id!);
+      const layers = order.filter((layer) => rows.some((row) => row.layer === layer));
+      const tabs = details.locator('button.lineage-tab');
+      await expect(tabs).toHaveCount(layers.length);
+      for (let index = 0; index < layers.length; index += 1) {
+        const layer = layers[index]!;
+        const tab = tabs.nth(index);
+        await expect(tab).toHaveAttribute('data-layer', layer);
+        await expect(tab).toHaveText(`${labels[layer]} (${rows.filter((row) => row.layer === layer).length})`);
+        await tab.click();
+        await expect(tab).toHaveAttribute('aria-selected', 'true');
+        const visible = await readVisibleLineageRows(details);
+        expect(visible).toEqual(rows.filter((row) => row.layer === layer));
+        const hiddenCount = await details.locator('.lineage-pane[hidden] .line').count();
+        expect(hiddenCount).toBe(rows.length - visible.length);
+      }
+    }
   });
 
   test('selecting a card lineage summary toggles only that drawer', async ({ page }) => {

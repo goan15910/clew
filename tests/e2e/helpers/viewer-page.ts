@@ -78,20 +78,32 @@ export async function closeLineage(page: Page, view: View, id: string): Promise<
   }).toBe(true);
 }
 
-export async function readLineageRows(details: Locator): Promise<Array<{ layer: string; text: string }>> {
-  const empty = details.locator('.line', { hasText: 'No lineage links.' });
-  if (await empty.count()) return [];
-  const lines = details.locator('.lineage-body .line');
+async function rowsFromLines(lines: Locator): Promise<Array<{ layer: string; text: string }>> {
   const count = await lines.count();
   const rows: Array<{ layer: string; text: string }> = [];
   for (let i = 0; i < count; i += 1) {
     const line = lines.nth(i);
     const layer = ((await line.locator('.layer').textContent()) ?? '').trim();
+    const dataText = await line.getAttribute('data-text');
+    if (dataText !== null) {
+      rows.push({ layer, text: dataText });
+      continue;
+    }
     const full = ((await line.textContent()) ?? '').trim();
     const text = full.startsWith(layer) ? full.slice(layer.length).trim() : full;
     rows.push({ layer, text });
   }
   return rows;
+}
+
+export async function readLineageRows(details: Locator): Promise<Array<{ layer: string; text: string }>> {
+  const empty = details.locator('.line', { hasText: 'No lineage links.' });
+  if (await empty.count()) return [];
+  return rowsFromLines(details.locator('.lineage-body .line'));
+}
+
+export async function readVisibleLineageRows(details: Locator): Promise<Array<{ layer: string; text: string }>> {
+  return rowsFromLines(details.locator('.lineage-pane:not([hidden]) .line'));
 }
 
 export async function selectedTab(page: Page): Promise<string> {

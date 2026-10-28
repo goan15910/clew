@@ -128,6 +128,56 @@ function sentenceById(id: string): Sentence | undefined {
   return fixture.sentences.find((sentence) => sentence.id === id);
 }
 
+function tokenIndex(id: string): number | null {
+  const match = /^s[1-9][0-9]*\.t([1-9][0-9]*)$/.exec(id);
+  return match ? Number(match[1]) : null;
+}
+
+function appendTokenSources(
+  rows: Array<{ layer: string; text: string }>,
+  sources: string[],
+  withSection: boolean,
+): void {
+  const tokens = tokenMap();
+  let run: Array<{ token: Token; sentenceId: string }> = [];
+  const flush = (): void => {
+    if (run.length === 0) return;
+    const sentence = sentenceById(run[0]!.sentenceId);
+    if (sentence) {
+      rows.push({
+        layer: 'sentence',
+        text: withSection
+          ? `${sentence.id} [${sentence.section}] “${sentence.text}”`
+          : `${sentence.id} “${sentence.text}”`,
+      });
+    } else {
+      for (const hit of run) {
+        rows.push({
+          layer: 'token',
+          text: `${hit.token.id} “${hit.token.text}” [${(hit.token.tags ?? []).join('|')}]`,
+        });
+      }
+    }
+    run = [];
+  };
+  for (const source of sources) {
+    const hit = tokens.get(source);
+    if (!hit) {
+      flush();
+      rows.push({ layer: 'source', text: source });
+      continue;
+    }
+    const prev = run[run.length - 1];
+    const prevIndex = prev ? tokenIndex(prev.token.id) : null;
+    const nextIndex = tokenIndex(hit.token.id);
+    const consecutive =
+      prev !== undefined && prev.sentenceId === hit.sentenceId && prevIndex !== null && nextIndex === prevIndex + 1;
+    if (prev && !consecutive) flush();
+    run.push(hit);
+  }
+  flush();
+}
+
 export function expectedFactIds(filters: FixtureFilters): string[] {
   const entities = entityMap();
   return fixture.facts
@@ -208,21 +258,7 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
     const entity = entities.get(id);
     const label = entity ? (entity.name || entity.text || id) : id;
     rows.push({ layer: 'entity', text: `${field} → ${id} (${label})` });
-    if (entity) {
-      for (const source of entity.sources ?? []) {
-        const hit = tokens.get(source);
-        if (hit) {
-          rows.push({
-            layer: 'token',
-            text: `${source} “${hit.token.text}” [${(hit.token.tags ?? []).join('|')}]`,
-          });
-          const sentence = sentenceById(hit.sentenceId);
-          if (sentence) rows.push({ layer: 'sentence', text: `${sentence.id} “${sentence.text}”` });
-        } else {
-          rows.push({ layer: 'source', text: source });
-        }
-      }
-    }
+    if (entity) appendTokenSources(rows, entity.sources ?? [], false);
   }
   for (const source of fact.sources ?? []) {
     if (/^s[1-9][0-9]*$/.test(source)) {
@@ -230,11 +266,9 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
       rows.push({ layer: 'sentence', text: source + (sentence ? ` “${sentence.text}”` : '') });
     } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) {
       const hit = tokens.get(source);
-      rows.push({ layer: 'token', text: source + (hit ? ` “${hit.token.text}”` : '') });
-      if (hit) {
-        const sentence = sentenceById(hit.sentenceId);
-        if (sentence) rows.push({ layer: 'sentence', text: `${sentence.id} “${sentence.text}”` });
-      }
+      const linked = hit ? sentenceById(hit.sentenceId) : undefined;
+      if (linked) rows.push({ layer: 'sentence', text: `${linked.id} “${linked.text}”` });
+      else rows.push({ layer: 'token', text: source + (hit ? ` “${hit.token.text}”` : '') });
     } else {
       rows.push({ layer: 'source', text: source });
     }
@@ -261,26 +295,8 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
 export function expectedEntityLineage(entityId: string): Array<{ layer: string; text: string }> {
   const entity = fixture.entities.find((row) => row.id === entityId);
   if (!entity) return [];
-  const tokens = tokenMap();
   const rows: Array<{ layer: string; text: string }> = [];
-  for (const source of entity.sources ?? []) {
-    const hit = tokens.get(source);
-    if (hit) {
-      rows.push({
-        layer: 'token',
-        text: `${source} “${hit.token.text}” [${(hit.token.tags ?? []).join('|')}]`,
-      });
-      const sentence = sentenceById(hit.sentenceId);
-      if (sentence) {
-        rows.push({
-          layer: 'sentence',
-          text: `${sentence.id} [${sentence.section}] “${sentence.text}”`,
-        });
-      }
-    } else {
-      rows.push({ layer: 'source', text: source });
-    }
-  }
+  appendTokenSources(rows, entity.sources ?? [], true);
   for (const fact of fixture.facts) {
     const refs = [fact.actor, fact.action, fact.object, fact.condition];
     if (refs.includes(entity.id)) rows.push({ layer: 'fact', text: `${fact.id} ${fact.type}` });
@@ -315,10 +331,37 @@ export function expectedSentenceLineage(sentenceId: string): Array<{ layer: stri
   return rows;
 }
 
+/** Matches viewer-page.ts lineageBlock pane order. */
+const LINEAGE_ORDER = ['token', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
+
+function groupLineageRows(
+  rows: Array<{ layer: string; text: string }>,
+): Array<{ layer: string; text: string }> {
+  const groups = new Map<string, Array<{ layer: string; text: string }>>();
+  for (const row of rows) {
+    const bucket = groups.get(row.layer);
+    if (bucket) bucket.push(row);
+    else groups.set(row.layer, [row]);
+  }
+  const layers = Array.from(groups.keys()).sort((a, b) => {
+    const left = LINEAGE_ORDER.indexOf(a);
+    const right = LINEAGE_ORDER.indexOf(b);
+    if (left === -1 && right === -1) return a < b ? -1 : a > b ? 1 : 0;
+    if (left === -1) return 1;
+    if (right === -1) return -1;
+    return left - right;
+  });
+  return layers.flatMap((layer) => groups.get(layer) ?? []);
+}
+
 export function expectedLineage(view: View, id: string): Array<{ layer: string; text: string }> {
-  if (view === 'facts') return expectedFactLineage(id);
-  if (view === 'entities') return expectedEntityLineage(id);
-  return expectedSentenceLineage(id);
+  const rows =
+    view === 'facts'
+      ? expectedFactLineage(id)
+      : view === 'entities'
+        ? expectedEntityLineage(id)
+        : expectedSentenceLineage(id);
+  return groupLineageRows(rows);
 }
 
 export function expectedMeta(): { id: string; sentences: number; entities: number; facts: number } {
