@@ -14,7 +14,8 @@ export default defineConfig({
     ['list'],
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
     ['allure-playwright', { resultsDir: 'allure-results' }],
-    ['playwright-ctrf-json-reporter', { outputFile: 'ctrf/ctrf-report.json' }],
+    // outputDir defaults to `ctrf/`; outputFile is the basename only.
+    ['playwright-ctrf-json-reporter', { outputFile: 'ctrf-report.json' }],
     ...(isCi ? [['github'] as const] : []),
   ],
   use: {
