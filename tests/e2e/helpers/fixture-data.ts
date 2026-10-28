@@ -331,10 +331,37 @@ export function expectedSentenceLineage(sentenceId: string): Array<{ layer: stri
   return rows;
 }
 
+/** Matches viewer-page.ts lineageBlock pane order. */
+const LINEAGE_ORDER = ['token', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
+
+function groupLineageRows(
+  rows: Array<{ layer: string; text: string }>,
+): Array<{ layer: string; text: string }> {
+  const groups = new Map<string, Array<{ layer: string; text: string }>>();
+  for (const row of rows) {
+    const bucket = groups.get(row.layer);
+    if (bucket) bucket.push(row);
+    else groups.set(row.layer, [row]);
+  }
+  const layers = Array.from(groups.keys()).sort((a, b) => {
+    const left = LINEAGE_ORDER.indexOf(a);
+    const right = LINEAGE_ORDER.indexOf(b);
+    if (left === -1 && right === -1) return a < b ? -1 : a > b ? 1 : 0;
+    if (left === -1) return 1;
+    if (right === -1) return -1;
+    return left - right;
+  });
+  return layers.flatMap((layer) => groups.get(layer) ?? []);
+}
+
 export function expectedLineage(view: View, id: string): Array<{ layer: string; text: string }> {
-  if (view === 'facts') return expectedFactLineage(id);
-  if (view === 'entities') return expectedEntityLineage(id);
-  return expectedSentenceLineage(id);
+  const rows =
+    view === 'facts'
+      ? expectedFactLineage(id)
+      : view === 'entities'
+        ? expectedEntityLineage(id)
+        : expectedSentenceLineage(id);
+  return groupLineageRows(rows);
 }
 
 export function expectedMeta(): { id: string; sentences: number; entities: number; facts: number } {
