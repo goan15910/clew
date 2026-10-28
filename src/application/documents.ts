@@ -396,6 +396,23 @@ export interface SpecSessionRemoveDocument {
   issues: OutputIssue[];
 }
 
+export interface SpecViewDocument {
+  command: 'spec.view';
+  ok: boolean;
+  session?: string;
+  /** Absolute path to the stable viewer.html written under the session folder. */
+  htmlPath?: string;
+  /** Absolute path to the session directory that hosts domain JSON and the viewer. */
+  sessionDir?: string;
+  /** How the inspector is hosted. session-folder serves live JSON over localhost when --open is set. */
+  mode?: 'session-folder';
+  /** Localhost URL when a read-only server is running (only set with --open). */
+  url?: string;
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
 interface SpecShowBase {
   ok: boolean;
   session?: string;
@@ -425,6 +442,7 @@ export type CommandDocument =
   | SpecShowDocument
   | SpecSessionListDocument
   | SpecSessionRemoveDocument
+  | SpecViewDocument
   | SpecGraphDocument
   | SpecEmitDocument;
 

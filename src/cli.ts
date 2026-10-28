@@ -19,6 +19,7 @@
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show tagged|tokens|entities|facts [--session id] [--json]
+// clew spec view <session-id> [--open] [--json]
 // clew spec session list [--json]
 // clew spec session remove <id> [--json]
 //
@@ -32,6 +33,12 @@ import { loadAddedFacts, loadFactEdit, loadRemovedFacts } from './adapters/spec-
 import { loadGroupPatch, loadSplitPatch } from './adapters/spec-store/flow-patch.js';
 import { jsonSpecStore } from './adapters/spec-store/json-file-store.js';
 import { specTextSource } from './adapters/spec-store/read-spec.js';
+import {
+  jsonSpecSessionViewer,
+  openViewerUrl,
+  serveSessionViewer,
+  waitForInterrupt,
+} from './adapters/spec-store/session-viewer.js';
 import { jsonVerifyResultLoader } from './adapters/json/verify-result-loader.js';
 import { graphvizDiagramRenderer } from './adapters/diagram/graphviz-renderer.js';
 import { fileReportWriter } from './adapters/report/file-report-writer.js';
@@ -62,6 +69,7 @@ import { removeSpecSession } from './application/remove-spec-session.js';
 import { tagSpec } from './application/tag-spec.js';
 import { traceSpec } from './application/trace-spec.js';
 import { verifyFlows } from './application/verify-flows.js';
+import { viewSpecSession } from './application/view-spec.js';
 import { assertManuals, findCommand, fullHelp, jsonNote, listCommands, sessionNote, setManual, specExits } from './cli/help.js';
 import type { FactDraft } from './domain/spec-facts.js';
 import { ENTITY_KINDS, FACT_TYPES, SPEC_ENTITY_ID_MESSAGE, SPEC_ENTITY_ID_PATTERN, SPEC_FACT_ID_MESSAGE, SPEC_FACT_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
@@ -920,6 +928,83 @@ for (const layer of SPEC_SHOW_LAYERS) {
   });
 }
 
+const SpecViewFlags = z.object({
+  json: z.boolean().optional(),
+  open: z.boolean().optional(),
+});
+
+setManual(spec
+  .command('view')
+  .description('Install the HTML inspector for one spec session.')
+  .argument('<session-id>', 'session to inspect')
+  .option('--open', 'serve the session folder on localhost and open it in a browser')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action(async (sessionId, opts) => {
+    const parsed = SpecViewFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.view', opts, parsed.error);
+    const parsedId = z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).safeParse(sessionId);
+    if (!parsedId.success) usage('spec.view', opts, parsedId.error);
+    const flags = parsed.data;
+    const outcome = viewSpecSession({ id: parsedId.data }, jsonSpecStore, jsonSpecSessionViewer);
+    if (outcome.exit !== 'pass' || !outcome.document.ok || outcome.document.sessionDir === undefined) {
+      emit(outcome, flags.json === true);
+    }
+    if (flags.open === true) {
+      let server;
+      try {
+        server = await serveSessionViewer(outcome.document.sessionDir);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        emit({
+          exit: 'invalid',
+          document: {
+            command: 'spec.view',
+            ok: false,
+            fault: 'unreadable',
+            findings: [],
+            issues: [{ kind: 'input', path: '', message }],
+          },
+        }, flags.json === true);
+      }
+      outcome.document.url = server.url;
+      const opened = openViewerUrl(server.url);
+      if (!opened.ok) {
+        await server.close();
+        emit({
+          exit: 'invalid',
+          document: {
+            command: 'spec.view',
+            ok: false,
+            fault: 'unreadable',
+            findings: [],
+            issues: [{ kind: 'input', path: '', message: opened.message }],
+          },
+        }, flags.json === true);
+      }
+      if (flags.json === true) console.log(JSON.stringify(outcome.document, null, 2));
+      else console.log(humanSummary(outcome.document));
+      await waitForInterrupt();
+      await server.close();
+      process.exit(EXIT_PASS);
+    }
+    emit(outcome, flags.json === true);
+  }), {
+  examples: [
+    'clew spec view order --json',
+    'clew spec view order --open',
+  ],
+  exitCodes: [
+    { code: 0, meaning: 'the viewer was written, and with --open the local server ran until interrupt' },
+    { code: 2, meaning: 'the session is unknown or unsafe, the viewer could not be written, or the arguments are wrong' },
+  ],
+  notes: [
+    jsonNote,
+    'spec view writes viewer.html under the session folder and does not change domain JSON or history.jsonl.',
+    'Browsers block fetch() of sibling JSON from a file:// page, so --open serves the session on 127.0.0.1 and reloads pick up the latest files.',
+    'An unknown id or an unsafe id is exit 2.',
+  ],
+});
+
 const session = spec.command('session').description('List or delete spec sessions for this repo.').helpCommand(false);
 
 setManual(session
@@ -992,11 +1077,13 @@ setManual(program
   ],
 });
 
-try {
+async function main(): Promise<void> {
   assertManuals(program);
-  program.parse();
-} catch (error) {
+  await program.parseAsync(process.argv);
+}
+
+main().catch((error: unknown) => {
   if (error instanceof CommanderError) process.exit(error.exitCode === 0 ? EXIT_PASS : EXIT_INVALID);
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(EXIT_INVALID);
-}
+});

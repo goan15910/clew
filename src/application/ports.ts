@@ -113,6 +113,15 @@ export interface SpecStore {
   ): SpecStoreResult;
 }
 
+/** Install the stable HTML inspector into a session folder. Does not change domain JSON. */
+export type SpecViewerInstallResult =
+  | { ok: true; session: string; htmlPath: string; sessionDir: string }
+  | { ok: false; fault: 'missing' | 'unreadable'; message: string };
+
+export interface SpecSessionViewer {
+  install(id: string): SpecViewerInstallResult;
+}
+
 export interface PosTaggerPort {
   readonly name: string;
   readonly version: string;
