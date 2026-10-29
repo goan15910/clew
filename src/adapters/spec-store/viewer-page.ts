@@ -127,7 +127,7 @@ header p {
   background: var(--panel);
   min-width: 8rem;
 }
-.filters #filter-token { width: 15rem; }
+.filters #filter-span { width: 15rem; }
 .filters button {
   border: 1px solid var(--line);
   background: var(--panel);
@@ -271,7 +271,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   padding-bottom: 0.25rem;
   color: var(--ink);
 }
-.gloss-token {
+.gloss-span {
   --pos: #78716c;
   --pos-soft: #f5f5f4;
   position: relative;
@@ -301,12 +301,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
   border-radius: 0.25rem;
   padding: 0.15rem 0.4rem;
 }
-.gloss-token:hover .gloss-pos,
-.gloss-token.hit .gloss-pos { display: block; }
-.gloss-token:hover .gloss-word,
-.gloss-token.hit .gloss-word { background: var(--pos-soft); }
-.gloss-token.hit .gloss-word { outline: 2px solid var(--pos); border-radius: 0.2rem; }
-.line-token { cursor: default; }
+.gloss-span:hover .gloss-pos,
+.gloss-span.hit .gloss-pos { display: block; }
+.gloss-span:hover .gloss-word,
+.gloss-span.hit .gloss-word { background: var(--pos-soft); }
+.gloss-span.hit .gloss-word { outline: 2px solid var(--pos); border-radius: 0.2rem; }
+.line-span { cursor: default; }
 .pos-verb { --pos: #b91c1c; --pos-soft: #fee2e2; }
 .pos-noun { --pos: #1d4ed8; --pos-soft: #dbeafe; }
 .pos-pronoun { --pos: #4338ca; --pos-soft: #e0e7ff; }
@@ -317,7 +317,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 .pos-conjunction { --pos: #7e22ce; --pos-soft: #f3e8ff; }
 .pos-value { --pos: #15803d; --pos-soft: #dcfce7; }
 .pos-negative { --pos: #be123c; --pos-soft: #ffe4e6; }
-.gloss-token.match .gloss-word { background: var(--pos-soft); }
+.gloss-span.match .gloss-word { background: var(--pos-soft); }
 .empty { color: var(--muted); padding: 1.5rem 0; }
 </style>
 </head>
@@ -335,7 +335,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     <label>Entity kind<select id="filter-kind"><option value="">any</option></select></label>
     <label>Fact type<select id="filter-type"><option value="">any</option></select></label>
     <label>Fact status<select id="filter-status"><option value="">any</option><option>current</option><option>stale</option></select></label>
-    <label>Token<select id="filter-token"><option value="">any</option></select></label>
+    <label>Span<select id="filter-span"><option value="">any</option></select></label>
     <button type="button" id="filter-clear">Clear filters</button>
   </div>
 </div>
@@ -362,6 +362,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     session: null,
     sentences: [],
     tagged: [],
+    spans: [],
     entities: [],
     facts: [],
     graph: null,
@@ -376,7 +377,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     kind: document.getElementById("filter-kind"),
     type: document.getElementById("filter-type"),
     status: document.getElementById("filter-status"),
-    token: document.getElementById("filter-token"),
+    span: document.getElementById("filter-span"),
     clear: document.getElementById("filter-clear"),
     facts: document.getElementById("panel-facts"),
     entities: document.getElementById("panel-entities"),
@@ -442,6 +443,52 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return map;
   }
 
+  function indexSpans() {
+    const map = new Map();
+    for (const span of state.spans) map.set(span.id, span);
+    return map;
+  }
+
+  function tokenOrder() {
+    const order = new Map();
+    let index = 0;
+    for (const row of state.tagged) {
+      for (const token of row.tokens || []) {
+        order.set(token.id, index);
+        index += 1;
+      }
+    }
+    return order;
+  }
+
+  function sentenceIdOfToken(tokenId) {
+    const dot = tokenId.indexOf(".");
+    return dot > 0 ? tokenId.slice(0, dot) : "";
+  }
+
+  function spanCoversToken(span, tokenId, order) {
+    const first = order.get(span.firstTokenId);
+    const last = order.get(span.lastTokenId);
+    const at = order.get(tokenId);
+    return first !== undefined && last !== undefined && at !== undefined && at >= first && at <= last;
+  }
+
+  function spanForToken(tokenId) {
+    const order = tokenOrder();
+    for (const span of state.spans) {
+      if (spanCoversToken(span, tokenId, order)) return span;
+    }
+    return null;
+  }
+
+  function spanCharRange(span) {
+    const tokens = indexTokens();
+    const first = tokens.get(span.firstTokenId);
+    const last = tokens.get(span.lastTokenId);
+    if (!first || !last || !first.token.span || !last.token.span) return null;
+    return [first.token.span[0], last.token.span[1]];
+  }
+
   function sentenceById(id) {
     for (const sentence of state.sentences) {
       if (sentence.id === id) return sentence;
@@ -458,9 +505,9 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return false;
   }
 
-  const LINEAGE_ORDER = ["token", "sentence", "entity", "fact", "source", "transition", "state", "flow"];
+  const LINEAGE_ORDER = ["span", "sentence", "entity", "fact", "source", "transition", "state", "flow"];
   const LINEAGE_LABELS = {
-    token: "Tokens",
+    span: "Spans",
     sentence: "Sentences",
     entity: "Entities",
     fact: "Facts",
@@ -515,8 +562,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const value = esc(piece.value);
     if (piece.kind === "id") return '<code class="line-id">' + value + "</code>";
     if (piece.kind === "break") return '<span class="line-break"></span>';
-    if (piece.kind === "token") {
-      return '<code class="line-ref line-token" data-token="' + esc(piece.token) + '" title="' + esc(piece.token) + '">' +
+    if (piece.kind === "span") {
+      return '<code class="line-ref line-span" data-span="' + esc(piece.span) + '" title="' + esc(piece.span) + '">' +
         value + "</code>";
     }
     if (piece.kind === "ref") return '<code class="line-ref">' + value + "</code>";
@@ -536,39 +583,36 @@ details.lineage[open] > summary::before { content: "▾ "; }
       (bits || esc(row.text)) + "</div>";
   }
 
-  function tokenRow(id, token, withTags) {
-    const tags = (token && token.tags) || [];
-    const text = id + (token ? " “" + token.text + "”" + (withTags ? " [" + tags.join("|") + "]" : "") : "");
+  function spanRow(span, withTags) {
+    const tags = (span && span.tags) || [];
+    const surface = span ? span.surface : "";
+    const id = span ? span.id : "";
+    const text = id + (span ? " “" + surface + "”" + (withTags ? " [" + tags.join("|") + "]" : "") : "");
     const bits = [part("id", id)];
-    if (token) {
-      bits.push(part("content", token.text, true));
+    if (span) {
+      bits.push(part("content", surface, true));
       if (withTags && tags.length) bits.push(part("type", tags.join(" · ")));
     }
-    return { layer: "token", text: text, bits: bits };
+    return { layer: "span", text: text, bits: bits };
   }
 
-  function tokenIndex(id) {
-    const match = /^s[1-9][0-9]*\.t([1-9][0-9]*)$/.exec(id);
-    return match ? Number(match[1]) : null;
+  function consecutiveSpans(prev, next, order) {
+    const left = order.get(prev.lastTokenId);
+    const right = order.get(next.firstTokenId);
+    return left !== undefined && right === left + 1;
   }
 
-  function consecutiveTokens(prev, next) {
-    const left = tokenIndex(prev.id);
-    const right = tokenIndex(next.id);
-    return left !== null && right === left + 1;
-  }
-
-  function markedSentenceHtml(sentence, markTokens) {
+  function markedSentenceHtml(sentence, markSpans) {
     const text = sentence.text || "";
     const base = sentence.span && sentence.span.length === 2 ? sentence.span[0] : null;
-    if (base === null || !markTokens.length) return esc(text);
+    if (base === null || !markSpans.length) return esc(text);
     const ranges = [];
-    for (const token of markTokens) {
-      if (!token.span || token.span.length !== 2) continue;
-      const start = token.span[0] - base;
-      const end = token.span[1] - base;
+    for (const span of markSpans) {
+      const range = spanCharRange(span);
+      if (!range) continue;
+      const start = range[0] - base;
+      const end = range[1] - base;
       if (start < 0 || end > text.length || end <= start) continue;
-      if (text.slice(start, end) !== token.text) continue;
       ranges.push([start, end]);
     }
     ranges.sort(function (a, b) { return a[0] - b[0]; });
@@ -598,15 +642,15 @@ details.lineage[open] > summary::before { content: "▾ "; }
     };
   }
 
-  function tokenRangeLabel(marks) {
+  function spanRangeLabel(marks) {
     const first = marks[0].id;
     return marks.length > 1 ? first + "–" + marks[marks.length - 1].id : first;
   }
 
-  function tokenSentenceRow(sentence, marks) {
-    const ids = tokenRangeLabel(marks);
+  function spanSentenceRow(sentence, marks) {
+    const ids = spanRangeLabel(marks);
     return {
-      layer: "token",
+      layer: "span",
       text: ids + " [" + sentence.section + "] “" + sentence.text + "”",
       bits: [
         part("id", ids),
@@ -617,28 +661,38 @@ details.lineage[open] > summary::before { content: "▾ "; }
     };
   }
 
-  function appendTokenSources(rows, sources) {
-    const tokens = indexTokens();
+  function appendSpanSources(rows, sources) {
+    const order = tokenOrder();
     let run = [];
     function flush() {
       if (!run.length) return;
-      const marks = run.map(function (hit) { return hit.token; });
       const sentence = sentenceById(run[0].sentenceId);
-      if (sentence) rows.push(tokenSentenceRow(sentence, marks));
+      if (sentence) rows.push(spanSentenceRow(sentence, run.map(function (hit) { return hit.span; })));
       else {
-        for (const hit of run) rows.push(tokenRow(hit.token.id, hit.token, true));
+        for (const hit of run) rows.push(spanRow(hit.span, true));
       }
       run = [];
     }
     for (const source of sources || []) {
-      const hit = tokens.get(source);
-      if (!hit) {
+      let span = null;
+      let sentenceId = "";
+      if (/^sp:/.test(source)) {
+        span = indexSpans().get(source) || null;
+        if (span) sentenceId = sentenceIdOfToken(span.firstTokenId);
+      } else if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
+        span = spanForToken(source);
+        sentenceId = sentenceIdOfToken(source);
+      }
+      if (!span) {
         flush();
         rows.push({ layer: "source", text: source, bits: [part("id", source)] });
         continue;
       }
+      const hit = { span: span, sentenceId: sentenceId };
       const prev = run[run.length - 1];
-      if (prev && (prev.sentenceId !== hit.sentenceId || !consecutiveTokens(prev.token, hit.token))) flush();
+      if (prev && (prev.sentenceId !== hit.sentenceId || !consecutiveSpans(prev.span, hit.span, order))) flush();
+      // Deduplicate repeated sources that resolve to the same span.
+      if (prev && prev.span.id === hit.span.id) continue;
       run.push(hit);
     }
     flush();
@@ -646,7 +700,6 @@ details.lineage[open] > summary::before { content: "▾ "; }
 
   function factLineage(fact) {
     const entities = indexEntities();
-    const tokens = indexTokens();
     const rows = [];
     const entityFields = ["actor", "action", "object", "condition"];
     for (const field of entityFields) {
@@ -659,7 +712,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
         text: field + " → " + id + " (" + label + ")",
         bits: [part("type", field), part("note", "→"), part("id", id), part("content", label)],
       });
-      if (entity) appendTokenSources(rows, entity.sources);
+      if (entity) appendSpanSources(rows, entity.sources);
     }
     for (const source of fact.sources || []) {
       if (/^s[1-9][0-9]*$/.test(source)) {
@@ -667,11 +720,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
         rows.push(sentence
           ? sentenceRow(sentence)
           : { layer: "sentence", text: source, bits: [part("id", source)] });
-      } else if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
-        const hit = tokens.get(source);
-        const sentence = hit ? sentenceById(hit.sentenceId) : null;
-        if (sentence) rows.push(tokenSentenceRow(sentence, [hit.token]));
-        else rows.push(tokenRow(source, hit ? hit.token : null, false));
+      } else if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source) || /^sp:/.test(source)) {
+        const span = /^sp:/.test(source) ? indexSpans().get(source) : spanForToken(source);
+        const sentence = span ? sentenceById(sentenceIdOfToken(span.firstTokenId)) : null;
+        if (sentence && span) rows.push(spanSentenceRow(sentence, [span]));
+        else if (span) rows.push(spanRow(span, false));
+        else rows.push({ layer: "source", text: source, bits: [part("id", source)] });
       } else {
         rows.push({ layer: "source", text: source, bits: [part("id", source)] });
       }
@@ -716,7 +770,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 
   function entityLineage(entity) {
     const rows = [];
-    appendTokenSources(rows, entity.sources);
+    appendSpanSources(rows, entity.sources);
     for (const fact of state.facts) {
       const refs = [fact.actor, fact.action, fact.object, fact.condition];
       if (refs.indexOf(entity.id) >= 0) {
@@ -730,13 +784,19 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return lineageBlock(rows);
   }
 
-  function viaPart(source, tokens) {
-    const hit = tokens.get(source);
-    return hit ? { kind: "token", value: hit.token.text, token: source } : part("ref", source);
+  function viaPart(source) {
+    if (/^sp:/.test(source)) {
+      const span = indexSpans().get(source);
+      return span ? { kind: "span", value: span.surface, span: span.id } : part("ref", source);
+    }
+    if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
+      const span = spanForToken(source);
+      return span ? { kind: "span", value: span.surface, span: span.id } : part("ref", source);
+    }
+    return part("ref", source);
   }
 
   function sentenceLineage(sentence) {
-    const tokens = indexTokens();
     const rows = [];
     for (const entity of state.entities) {
       for (const source of entity.sources || []) {
@@ -744,7 +804,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
           rows.push({
             layer: "entity",
             text: entity.id + " via " + source,
-            bits: [part("id", entity.id), part("note", "via"), viaPart(source, tokens)],
+            bits: [part("id", entity.id), part("note", "via"), viaPart(source)],
           });
           break;
         }
@@ -756,7 +816,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
           rows.push({
             layer: "fact",
             text: fact.id + " " + fact.type + " via " + source,
-            bits: [part("id", fact.id), part("type", fact.type), part("note", "via"), viaPart(source, tokens)],
+            bits: [part("id", fact.id), part("type", fact.type), part("note", "via"), viaPart(source)],
           });
           break;
         }
@@ -862,30 +922,28 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return tags.filter(function (tag) { return tag !== pos && TAG_SKIP.indexOf(tag) < 0; });
   }
 
-  function tokenFilterActive() {
-    return els.token.value !== "";
+  function spanFilterActive() {
+    return els.span.value !== "";
   }
 
-  function tokenMatches(token) {
-    const tags = token.tags || [];
-    const value = els.token.value;
+  function spanMatches(span) {
+    const tags = span.tags || [];
+    const value = els.span.value;
     if (value.indexOf("pos:") === 0) return coarsePos(tags) === value.slice(4);
     return posLabel(tags) === value;
   }
 
-  function fillTokenFilter() {
+  function fillSpanFilter() {
     const groups = new Map();
-    for (const row of state.tagged) {
-      for (const token of row.tokens || []) {
-        const tags = token.tags || [];
-        const pos = coarsePos(tags);
-        if (!pos) continue;
-        if (!groups.has(pos)) groups.set(pos, { total: 0, labels: new Map() });
-        const group = groups.get(pos);
-        const label = posLabel(tags);
-        group.total += 1;
-        group.labels.set(label, (group.labels.get(label) || 0) + 1);
-      }
+    for (const span of state.spans) {
+      const tags = span.tags || [];
+      const pos = coarsePos(tags);
+      if (!pos) continue;
+      if (!groups.has(pos)) groups.set(pos, { total: 0, labels: new Map() });
+      const group = groups.get(pos);
+      const label = posLabel(tags);
+      group.total += 1;
+      group.labels.set(label, (group.labels.get(label) || 0) + 1);
     }
     const order = POS_ORDER.filter(function (pos) { return groups.has(pos); })
       .concat(Array.from(groups.keys()).filter(function (pos) { return POS_ORDER.indexOf(pos) < 0; }).sort());
@@ -901,35 +959,49 @@ details.lineage[open] > summary::before { content: "▾ "; }
       }
       html += "</optgroup>";
     }
-    els.token.innerHTML = html;
+    els.span.innerHTML = html;
   }
 
-  function glossToken(token) {
-    const tags = token.tags || [];
+  function glossSpan(span) {
+    const tags = span.tags || [];
     const pos = coarsePos(tags);
     const label = posLabel(tags);
-    const match = tokenFilterActive() && tokenMatches(token) ? " match" : "";
-    return '<span class="gloss-token pos-' + esc(pos.toLowerCase() || "none") + match + '" data-token="' + esc(token.id) +
-      '" title="' + esc(token.id + (tags.length ? " · " + tags.join(", ") : "")) + '">' +
-      '<span class="gloss-word">' + esc(token.text) + "</span>" +
+    const match = spanFilterActive() && spanMatches(span) ? " match" : "";
+    return '<span class="gloss-span pos-' + esc(pos.toLowerCase() || "none") + match + '" data-span="' + esc(span.id) +
+      '" title="' + esc(span.id + (tags.length ? " · " + tags.join(", ") : "")) + '">' +
+      '<span class="gloss-word">' + esc(span.surface) + "</span>" +
       (label ? '<span class="gloss-pos">' + esc(label) + "</span>" : "") + "</span>";
   }
 
-  function glossHtml(sentence, tokens) {
+  function spansForSentence(sentenceId) {
+    const order = tokenOrder();
+    return state.spans.filter(function (span) {
+      return sentenceIdOfToken(span.firstTokenId) === sentenceId;
+    }).sort(function (left, right) {
+      return (order.get(left.firstTokenId) || 0) - (order.get(right.firstTokenId) || 0);
+    });
+  }
+
+  function glossHtml(sentence, spans) {
     const text = sentence.text || "";
     const base = sentence.span && sentence.span.length === 2 ? sentence.span[0] : null;
-    if (base === null || !tokens.length) return '<p class="blurb">' + esc(text) + "</p>";
+    if (base === null || !spans.length) return '<p class="blurb">' + esc(text) + "</p>";
     let html = "";
     let cursor = 0;
-    for (const token of tokens) {
-      const start = token.span && token.span.length === 2 ? token.span[0] - base : -1;
-      const end = start >= 0 ? token.span[1] - base : -1;
-      if (start < cursor || end > text.length || text.slice(start, end) !== token.text) {
-        return '<p class="blurb">' + esc(text) + "</p>" +
-          '<div class="gloss">' + tokens.map(glossToken).join("") + "</div>";
+    for (const span of spans) {
+      const range = spanCharRange(span);
+      const start = range ? range[0] - base : -1;
+      const end = range ? range[1] - base : -1;
+      const slice = start >= 0 ? text.slice(start, end) : "";
+      if (start < cursor || end > text.length || slice !== span.surface && slice.replace(/\s+/g, " ") !== span.surface) {
+        // Surface may use a lexicon joiner that differs from raw substring; still place by range when possible.
+        if (start < cursor || end > text.length || start < 0) {
+          return '<p class="blurb">' + esc(text) + "</p>" +
+            '<div class="gloss">' + spans.map(glossSpan).join("") + "</div>";
+        }
       }
       if (start > cursor) html += '<span class="gloss-gap">' + esc(text.slice(cursor, start)) + "</span>";
-      html += glossToken(token);
+      html += glossSpan(span);
       cursor = end;
     }
     if (cursor < text.length) html += '<span class="gloss-gap">' + esc(text.slice(cursor)) + "</span>";
@@ -937,25 +1009,23 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function renderSentences() {
-    const tagged = indexTagged();
     const visible = state.sentences.filter(function (sentence) {
-      const row = tagged.get(sentence.id);
-      const tokenText = ((row && row.tokens) || []).map(function (token) { return token.text; });
-      const tokenIds = ((row && row.tokens) || []).map(function (token) { return token.id; });
-      if (tokenFilterActive() && !((row && row.tokens) || []).some(tokenMatches)) return false;
-      return matchesText([sentence.id, sentence.text, sentence.section, sentence.status, ...tokenText, ...tokenIds]);
+      const spans = spansForSentence(sentence.id);
+      const surfaces = spans.map(function (span) { return span.surface; });
+      const ids = spans.map(function (span) { return span.id; });
+      if (spanFilterActive() && !spans.some(spanMatches)) return false;
+      return matchesText([sentence.id, sentence.text, sentence.section, sentence.status, ...surfaces, ...ids]);
     });
     if (visible.length === 0) {
       els.sentences.innerHTML = '<p class="empty">No sentences match these filters.</p>';
       return;
     }
     els.sentences.innerHTML = visible.map(function (sentence) {
-      const row = tagged.get(sentence.id);
       return (
         '<article class="card">' +
         "<h2><span class=\\"id\\">" + esc(sentence.id) + "</span>" +
         pill(sentence.section) + pill(sentence.status, statusTone(sentence.status)) + "</h2>" +
-        glossHtml(sentence, (row && row.tokens) || []) +
+        glossHtml(sentence, spansForSentence(sentence.id)) +
         sentenceLineage(sentence) +
         "</article>"
       );
@@ -987,17 +1057,17 @@ details.lineage[open] > summary::before { content: "▾ "; }
       selectTab(button.getAttribute("data-tab"));
     });
   }
-  function markToken(event, on) {
-    const ref = event.target instanceof Element ? event.target.closest(".line-token") : null;
+  function markSpan(event, on) {
+    const ref = event.target instanceof Element ? event.target.closest(".line-span") : null;
     if (!ref) return;
     const card = ref.closest("article.card");
     if (!card) return;
-    for (const word of card.querySelectorAll('.gloss-token[data-token="' + ref.getAttribute("data-token") + '"]')) {
+    for (const word of card.querySelectorAll('.gloss-span[data-span="' + ref.getAttribute("data-span") + '"]')) {
       word.classList.toggle("hit", on);
     }
   }
-  document.addEventListener("mouseover", function (event) { markToken(event, true); });
-  document.addEventListener("mouseout", function (event) { markToken(event, false); });
+  document.addEventListener("mouseover", function (event) { markSpan(event, true); });
+  document.addEventListener("mouseout", function (event) { markSpan(event, false); });
 
   document.addEventListener("click", function (event) {
     const target = event.target;
@@ -1014,7 +1084,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       pane.hidden = pane.getAttribute("data-layer") !== layer;
     }
   });
-  for (const input of [els.text, els.kind, els.type, els.status, els.token]) {
+  for (const input of [els.text, els.kind, els.type, els.status, els.span]) {
     input.addEventListener("input", render);
     input.addEventListener("change", render);
   }
@@ -1023,7 +1093,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     els.kind.value = "";
     els.type.value = "";
     els.status.value = "";
-    els.token.value = "";
+    els.span.value = "";
     render();
   });
 
@@ -1041,19 +1111,20 @@ details.lineage[open] > summary::before { content: "▾ "; }
       state.sentences = (sentencesFile && sentencesFile.sentences) || [];
       const tokensFile = await loadJson("tokens.json");
       state.tagged = (tokensFile && tokensFile.sentences) || [];
+      const spansFile = await loadJson("spans.json");
+      state.spans = (spansFile && spansFile.spans) || [];
       const entitiesFile = await loadJson("entities.json");
       state.entities = (entitiesFile && entitiesFile.entities) || [];
       const factsFile = await loadJson("facts.json");
       state.facts = (factsFile && factsFile.facts) || [];
       state.graph = await loadJson("graph.json");
       els.sessionId.textContent = session.id;
-      const tokenCount = state.tagged.reduce(function (sum, row) { return sum + (row.tokens || []).length; }, 0);
       els.meta.textContent = state.sentences.length + " sentences · " +
-        tokenCount + " tokens · " +
+        state.spans.length + " spans · " +
         state.entities.length + " entities · " +
         state.facts.filter(function (fact) { return fact.removed !== true; }).length + " facts";
       document.title = "Clew · " + session.id;
-      fillTokenFilter();
+      fillSpanFilter();
       els.banner.textContent = "Session updated " + localTime(session.updated) + " · loaded " + localTime(new Date());
       els.banner.classList.remove("error");
       render();

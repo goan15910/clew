@@ -145,6 +145,48 @@ describe('span live partition', { concurrency: false }, () => {
     assert.equal(forced.spans[0]?.explicitlySet, false);
   });
 
+  test('lexicon joiner comes from the entry key (hyphen)', () => {
+    const tokens = [
+      token('s1.t1', 'audit', ['Noun']),
+      token('s1.t2', 'trail', ['Noun']),
+    ];
+    const tagged = [{ id: 's1', status: 'current' as const, clauses: [], tokens }];
+    const lexicon: LexiconEntry[] = [{ id: 'audit-trail', key: 'audit-trail', tags: ['Noun'] }];
+    const result = mergeLexicon(promoteTokensToSpans(tokens), tagged, lexicon);
+    assert.equal(result.merged.length, 1);
+    assert.equal(result.spans[0]?.surface, 'audit-trail');
+    assert.equal(result.spans[0]?.lexiconEntryId, 'audit-trail');
+  });
+
+  test('ProperNoun follows case-insensitive normal match path', () => {
+    const tokens = [
+      token('s1.t1', 'create', ['Noun']),
+      token('s1.t2', 'ticket', ['Noun']),
+    ];
+    const tagged = [{ id: 's1', status: 'current' as const, clauses: [], tokens }];
+    const lexicon: LexiconEntry[] = [{ id: 'create-ticket', key: 'Create Ticket', tags: ['ProperNoun', 'Noun'] }];
+    const result = mergeLexicon(promoteTokensToSpans(tokens), tagged, lexicon);
+    assert.equal(result.merged.length, 1);
+    assert.equal(result.spans[0]?.surface, 'create ticket');
+    assert.deepEqual(result.spans[0]?.tags, ['ProperNoun', 'Noun']);
+  });
+
+  test('missing-mix entity links auto-merge to the sole set id', () => {
+    const tokens = [
+      token('s1.t1', 'create', ['Noun']),
+      token('s1.t2', 'ticket', ['Noun']),
+    ];
+    const tagged = [{ id: 's1', status: 'current' as const, clauses: [], tokens }];
+    const spans = promoteTokensToSpans(tokens);
+    spans[1]!.entityId = 'object:ticket';
+    spans[1]!.entityLinkExplicitlySet = true;
+    const lexicon: LexiconEntry[] = [{ id: 'create-ticket', key: 'create ticket', tags: ['Noun'] }];
+    const result = mergeLexicon(spans, tagged, lexicon);
+    assert.equal(result.merged.length, 1);
+    assert.equal(result.spans[0]?.entityId, 'object:ticket');
+    assert.equal(result.spans[0]?.entityLinkExplicitlySet, true);
+  });
+
   test('spec tag dual-emits spans.json and lexicon merge works through the CLI', () => {
     withData((dir) => {
       const init = run(dir, ['spec', 'init', sample, '--json']);
@@ -204,6 +246,72 @@ describe('span live partition', { concurrency: false }, () => {
       assert.equal(cover.explicitlySet, true);
       assert.equal(cover.origin, 'interactive');
       assert.deepEqual(cover.tags, ['Noun']);
+    });
+  });
+
+  test('CLI spans check is read-only and force-auto / link none work', () => {
+    withData((dir) => {
+      writeFileSync(join(dir, 'short.md'), 'Create Ticket today.\n');
+      assert.equal(run(dir, ['spec', 'init', join(dir, 'short.md'), '--session', 'short', '--json']).status, 0);
+      assert.equal(run(dir, ['spec', 'tag', '--session', 'short', '--json']).status, 0);
+      const session = specSessionDir('short', { CLEW_DATA_DIR: dir }, root);
+      const spansPath = join(session, 'spans.json');
+      const beforeCheck = readFileSync(spansPath, 'utf8');
+      const checked = run(dir, ['spec', 'spans', 'check', '--session', 'short', '--lexicon', lexiconPath, '--json']);
+      assert.equal(checked.status, 0, checked.stderr);
+      const checkDoc = json<SpecSpansDocument>(checked);
+      assert.equal(checkDoc.command, 'spec.spans.check');
+      assert.equal(readFileSync(spansPath, 'utf8'), beforeCheck);
+
+      const before = JSON.parse(beforeCheck) as { spans: LiveSpan[] };
+      const create = before.spans.find((span) => span.surface === 'Create');
+      const ticket = before.spans.find((span) => span.surface === 'Ticket');
+      assert.ok(create);
+      assert.ok(ticket);
+
+      const linkedNone = run(dir, [
+        'spec', 'spans', 'merge',
+        '--session', 'short',
+        '--id', create.id,
+        '--id', ticket.id,
+        '--tags', 'Noun',
+        '--link', 'none',
+        '--json',
+      ]);
+      assert.equal(linkedNone.status, 0, linkedNone.stderr);
+      const linkedDoc = json<SpecSpansDocument>(linkedNone);
+      const afterLink = JSON.parse(readFileSync(spansPath, 'utf8')) as { spans: LiveSpan[] };
+      const cover = afterLink.spans.find((span) => span.id === linkedDoc.merged?.[0]);
+      assert.ok(cover);
+      assert.equal(cover.entityId, undefined);
+      assert.equal(cover.entityLinkExplicitlySet, true);
+      assert.equal(cover.explicitlySet, true);
+
+      const blocked = run(dir, ['spec', 'spans', 'merge', '--session', 'short', '--lexicon', lexiconPath, '--json']);
+      assert.equal(blocked.status, 0, blocked.stderr);
+      const blockedDoc = json<SpecSpansDocument>(blocked);
+      assert.equal((blockedDoc.merged ?? []).includes(cover.id), false);
+      assert.equal(
+        (JSON.parse(readFileSync(spansPath, 'utf8')) as { spans: LiveSpan[] }).spans.find((span) => span.id === cover.id)?.origin,
+        'interactive',
+      );
+
+      const forced = run(dir, [
+        'spec', 'spans', 'merge',
+        '--session', 'short',
+        '--lexicon', lexiconPath,
+        '--force-auto',
+        '--json',
+      ]);
+      assert.equal(forced.status, 0, forced.stderr);
+      const forcedDoc = json<SpecSpansDocument>(forced);
+      assert.ok((forcedDoc.merged?.length ?? 0) >= 1);
+      const afterForce = JSON.parse(readFileSync(spansPath, 'utf8')) as { spans: LiveSpan[] };
+      const lexiconCover = afterForce.spans.find((span) => span.id === cover.id);
+      assert.ok(lexiconCover);
+      assert.equal(lexiconCover.origin, 'lexicon');
+      assert.equal(lexiconCover.explicitlySet, false);
+      assert.equal(lexiconCover.lexiconEntryId, 'create-ticket');
     });
   });
 });

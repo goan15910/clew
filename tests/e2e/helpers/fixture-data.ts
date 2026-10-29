@@ -63,17 +63,27 @@ interface Sentence {
   text: string;
   section: string;
   status: string;
+  span?: [number, number];
 }
 
 interface Token {
   id: string;
   text: string;
   tags?: string[];
+  span?: [number, number];
 }
 
 interface TaggedSentence {
   id: string;
   tokens?: Token[];
+}
+
+interface Span {
+  id: string;
+  firstTokenId: string;
+  lastTokenId: string;
+  surface: string;
+  tags?: string[];
 }
 
 interface Graph {
@@ -89,6 +99,7 @@ function loadJson<T>(name: string): T {
 const session = loadJson<{ id: string; specPath: string; updated: string }>('session.json');
 const sentencesFile = loadJson<{ sentences: Sentence[] }>('sentences.json');
 const tokensFile = loadJson<{ sentences: TaggedSentence[] }>('tokens.json');
+const spansFile = loadJson<{ spans: Span[] }>('spans.json');
 const entitiesFile = loadJson<{ entities: Entity[] }>('entities.json');
 const factsFile = loadJson<{ facts: Fact[] }>('facts.json');
 const graph = loadJson<Graph>('graph.json');
@@ -97,6 +108,7 @@ export const fixture = {
   session,
   sentences: sentencesFile.sentences,
   tagged: tokensFile.sentences,
+  spans: spansFile.spans,
   entities: entitiesFile.entities,
   facts: factsFile.facts,
   graph,
@@ -112,8 +124,8 @@ function entityMap(): Map<string, Entity> {
   return new Map(fixture.entities.map((entity) => [entity.id, entity]));
 }
 
-function taggedMap(): Map<string, TaggedSentence> {
-  return new Map(fixture.tagged.map((row) => [row.id, row]));
+function spanMap(): Map<string, Span> {
+  return new Map(fixture.spans.map((span) => [span.id, span]));
 }
 
 function tokenMap(): Map<string, { token: Token; sentenceId: string }> {
@@ -124,51 +136,98 @@ function tokenMap(): Map<string, { token: Token; sentenceId: string }> {
   return map;
 }
 
+function tokenOrder(): Map<string, number> {
+  const order = new Map<string, number>();
+  let index = 0;
+  for (const row of fixture.tagged) {
+    for (const token of row.tokens ?? []) {
+      order.set(token.id, index);
+      index += 1;
+    }
+  }
+  return order;
+}
+
+function sentenceIdOfToken(tokenId: string): string {
+  const dot = tokenId.indexOf('.');
+  return dot > 0 ? tokenId.slice(0, dot) : '';
+}
+
+function spanCoversToken(span: Span, tokenId: string, order: Map<string, number>): boolean {
+  const first = order.get(span.firstTokenId);
+  const last = order.get(span.lastTokenId);
+  const at = order.get(tokenId);
+  return first !== undefined && last !== undefined && at !== undefined && at >= first && at <= last;
+}
+
+function spanForToken(tokenId: string): Span | undefined {
+  const order = tokenOrder();
+  return fixture.spans.find((span) => spanCoversToken(span, tokenId, order));
+}
+
 function sentenceById(id: string): Sentence | undefined {
   return fixture.sentences.find((sentence) => sentence.id === id);
 }
 
-function tokenIndex(id: string): number | null {
-  const match = /^s[1-9][0-9]*\.t([1-9][0-9]*)$/.exec(id);
-  return match ? Number(match[1]) : null;
+function consecutiveSpans(prev: Span, next: Span, order: Map<string, number>): boolean {
+  const left = order.get(prev.lastTokenId);
+  const right = order.get(next.firstTokenId);
+  return left !== undefined && right === left + 1;
 }
 
-function tokenSentenceRow(sentence: Sentence, marks: Token[]): { layer: string; text: string } {
-  const ids = marks.length > 1 ? `${marks[0]!.id}–${marks[marks.length - 1]!.id}` : marks[0]!.id;
-  return { layer: 'token', text: `${ids} [${sentence.section}] “${sentence.text}”` };
+function spanRangeLabel(marks: Span[]): string {
+  const first = marks[0]!.id;
+  return marks.length > 1 ? `${first}–${marks[marks.length - 1]!.id}` : first;
 }
 
-function appendTokenSources(rows: Array<{ layer: string; text: string }>, sources: string[]): void {
-  const tokens = tokenMap();
-  let run: Array<{ token: Token; sentenceId: string }> = [];
+function spanSentenceRow(sentence: Sentence, marks: Span[]): { layer: string; text: string } {
+  const ids = spanRangeLabel(marks);
+  return { layer: 'span', text: `${ids} [${sentence.section}] “${sentence.text}”` };
+}
+
+function spanRow(span: Span, withTags: boolean): { layer: string; text: string } {
+  const tags = span.tags ?? [];
+  const text = span.id + ` “${span.surface}”` + (withTags ? ` [${tags.join('|')}]` : '');
+  return { layer: 'span', text };
+}
+
+function resolveSourceSpan(source: string): { span: Span; sentenceId: string } | null {
+  if (/^sp:/.test(source)) {
+    const span = spanMap().get(source);
+    if (!span) return null;
+    return { span, sentenceId: sentenceIdOfToken(span.firstTokenId) };
+  }
+  if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) {
+    const span = spanForToken(source);
+    if (!span) return null;
+    return { span, sentenceId: sentenceIdOfToken(source) };
+  }
+  return null;
+}
+
+function appendSpanSources(rows: Array<{ layer: string; text: string }>, sources: string[]): void {
+  const order = tokenOrder();
+  let run: Array<{ span: Span; sentenceId: string }> = [];
   const flush = (): void => {
     if (run.length === 0) return;
     const sentence = sentenceById(run[0]!.sentenceId);
     if (sentence) {
-      rows.push(tokenSentenceRow(sentence, run.map((hit) => hit.token)));
+      rows.push(spanSentenceRow(sentence, run.map((hit) => hit.span)));
     } else {
-      for (const hit of run) {
-        rows.push({
-          layer: 'token',
-          text: `${hit.token.id} “${hit.token.text}” [${(hit.token.tags ?? []).join('|')}]`,
-        });
-      }
+      for (const hit of run) rows.push(spanRow(hit.span, true));
     }
     run = [];
   };
   for (const source of sources) {
-    const hit = tokens.get(source);
+    const hit = resolveSourceSpan(source);
     if (!hit) {
       flush();
       rows.push({ layer: 'source', text: source });
       continue;
     }
     const prev = run[run.length - 1];
-    const prevIndex = prev ? tokenIndex(prev.token.id) : null;
-    const nextIndex = tokenIndex(hit.token.id);
-    const consecutive =
-      prev !== undefined && prev.sentenceId === hit.sentenceId && prevIndex !== null && nextIndex === prevIndex + 1;
-    if (prev && !consecutive) flush();
+    if (prev && (prev.sentenceId !== hit.sentenceId || !consecutiveSpans(prev.span, hit.span, order))) flush();
+    if (prev && prev.span.id === hit.span.id) continue;
     run.push(hit);
   }
   flush();
@@ -222,14 +281,13 @@ export function expectedEntityIds(filters: FixtureFilters): string[] {
 }
 
 export function expectedSentenceIds(filters: FixtureFilters): string[] {
-  const tagged = taggedMap();
   return fixture.sentences
     .filter((sentence) => {
-      const row = tagged.get(sentence.id);
-      const tokenText = (row?.tokens ?? []).map((token) => token.text);
-      const tokenIds = (row?.tokens ?? []).map((token) => token.id);
+      const spans = spansForSentence(sentence.id);
+      const surfaces = spans.map((span) => span.surface);
+      const ids = spans.map((span) => span.id);
       return matchesText(
-        [sentence.id, sentence.text, sentence.section, sentence.status, ...tokenText, ...tokenIds],
+        [sentence.id, sentence.text, sentence.section, sentence.status, ...surfaces, ...ids],
         filters.text,
       );
     })
@@ -246,7 +304,6 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
   const fact = fixture.facts.find((row) => row.id === factId);
   if (!fact) return [];
   const entities = entityMap();
-  const tokens = tokenMap();
   const rows: Array<{ layer: string; text: string }> = [];
   for (const field of ['actor', 'action', 'object', 'condition'] as const) {
     const id = fact[field];
@@ -254,17 +311,18 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
     const entity = entities.get(id);
     const label = entity ? (entity.name || entity.text || id) : id;
     rows.push({ layer: 'entity', text: `${field} → ${id} (${label})` });
-    if (entity) appendTokenSources(rows, entity.sources ?? []);
+    if (entity) appendSpanSources(rows, entity.sources ?? []);
   }
   for (const source of fact.sources ?? []) {
     if (/^s[1-9][0-9]*$/.test(source)) {
       const sentence = sentenceById(source);
       rows.push({ layer: 'sentence', text: source + (sentence ? ` “${sentence.text}”` : '') });
-    } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) {
-      const hit = tokens.get(source);
-      const linked = hit ? sentenceById(hit.sentenceId) : undefined;
-      if (linked) rows.push(tokenSentenceRow(linked, [hit!.token]));
-      else rows.push({ layer: 'token', text: source + (hit ? ` “${hit.token.text}”` : '') });
+    } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source) || /^sp:/.test(source)) {
+      const hit = resolveSourceSpan(source);
+      const sentence = hit ? sentenceById(hit.sentenceId) : undefined;
+      if (sentence && hit) rows.push(spanSentenceRow(sentence, [hit.span]));
+      else if (hit) rows.push(spanRow(hit.span, false));
+      else rows.push({ layer: 'source', text: source });
     } else {
       rows.push({ layer: 'source', text: source });
     }
@@ -292,7 +350,7 @@ export function expectedEntityLineage(entityId: string): Array<{ layer: string; 
   const entity = fixture.entities.find((row) => row.id === entityId);
   if (!entity) return [];
   const rows: Array<{ layer: string; text: string }> = [];
-  appendTokenSources(rows, entity.sources ?? []);
+  appendSpanSources(rows, entity.sources ?? []);
   for (const fact of fixture.facts) {
     const refs = [fact.actor, fact.action, fact.object, fact.condition];
     if (refs.includes(entity.id)) rows.push({ layer: 'fact', text: `${fact.id} ${fact.type}` });
@@ -324,7 +382,7 @@ export function expectedSentenceLineage(sentenceId: string): Array<{ layer: stri
 }
 
 /** Matches viewer-page.ts lineageBlock pane order. */
-const LINEAGE_ORDER = ['token', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
+const LINEAGE_ORDER = ['span', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
 
 function groupLineageRows(
   rows: Array<{ layer: string; text: string }>,
@@ -365,8 +423,8 @@ export function expectedMeta(): { id: string; sentences: number; entities: numbe
   };
 }
 
-export function expectedTokenCount(): number {
-  return fixture.tagged.reduce((sum, row) => sum + (row.tokens ?? []).length, 0);
+export function expectedSpanCount(): number {
+  return fixture.spans.length;
 }
 
 export const PACKAGE_VERSION = (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string }).version;
@@ -384,24 +442,22 @@ export function posLabel(tags: string[]): string {
   return [...(pos ? [pos] : []), ...others].join(' · ');
 }
 
-export interface TokenFilterGroup {
+export interface SpanFilterGroup {
   pos: string;
   options: Array<{ value: string; text: string }>;
 }
 
-export function expectedTokenFilterGroups(): TokenFilterGroup[] {
+export function expectedSpanFilterGroups(): SpanFilterGroup[] {
   const groups = new Map<string, { total: number; labels: Map<string, number> }>();
-  for (const row of fixture.tagged) {
-    for (const token of row.tokens ?? []) {
-      const tags = token.tags ?? [];
-      const pos = coarsePos(tags);
-      if (!pos) continue;
-      const group = groups.get(pos) ?? { total: 0, labels: new Map<string, number>() };
-      group.total += 1;
-      const label = posLabel(tags);
-      group.labels.set(label, (group.labels.get(label) ?? 0) + 1);
-      groups.set(pos, group);
-    }
+  for (const span of fixture.spans) {
+    const tags = span.tags ?? [];
+    const pos = coarsePos(tags);
+    if (!pos) continue;
+    const group = groups.get(pos) ?? { total: 0, labels: new Map<string, number>() };
+    group.total += 1;
+    const label = posLabel(tags);
+    group.labels.set(label, (group.labels.get(label) ?? 0) + 1);
+    groups.set(pos, group);
   }
   const order = [
     ...POS_ORDER.filter((pos) => groups.has(pos)),
@@ -419,23 +475,29 @@ export function expectedTokenFilterGroups(): TokenFilterGroup[] {
   });
 }
 
-export function tokenMatchesFilter(tags: string[], value: string): boolean {
+export function spanMatchesFilter(tags: string[], value: string): boolean {
   if (value.startsWith('pos:')) return coarsePos(tags) === value.slice(4);
   return posLabel(tags) === value;
 }
 
-export function expectedTokenFilterMatches(value: string): { sentences: string[]; tokens: string[] } {
+export function expectedSpanFilterMatches(value: string): { sentences: string[]; spans: string[] } {
   const sentences: string[] = [];
-  const tokens: string[] = [];
+  const spans: string[] = [];
   for (const sentence of fixture.sentences) {
-    const row = taggedMap().get(sentence.id);
-    const hits = (row?.tokens ?? []).filter((token) => tokenMatchesFilter(token.tags ?? [], value));
+    const hits = spansForSentence(sentence.id).filter((span) => spanMatchesFilter(span.tags ?? [], value));
     if (hits.length) sentences.push(sentence.id);
-    tokens.push(...hits.map((token) => token.id));
+    spans.push(...hits.map((span) => span.id));
   }
-  return { sentences, tokens };
+  return { sentences, spans };
 }
 
-export function taggedTokens(sentenceId: string): Token[] {
-  return taggedMap().get(sentenceId)?.tokens ?? [];
+export function spansForSentence(sentenceId: string): Span[] {
+  const order = tokenOrder();
+  return fixture.spans
+    .filter((span) => sentenceIdOfToken(span.firstTokenId) === sentenceId)
+    .sort((left, right) => (order.get(left.firstTokenId) || 0) - (order.get(right.firstTokenId) || 0));
+}
+
+export function spanForSource(source: string): Span | undefined {
+  return resolveSourceSpan(source)?.span;
 }

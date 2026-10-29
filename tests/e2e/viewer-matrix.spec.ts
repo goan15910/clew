@@ -164,9 +164,9 @@ test.describe('lineage + click behaviors', () => {
   });
 
   test('lineage rows are split into resource tabs on every view', async ({ page }) => {
-    const order = ['token', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
+    const order = ['span', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
     const labels: Record<string, string> = {
-      token: 'Tokens',
+      span: 'Spans',
       sentence: 'Sentences',
       entity: 'Entities',
       fact: 'Facts',

@@ -1,0 +1,340 @@
+{
+  "schemaVersion": 1,
+  "spans": [
+    {
+      "id": "sp:s1.t1..s1.t1",
+      "firstTokenId": "s1.t1",
+      "lastTokenId": "s1.t1",
+      "surface": "When",
+      "tags": [
+        "Connector",
+        "Conjunction"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t2..s1.t2",
+      "firstTokenId": "s1.t2",
+      "lastTokenId": "s1.t2",
+      "surface": "the",
+      "tags": [
+        "Determiner"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t3..s1.t3",
+      "firstTokenId": "s1.t3",
+      "lastTokenId": "s1.t3",
+      "surface": "customer",
+      "tags": [
+        "Noun",
+        "Actor",
+        "Singular"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t4..s1.t4",
+      "firstTokenId": "s1.t4",
+      "lastTokenId": "s1.t4",
+      "surface": "submits",
+      "tags": [
+        "Verb",
+        "PresentTense"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t5..s1.t5",
+      "firstTokenId": "s1.t5",
+      "lastTokenId": "s1.t5",
+      "surface": "an",
+      "tags": [
+        "Determiner"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t6..s1.t6",
+      "firstTokenId": "s1.t6",
+      "lastTokenId": "s1.t6",
+      "surface": "order",
+      "tags": [
+        "Noun",
+        "Singular"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t7..s1.t7",
+      "firstTokenId": "s1.t7",
+      "lastTokenId": "s1.t7",
+      "surface": "the",
+      "tags": [
+        "Determiner"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t8..s1.t8",
+      "firstTokenId": "s1.t8",
+      "lastTokenId": "s1.t8",
+      "surface": "manager",
+      "tags": [
+        "Noun",
+        "Actor",
+        "Singular"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t9..s1.t9",
+      "firstTokenId": "s1.t9",
+      "lastTokenId": "s1.t9",
+      "surface": "approves",
+      "tags": [
+        "Verb",
+        "PresentTense"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t10..s1.t10",
+      "firstTokenId": "s1.t10",
+      "lastTokenId": "s1.t10",
+      "surface": "the",
+      "tags": [
+        "Determiner"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t11..s1.t11",
+      "firstTokenId": "s1.t11",
+      "lastTokenId": "s1.t11",
+      "surface": "order",
+      "tags": [
+        "Noun",
+        "Singular"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t12..s1.t12",
+      "firstTokenId": "s1.t12",
+      "lastTokenId": "s1.t12",
+      "surface": "if",
+      "tags": [
+        "Connector",
+        "Conjunction",
+        "Condition"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t13..s1.t13",
+      "firstTokenId": "s1.t13",
+      "lastTokenId": "s1.t13",
+      "surface": "the",
+      "tags": [
+        "Determiner"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t14..s1.t14",
+      "firstTokenId": "s1.t14",
+      "lastTokenId": "s1.t14",
+      "surface": "total",
+      "tags": [
+        "Noun",
+        "Singular"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t15..s1.t15",
+      "firstTokenId": "s1.t15",
+      "lastTokenId": "s1.t15",
+      "surface": "is",
+      "tags": [
+        "Verb",
+        "Copula",
+        "PresentTense"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t16..s1.t16",
+      "firstTokenId": "s1.t16",
+      "lastTokenId": "s1.t16",
+      "surface": "under",
+      "tags": [
+        "Adjective"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t17..s1.t17",
+      "firstTokenId": "s1.t17",
+      "lastTokenId": "s1.t17",
+      "surface": "500",
+      "tags": [
+        "Value",
+        "Cardinal",
+        "NumericValue",
+        "Money"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s1.t18..s1.t18",
+      "firstTokenId": "s1.t18",
+      "lastTokenId": "s1.t18",
+      "surface": "dollars",
+      "tags": [
+        "Noun",
+        "Currency",
+        "Plural",
+        "Unit"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t1..s2.t1",
+      "firstTokenId": "s2.t1",
+      "lastTokenId": "s2.t1",
+      "surface": "A",
+      "tags": [
+        "Determiner"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t2..s2.t2",
+      "firstTokenId": "s2.t2",
+      "lastTokenId": "s2.t2",
+      "surface": "clerk",
+      "tags": [
+        "Noun",
+        "Actor",
+        "Singular"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t3..s2.t3",
+      "firstTokenId": "s2.t3",
+      "lastTokenId": "s2.t3",
+      "surface": "must",
+      "tags": [
+        "Verb"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t4..s2.t4",
+      "firstTokenId": "s2.t4",
+      "lastTokenId": "s2.t4",
+      "surface": "not",
+      "tags": [
+        "Negative"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t5..s2.t5",
+      "firstTokenId": "s2.t5",
+      "lastTokenId": "s2.t5",
+      "surface": "cancel",
+      "tags": [
+        "Verb"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t6..s2.t6",
+      "firstTokenId": "s2.t6",
+      "lastTokenId": "s2.t6",
+      "surface": "a",
+      "tags": [
+        "Determiner"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t7..s2.t7",
+      "firstTokenId": "s2.t7",
+      "lastTokenId": "s2.t7",
+      "surface": "shipped",
+      "tags": [
+        "Adjective"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    },
+    {
+      "id": "sp:s2.t8..s2.t8",
+      "firstTokenId": "s2.t8",
+      "lastTokenId": "s2.t8",
+      "surface": "package",
+      "tags": [
+        "Noun",
+        "Singular"
+      ],
+      "origin": "promote",
+      "explicitlySet": false,
+      "entityLinkExplicitlySet": false
+    }
+  ]
+}
