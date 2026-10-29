@@ -181,6 +181,7 @@ export interface SpecTokenView {
   tags: string[];
   span: [number, number];
   origin: 'tagger' | 'rule' | 'agent';
+  skipped?: boolean;
 }
 
 export interface SpecTaggedView {

@@ -59,6 +59,11 @@ export interface Token {
   origin: SpecOrigin;
   status: SpecItemStatus;
   sources: string[];
+  /**
+   * Stop-word / function glue marked before span promotion.
+   * Token stays in tokens.json with positions; promotes to an insignificant span.
+   */
+  skipped?: boolean;
 }
 
 export interface TaggedSentence {
@@ -443,6 +448,7 @@ export function taggingDiffers(existing: TaggedSentence, clauses: readonly strin
     const right = tokens[index];
     if (left === undefined || right === undefined) return true;
     if (left.text !== right.text || left.span[0] !== right.span[0] || left.span[1] !== right.span[1]) return true;
+    if ((left.skipped === true) !== (right.skipped === true)) return true;
     if (left.tags.length !== right.tags.length) return true;
     for (let tag = 0; tag < left.tags.length; tag += 1) {
       if (left.tags[tag] !== right.tags[tag]) return true;
@@ -576,6 +582,7 @@ export function sameTagged(left: readonly TaggedSentence[], right: readonly Tagg
       if (leftToken === undefined || rightToken === undefined) return false;
       if (leftToken.id !== rightToken.id || leftToken.text !== rightToken.text) return false;
       if (leftToken.origin !== rightToken.origin || leftToken.status !== rightToken.status) return false;
+      if ((leftToken.skipped === true) !== (rightToken.skipped === true)) return false;
       if (leftToken.span[0] !== rightToken.span[0] || leftToken.span[1] !== rightToken.span[1]) return false;
       if (!sameStrings(leftToken.tags, rightToken.tags) || !sameStrings(leftToken.sources, rightToken.sources)) return false;
     }
@@ -606,7 +613,7 @@ function retarget(item: TaggedSentence, status: SpecItemStatus, delta: number): 
     for (const source of token.sources) sources.push(source);
     const tags: string[] = [];
     for (const tag of token.tags) tags.push(tag);
-    tokens.push({
+    const next: Token = {
       id: token.id,
       text: token.text,
       tags,
@@ -614,7 +621,9 @@ function retarget(item: TaggedSentence, status: SpecItemStatus, delta: number): 
       origin: token.origin,
       status,
       sources,
-    });
+    };
+    if (token.skipped === true) next.skipped = true;
+    tokens.push(next);
   }
   return { id: item.id, status, clauses, tokens };
 }

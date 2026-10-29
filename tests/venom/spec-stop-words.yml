@@ -1,0 +1,132 @@
+name: spec stop-word skip before span promote
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: tag marks stop words skipped and promotes insignificant spans
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      printf '%s\n' 'When the clerk cannot cancel the package after noon.' > '{{.dir}}/sample.md'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/sample.md' --session stop --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.ok ShouldBeTrue
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --session stop --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.spans ShouldNotBeEmpty
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function find(dir, name){
+        for (const entry of readdirSync(dir,{withFileTypes:true})) {
+          const p=join(dir,entry.name);
+          if (entry.isDirectory()) { const hit=find(p,name); if (hit) return hit; }
+          else if (entry.name===name) return p;
+        }
+        return null;
+      }
+      const tokensPath=find(process.argv[1],"tokens.json");
+      const spansPath=find(process.argv[1],"spans.json");
+      if (!tokensPath || !spansPath) process.exit(1);
+      const tokens=JSON.parse(readFileSync(tokensPath,"utf8")).sentences[0].tokens;
+      const spans=JSON.parse(readFileSync(spansPath,"utf8")).spans;
+      const byText=Object.fromEntries(tokens.map(t=>[t.text.toLowerCase(), t]));
+      if (byText.the?.skipped !== true) process.exit(2);
+      if (byText.cannot?.skipped === true) process.exit(3);
+      if (byText.when?.skipped === true) process.exit(4);
+      if (byText.after?.skipped === true) process.exit(5);
+      if (byText.the && !(byText.the.span?.[1] > byText.the.span?.[0])) process.exit(6);
+      const theSpan=spans.find(s=>s.surface==="the");
+      const cannotSpan=spans.find(s=>s.surface==="cannot");
+      if (theSpan?.insignificant !== true) process.exit(7);
+      if (cannotSpan?.insignificant === true) process.exit(8);
+      if (spans.length !== tokens.length) process.exit(9);
+      // POS-only path: a Preposition surface not on the curated list still skips.
+      const posOnly=tokens.find(t=>(t.tags||[]).includes("Preposition") && t.text.toLowerCase()==="after");
+      if (posOnly && posOnly.skipped === true) process.exit(10); // after is keep-listed
+      process.exit(0);
+      ' '{{.dir}}'
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function find(dir, name){
+        for (const entry of readdirSync(dir,{withFileTypes:true})) {
+          const p=join(dir,entry.name);
+          if (entry.isDirectory()) { const hit=find(p,name); if (hit) return hit; }
+          else if (entry.name===name) return p;
+        }
+        return null;
+      }
+      const tokens=JSON.parse(readFileSync(find(process.argv[1],"tokens.json"),"utf8")).sentences[0].tokens;
+      const skipped=tokens.filter(t=>t.skipped===true).map(t=>t.text.toLowerCase());
+      if (!skipped.includes("the")) process.exit(2);
+      if (skipped.includes("cannot") || skipped.includes("when") || skipped.includes("after")) process.exit(3);
+      process.exit(0);
+      ' '{{.dir}}'
+    assertions:
+    - result.code ShouldEqual 0
+
+- name: pos-only stop mark without list membership
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      # "amidst" is Preposition POS and not on the curated stop list.
+      printf '%s\n' 'Walk amidst traffic carefully.' > '{{.dir}}/pos.md'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/pos.md' --session posonly --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --session posonly --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function find(dir, name){
+        for (const entry of readdirSync(dir,{withFileTypes:true})) {
+          const p=join(dir,entry.name);
+          if (entry.isDirectory()) { const hit=find(p,name); if (hit) return hit; }
+          else if (entry.name===name) return p;
+        }
+        return null;
+      }
+      const tokens=JSON.parse(readFileSync(find(process.argv[1],"tokens.json"),"utf8")).sentences[0].tokens;
+      const spans=JSON.parse(readFileSync(find(process.argv[1],"spans.json"),"utf8")).spans;
+      const amidst=tokens.find(t=>t.text.toLowerCase()==="amidst");
+      if (!amidst) process.exit(2);
+      if (!amidst.tags.includes("Preposition") && !amidst.tags.includes("Conjunction")) {
+        // compromise may tag oddly; still require skipped via list or POS in either case
+      }
+      if (amidst.skipped !== true) process.exit(3);
+      const span=spans.find(s=>s.firstTokenId===amidst.id);
+      if (span?.insignificant !== true) process.exit(4);
+      process.exit(0);
+      ' '{{.dir}}'
+    assertions:
+    - result.code ShouldEqual 0

@@ -52,6 +52,7 @@ const TokenSchema = z.strictObject({
   origin: z.enum(['tagger', 'rule', 'agent']),
   status: z.enum(['current', 'stale']),
   sources: z.array(z.string()),
+  skipped: z.boolean().optional(),
 });
 
 const TaggedSchema = z.strictObject({
@@ -268,7 +269,7 @@ function toToken(raw: z.infer<typeof TokenSchema>): Token | undefined {
   for (const tag of raw.tags) tags.push(tag);
   const sources: string[] = [];
   for (const source of raw.sources) sources.push(source);
-  return {
+  const token: Token = {
     id: raw.id,
     text: raw.text,
     tags,
@@ -277,6 +278,8 @@ function toToken(raw: z.infer<typeof TokenSchema>): Token | undefined {
     status: raw.status,
     sources,
   };
+  if (raw.skipped === true) token.skipped = true;
+  return token;
 }
 
 function toTagged(raw: z.infer<typeof TaggedSchema>): TaggedSentence | undefined {
@@ -574,7 +577,7 @@ function tokenRecord(token: Token): z.infer<typeof TokenSchema> {
   for (const tag of token.tags) tags.push(tag);
   const sources: string[] = [];
   for (const source of token.sources) sources.push(source);
-  return {
+  const record: z.infer<typeof TokenSchema> = {
     id: token.id,
     text: token.text,
     tags,
@@ -583,6 +586,8 @@ function tokenRecord(token: Token): z.infer<typeof TokenSchema> {
     status: token.status,
     sources,
   };
+  if (token.skipped === true) record.skipped = true;
+  return record;
 }
 
 function liveSpanRecord(span: LiveSpan): z.infer<typeof LiveSpanSchema> {

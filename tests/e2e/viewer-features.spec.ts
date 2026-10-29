@@ -7,6 +7,8 @@ import {
   fixture,
   PACKAGE_VERSION,
   posLabel,
+  significantSpansForSentence,
+  skippedSpansForSentence,
   spanForSource,
   spansForSentence,
 } from './helpers/fixture-data.js';
@@ -151,16 +153,56 @@ test.describe('sentence gloss', () => {
 
   test('words carry a POS-colored underline and no visible span ids', async ({ page }) => {
     const card = cardById(page, 'sentences', 's1');
-    const underline = await card.locator('.gloss-word').evaluateAll((els) =>
-      els.map((el) => ({ width: getComputedStyle(el).borderBottomWidth, color: getComputedStyle(el).borderBottomColor })),
-    );
-    for (const line of underline) expect(line.width).toBe('3px');
     const spans = spansForSentence('s1');
-    const verb = spans.findIndex((span) => (span.tags ?? []).includes('Verb'));
-    const noun = spans.findIndex((span) => (span.tags ?? []).includes('Noun'));
+    const underline = await card.locator('.gloss-span').evaluateAll((els) =>
+      els.map((el) => {
+        const word = el.querySelector('.gloss-word') as HTMLElement;
+        return {
+          skipped: el.classList.contains('skipped'),
+          width: getComputedStyle(word).borderBottomWidth,
+          color: getComputedStyle(word).borderBottomColor,
+        };
+      }),
+    );
+    expect(underline.map((row) => row.skipped)).toEqual(spans.map((span) => span.insignificant === true));
+    for (const [index, line] of underline.entries()) {
+      if (line.skipped) expect(line.width).toBe('1px');
+      else expect(line.width).toBe('3px');
+    }
+    const verb = spans.findIndex((span) => span.insignificant !== true && (span.tags ?? []).includes('Verb'));
+    const noun = spans.findIndex((span) => span.insignificant !== true && (span.tags ?? []).includes('Noun'));
     expect(underline[verb]!.color).not.toBe(underline[noun]!.color);
     await expect(card.locator('p.gloss')).not.toContainText(/sp:s1\.t\d/);
     await expect(card.locator('.tokens, .token-id, .gloss-id, .gloss-token')).toHaveCount(0);
+  });
+
+  test('skipped stop-word spans are muted and still readable', async ({ page }) => {
+    const card = cardById(page, 'sentences', 's1');
+    const skipped = skippedSpansForSentence('s1');
+    const significant = significantSpansForSentence('s1');
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(significant.length).toBeGreaterThan(0);
+    await expect(card.locator('.gloss-span.skipped')).toHaveCount(skipped.length);
+    await expect(card.locator('.gloss-span[data-skipped="true"]')).toHaveCount(skipped.length);
+    const styles = await card.locator('.gloss-span').evaluateAll((els) =>
+      els.map((el) => ({
+        skipped: el.classList.contains('skipped'),
+        opacity: Number.parseFloat(getComputedStyle(el).opacity),
+        color: getComputedStyle(el.querySelector('.gloss-word')!).color,
+      })),
+    );
+    const skippedStyles = styles.filter((row) => row.skipped);
+    const significantStyles = styles.filter((row) => !row.skipped);
+    for (const row of skippedStyles) {
+      expect(row.opacity).toBeLessThan(0.6);
+      expect(row.color).not.toBe(significantStyles[0]!.color);
+    }
+    for (const row of significantStyles) expect(row.opacity).toBe(1);
+    // Surfaces remain in the rebuilt sentence text.
+    const rebuilt = await card.locator('p.gloss').evaluate((el) =>
+      [...el.querySelectorAll('.gloss-word, .gloss-gap')].map((part) => part.textContent).join(''),
+    );
+    expect(rebuilt).toBe(fixture.sentences.find((sentence) => sentence.id === 's1')!.text);
   });
 });
 
