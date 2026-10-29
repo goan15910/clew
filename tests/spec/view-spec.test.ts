@@ -128,7 +128,7 @@ describe('spec view', { concurrency: false }, () => {
         const page = await fetch(server.url);
         assert.equal(page.status, 200);
         const html = await page.text();
-        assert.match(html, /Clew session/);
+        assert.match(html, /<div class="brand">Clew<span class="version">v\d+\.\d+\.\d+[^<]*<\/span><\/div>/);
         assert.match(html, /filter-kind/);
         const sessionJson = await fetch(new URL('./session.json', server.url));
         assert.equal(sessionJson.status, 200);

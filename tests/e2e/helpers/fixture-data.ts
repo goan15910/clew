@@ -133,23 +133,19 @@ function tokenIndex(id: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-function appendTokenSources(
-  rows: Array<{ layer: string; text: string }>,
-  sources: string[],
-  withSection: boolean,
-): void {
+function tokenSentenceRow(sentence: Sentence, marks: Token[]): { layer: string; text: string } {
+  const ids = marks.length > 1 ? `${marks[0]!.id}–${marks[marks.length - 1]!.id}` : marks[0]!.id;
+  return { layer: 'token', text: `${ids} [${sentence.section}] “${sentence.text}”` };
+}
+
+function appendTokenSources(rows: Array<{ layer: string; text: string }>, sources: string[]): void {
   const tokens = tokenMap();
   let run: Array<{ token: Token; sentenceId: string }> = [];
   const flush = (): void => {
     if (run.length === 0) return;
     const sentence = sentenceById(run[0]!.sentenceId);
     if (sentence) {
-      rows.push({
-        layer: 'sentence',
-        text: withSection
-          ? `${sentence.id} [${sentence.section}] “${sentence.text}”`
-          : `${sentence.id} “${sentence.text}”`,
-      });
+      rows.push(tokenSentenceRow(sentence, run.map((hit) => hit.token)));
     } else {
       for (const hit of run) {
         rows.push({
@@ -258,7 +254,7 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
     const entity = entities.get(id);
     const label = entity ? (entity.name || entity.text || id) : id;
     rows.push({ layer: 'entity', text: `${field} → ${id} (${label})` });
-    if (entity) appendTokenSources(rows, entity.sources ?? [], false);
+    if (entity) appendTokenSources(rows, entity.sources ?? []);
   }
   for (const source of fact.sources ?? []) {
     if (/^s[1-9][0-9]*$/.test(source)) {
@@ -267,7 +263,7 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
     } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) {
       const hit = tokens.get(source);
       const linked = hit ? sentenceById(hit.sentenceId) : undefined;
-      if (linked) rows.push({ layer: 'sentence', text: `${linked.id} “${linked.text}”` });
+      if (linked) rows.push(tokenSentenceRow(linked, [hit!.token]));
       else rows.push({ layer: 'token', text: source + (hit ? ` “${hit.token.text}”` : '') });
     } else {
       rows.push({ layer: 'source', text: source });
@@ -296,7 +292,7 @@ export function expectedEntityLineage(entityId: string): Array<{ layer: string; 
   const entity = fixture.entities.find((row) => row.id === entityId);
   if (!entity) return [];
   const rows: Array<{ layer: string; text: string }> = [];
-  appendTokenSources(rows, entity.sources ?? [], true);
+  appendTokenSources(rows, entity.sources ?? []);
   for (const fact of fixture.facts) {
     const refs = [fact.actor, fact.action, fact.object, fact.condition];
     if (refs.includes(entity.id)) rows.push({ layer: 'fact', text: `${fact.id} ${fact.type}` });
@@ -307,11 +303,7 @@ export function expectedEntityLineage(entityId: string): Array<{ layer: string; 
 export function expectedSentenceLineage(sentenceId: string): Array<{ layer: string; text: string }> {
   const sentence = sentenceById(sentenceId);
   if (!sentence) return [];
-  const tagged = taggedMap().get(sentenceId);
   const rows: Array<{ layer: string; text: string }> = [];
-  for (const token of tagged?.tokens ?? []) {
-    rows.push({ layer: 'token', text: `${token.id} “${token.text}” [${(token.tags ?? []).join('|')}]` });
-  }
   for (const entity of fixture.entities) {
     for (const source of entity.sources ?? []) {
       if (source === sentence.id || source.startsWith(`${sentence.id}.`)) {
@@ -371,4 +363,79 @@ export function expectedMeta(): { id: string; sentences: number; entities: numbe
     entities: fixture.entities.length,
     facts: fixture.facts.filter((fact) => fact.removed !== true).length,
   };
+}
+
+export function expectedTokenCount(): number {
+  return fixture.tagged.reduce((sum, row) => sum + (row.tokens ?? []).length, 0);
+}
+
+export const PACKAGE_VERSION = (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string }).version;
+
+const POS_ORDER = ['Verb', 'Noun', 'Pronoun', 'Adjective', 'Adverb', 'Determiner', 'Preposition', 'Conjunction', 'Value', 'Negative'];
+const TAG_SKIP = ['Connector', 'TextValue', 'NumericValue'];
+
+export function coarsePos(tags: string[]): string {
+  return POS_ORDER.find((pos) => tags.includes(pos)) ?? tags[0] ?? '';
+}
+
+export function posLabel(tags: string[]): string {
+  const pos = coarsePos(tags);
+  const others = tags.filter((tag) => tag !== pos && !TAG_SKIP.includes(tag)).sort();
+  return [...(pos ? [pos] : []), ...others].join(' · ');
+}
+
+export interface TokenFilterGroup {
+  pos: string;
+  options: Array<{ value: string; text: string }>;
+}
+
+export function expectedTokenFilterGroups(): TokenFilterGroup[] {
+  const groups = new Map<string, { total: number; labels: Map<string, number> }>();
+  for (const row of fixture.tagged) {
+    for (const token of row.tokens ?? []) {
+      const tags = token.tags ?? [];
+      const pos = coarsePos(tags);
+      if (!pos) continue;
+      const group = groups.get(pos) ?? { total: 0, labels: new Map<string, number>() };
+      group.total += 1;
+      const label = posLabel(tags);
+      group.labels.set(label, (group.labels.get(label) ?? 0) + 1);
+      groups.set(pos, group);
+    }
+  }
+  const order = [
+    ...POS_ORDER.filter((pos) => groups.has(pos)),
+    ...[...groups.keys()].filter((pos) => !POS_ORDER.includes(pos)).sort(),
+  ];
+  return order.map((pos) => {
+    const group = groups.get(pos)!;
+    const labels = [...group.labels.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+    const options = [{ value: `pos:${pos}`, text: `${pos} · all (${group.total})` }];
+    for (const [label, count] of labels) {
+      if (label === pos && labels.length === 1) continue;
+      options.push({ value: label, text: `${label} (${count})` });
+    }
+    return { pos, options };
+  });
+}
+
+export function tokenMatchesFilter(tags: string[], value: string): boolean {
+  if (value.startsWith('pos:')) return coarsePos(tags) === value.slice(4);
+  return posLabel(tags) === value;
+}
+
+export function expectedTokenFilterMatches(value: string): { sentences: string[]; tokens: string[] } {
+  const sentences: string[] = [];
+  const tokens: string[] = [];
+  for (const sentence of fixture.sentences) {
+    const row = taggedMap().get(sentence.id);
+    const hits = (row?.tokens ?? []).filter((token) => tokenMatchesFilter(token.tags ?? [], value));
+    if (hits.length) sentences.push(sentence.id);
+    tokens.push(...hits.map((token) => token.id));
+  }
+  return { sentences, tokens };
+}
+
+export function taggedTokens(sentenceId: string): Token[] {
+  return taggedMap().get(sentenceId)?.tokens ?? [];
 }
