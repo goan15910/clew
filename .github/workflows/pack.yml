@@ -19,3 +19,5 @@ jobs:
       - run: npm test
       - name: Pack and smoke-install
         run: scripts/smoke-install.sh
+      - name: Install script methods and version stamps
+        run: bash scripts/test-install-clew.sh

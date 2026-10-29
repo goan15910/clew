@@ -396,7 +396,7 @@ const program = new Command();
 program
   .name('clew')
   .description('Check state charts and workflow sets, and prove each named flow.')
-  .version(installed.version, '-V, --version', 'print the version from package.json')
+  .version(installed.version, '-V, --version', 'print the installed version')
   .exitOverride();
 
 // Group commands turn Commander's implicit help subcommand off. Long help is `clew help`.
