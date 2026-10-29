@@ -104,7 +104,7 @@ export function promoteTokensToSpans(tokens: readonly Token[]): LiveSpan[] {
   const spans: LiveSpan[] = [];
   for (const token of tokens) {
     if (token.status !== 'current') continue;
-    spans.push({
+    const span: LiveSpan = {
       id: spanIdFor(token.id, token.id),
       firstTokenId: token.id,
       lastTokenId: token.id,
@@ -113,7 +113,10 @@ export function promoteTokensToSpans(tokens: readonly Token[]): LiveSpan[] {
       origin: 'promote',
       explicitlySet: false,
       entityLinkExplicitlySet: false,
-    });
+    };
+    // Skipped stop-word tokens promote to insignificant spans (still cover the token for merge glue).
+    if (token.skipped === true) span.insignificant = true;
+    spans.push(span);
   }
   return spans;
 }

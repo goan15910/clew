@@ -2,6 +2,7 @@
 import { reconcileEntities, sameEntities } from '../domain/spec-entities.js';
 import { reconcileFacts, sameFacts } from '../domain/spec-facts.js';
 import { promoteTaggedToSpans, replaceSentenceSpans, sameSpans, validatePartition } from '../domain/spec-spans.js';
+import { markSkippedTokens } from '../domain/spec-stop-words.js';
 import {
   currentSentences,
   hasAgentTokens,
@@ -46,7 +47,8 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     for (const sentence of live) {
       if (command.sentenceId !== undefined && sentence.id !== command.sentenceId) continue;
       const tagging = tagger.tag(sentence.text);
-      const tokens = tokensFromTagging(sentence, tagging);
+      // Mark stop words on tokens before 1:1 span promotion (merge glue stays in the partition).
+      const tokens = markSkippedTokens(tokensFromTagging(sentence, tagging));
       const previous = existing.get(sentence.id);
       if (hasAgentTokens(previous) && previous !== undefined) {
         if (taggingDiffers(previous, tagging.clauses, tokens)) {

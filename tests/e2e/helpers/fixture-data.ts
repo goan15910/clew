@@ -71,6 +71,7 @@ interface Token {
   text: string;
   tags?: string[];
   span?: [number, number];
+  skipped?: boolean;
 }
 
 interface TaggedSentence {
@@ -84,6 +85,7 @@ interface Span {
   lastTokenId: string;
   surface: string;
   tags?: string[];
+  insignificant?: boolean;
 }
 
 interface Graph {
@@ -496,6 +498,14 @@ export function spansForSentence(sentenceId: string): Span[] {
   return fixture.spans
     .filter((span) => sentenceIdOfToken(span.firstTokenId) === sentenceId)
     .sort((left, right) => (order.get(left.firstTokenId) || 0) - (order.get(right.firstTokenId) || 0));
+}
+
+export function skippedSpansForSentence(sentenceId: string): Span[] {
+  return spansForSentence(sentenceId).filter((span) => span.insignificant === true);
+}
+
+export function significantSpansForSentence(sentenceId: string): Span[] {
+  return spansForSentence(sentenceId).filter((span) => span.insignificant !== true);
 }
 
 export function spanForSource(source: string): Span | undefined {

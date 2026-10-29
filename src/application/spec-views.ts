@@ -40,13 +40,15 @@ export function taggedViews(sentences: readonly Sentence[], tagged: readonly Tag
 function tokenView(token: Token): SpecTokenView {
   const tags: string[] = [];
   for (const tag of token.tags) tags.push(tag);
-  return {
+  const view: SpecTokenView = {
     id: token.id,
     text: token.text,
     tags,
     span: [token.span[0], token.span[1]],
     origin: token.origin,
   };
+  if (token.skipped === true) view.skipped = true;
+  return view;
 }
 
 export function spanViews(spans: readonly LiveSpan[]): SpecSpanView[] {

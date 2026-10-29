@@ -425,7 +425,7 @@ function isAdjectivalVerb(tokens: readonly PlacedToken[], index: number): boolea
 }
 
 function tokenKind(token: Token): EntityKind | undefined {
-  if (token.status !== 'current' || token.text === '') return undefined;
+  if (token.status !== 'current' || token.text === '' || token.skipped === true) return undefined;
   if (hasTag(token.tags, 'Actor')) return 'actor';
   if (hasTag(token.tags, 'Verb')) {
     if (isAuxiliary(token.tags)) return undefined;

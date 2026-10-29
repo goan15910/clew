@@ -318,6 +318,18 @@ details.lineage[open] > summary::before { content: "▾ "; }
 .pos-value { --pos: #15803d; --pos-soft: #dcfce7; }
 .pos-negative { --pos: #be123c; --pos-soft: #ffe4e6; }
 .gloss-span.match .gloss-word { background: var(--pos-soft); }
+.gloss-span.skipped {
+  opacity: 0.45;
+}
+.gloss-span.skipped .gloss-word {
+  color: var(--muted);
+  border-bottom-width: 1px;
+  border-bottom-style: dotted;
+}
+.gloss-span.skipped:hover,
+.gloss-span.skipped.hit,
+.gloss-span.skipped.match { opacity: 0.85; }
+.line-span.skipped { opacity: 0.55; color: var(--muted); }
 .empty { color: var(--muted); padding: 1.5rem 0; }
 </style>
 </head>
@@ -563,7 +575,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
     if (piece.kind === "id") return '<code class="line-id">' + value + "</code>";
     if (piece.kind === "break") return '<span class="line-break"></span>';
     if (piece.kind === "span") {
-      return '<code class="line-ref line-span" data-span="' + esc(piece.span) + '" title="' + esc(piece.span) + '">' +
+      const skipped = piece.skipped ? " skipped" : "";
+      return '<code class="line-ref line-span' + skipped + '" data-span="' + esc(piece.span) + '" title="' + esc(piece.span) + '">' +
         value + "</code>";
     }
     if (piece.kind === "ref") return '<code class="line-ref">' + value + "</code>";
@@ -787,11 +800,15 @@ details.lineage[open] > summary::before { content: "▾ "; }
   function viaPart(source) {
     if (/^sp:/.test(source)) {
       const span = indexSpans().get(source);
-      return span ? { kind: "span", value: span.surface, span: span.id } : part("ref", source);
+      return span
+        ? { kind: "span", value: span.surface, span: span.id, skipped: span.insignificant === true }
+        : part("ref", source);
     }
     if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
       const span = spanForToken(source);
-      return span ? { kind: "span", value: span.surface, span: span.id } : part("ref", source);
+      return span
+        ? { kind: "span", value: span.surface, span: span.id, skipped: span.insignificant === true }
+        : part("ref", source);
     }
     return part("ref", source);
   }
@@ -967,8 +984,13 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const pos = coarsePos(tags);
     const label = posLabel(tags);
     const match = spanFilterActive() && spanMatches(span) ? " match" : "";
-    return '<span class="gloss-span pos-' + esc(pos.toLowerCase() || "none") + match + '" data-span="' + esc(span.id) +
-      '" title="' + esc(span.id + (tags.length ? " · " + tags.join(", ") : "")) + '">' +
+    const skipped = span.insignificant === true ? " skipped" : "";
+    const titleBits = [span.id];
+    if (tags.length) titleBits.push(tags.join(", "));
+    if (span.insignificant === true) titleBits.push("skipped");
+    return '<span class="gloss-span pos-' + esc(pos.toLowerCase() || "none") + match + skipped + '" data-span="' + esc(span.id) +
+      (span.insignificant === true ? '" data-skipped="true' : "") +
+      '" title="' + esc(titleBits.join(" · ")) + '">' +
       '<span class="gloss-word">' + esc(span.surface) + "</span>" +
       (label ? '<span class="gloss-pos">' + esc(label) + "</span>" : "") + "</span>";
   }
