@@ -1,12 +1,13 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
-import type { DraftGraph, Entity, Fact, Sentence, SpecFlow, TaggedSentence, Token } from '../domain/spec.js';
+import type { DraftGraph, Entity, Fact, LiveSpan, Sentence, SpecFlow, TaggedSentence, Token } from '../domain/spec.js';
 import { visibleFacts } from '../domain/spec-facts.js';
 import type {
   SpecEntityView,
   SpecFactView,
   SpecFlowView,
   SpecGraphView,
+  SpecSpanView,
   SpecTaggedView,
   SpecTokenReadingView,
   SpecTokenView,
@@ -46,6 +47,29 @@ function tokenView(token: Token): SpecTokenView {
     span: [token.span[0], token.span[1]],
     origin: token.origin,
   };
+}
+
+export function spanViews(spans: readonly LiveSpan[]): SpecSpanView[] {
+  const views: SpecSpanView[] = [];
+  for (const span of spans) {
+    const tags: string[] = [];
+    for (const tag of span.tags) tags.push(tag);
+    const view: SpecSpanView = {
+      id: span.id,
+      firstTokenId: span.firstTokenId,
+      lastTokenId: span.lastTokenId,
+      surface: span.surface,
+      tags,
+      origin: span.origin,
+      explicitlySet: span.explicitlySet,
+      entityLinkExplicitlySet: span.entityLinkExplicitlySet,
+    };
+    if (span.lexiconEntryId !== undefined) view.lexiconEntryId = span.lexiconEntryId;
+    if (span.entityId !== undefined) view.entityId = span.entityId;
+    if (span.insignificant !== undefined) view.insignificant = span.insignificant;
+    views.push(view);
+  }
+  return views;
 }
 
 export function uniqueTokenViews(tokens: readonly UniqueToken[]): SpecUniqueTokenView[] {

@@ -2,6 +2,7 @@
 import { basename } from 'node:path';
 import { reconcileEntities, sameEntities } from '../domain/spec-entities.js';
 import { reconcileFacts, sameFacts } from '../domain/spec-facts.js';
+import { retainValidSpans, sameSpans } from '../domain/spec-spans.js';
 import {
   SPEC_SCHEMA_VERSION,
   SPEC_SESSION_ID_PATTERN,
@@ -41,6 +42,7 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
   const id = allocateSessionId(read.spec.path, store.listSessions(), command.sessionId);
   const result = store.update(id, { create: true }, (current) => {
     const applied = applySpecText(current?.sentences ?? [], current?.tagged ?? [], drafts);
+    const spans = retainValidSpans(current?.spans, applied.tagged);
     const entities = current?.entities === undefined ? undefined : reconcileEntities(applied.sentences, applied.tagged, current.entities);
     const facts = current?.facts === undefined ? undefined : reconcileFacts(applied.sentences, applied.tagged, entities ?? [], current.facts);
     const now = new Date().toISOString();
@@ -55,14 +57,17 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
       tagged: applied.tagged,
     };
     if (current?.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
+    if (spans !== undefined) snapshot.spans = spans;
     if (entities !== undefined) snapshot.entities = entities;
     if (facts !== undefined) snapshot.facts = facts;
+    if (current?.graph !== undefined) snapshot.graph = current.graph;
     if (
       current !== undefined
       && current.specPath === snapshot.specPath
       && current.specHash === snapshot.specHash
       && sameSentences(current.sentences, snapshot.sentences)
       && sameTagged(current.tagged, snapshot.tagged)
+      && sameSpans(current.spans, snapshot.spans)
       && sameEntities(current.entities, snapshot.entities)
       && sameFacts(current.facts, snapshot.facts)
     ) {

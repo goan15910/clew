@@ -1,0 +1,9 @@
+{
+  "create ticket": ["Noun"],
+  "support agent": ["Person"],
+  "Jeff King": ["Person"],
+  "New York": ["Place"],
+  "case board": ["Noun"],
+  "audit-trail": ["Noun"],
+  "BD": ["Acronym"]
+}

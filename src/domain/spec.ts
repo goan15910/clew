@@ -68,6 +68,30 @@ export interface TaggedSentence {
   tokens: Token[];
 }
 
+/** Live span origin. Promote is the 1:1 token cover written by `spec tag`. */
+export type SpanOrigin = 'promote' | 'lexicon' | 'interactive';
+
+/**
+ * One cell of the live span partition. Identity is the token cover:
+ * `id` is always `sp:<firstTokenId>..<lastTokenId>`.
+ */
+export interface LiveSpan {
+  id: string;
+  firstTokenId: string;
+  lastTokenId: string;
+  /** Display / underline surface (original spec casing for the cover). */
+  surface: string;
+  tags: string[];
+  origin: SpanOrigin;
+  lexiconEntryId?: string;
+  /** True when an agent or human last wrote cover/tags/surface. */
+  explicitlySet: boolean;
+  entityId?: string;
+  /** True when an agent or human last wrote the entity link (including explicit none). */
+  entityLinkExplicitlySet: boolean;
+  insignificant?: boolean;
+}
+
 export interface Entity {
   id: string;
   kind: EntityKind;
@@ -110,6 +134,8 @@ export interface SpecSnapshot {
   updated: string;
   sentences: Sentence[];
   tagged: TaggedSentence[];
+  /** Live span partition grounded in `tagged` tokens. Omitted until `spec tag` dual-emits. */
+  spans?: LiveSpan[];
   entities?: Entity[];
   facts?: Fact[];
   graph?: DraftGraph;
@@ -164,6 +190,8 @@ export interface DraftGraph {
 export type SpecCommandName =
   | 'spec.init'
   | 'spec.tag'
+  | 'spec.spans.merge'
+  | 'spec.spans.check'
   | 'spec.entities.list'
   | 'spec.entities.merge'
   | 'spec.entities.rename'
@@ -191,6 +219,11 @@ export interface SpecHistoryArgs {
   from?: string;
   at?: string;
   title?: string;
+  lexicon?: string;
+  forceAuto?: boolean;
+  tags?: string[];
+  entity?: string;
+  link?: string;
 }
 
 export interface SpecHistoryEntry {

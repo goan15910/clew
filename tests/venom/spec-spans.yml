@@ -1,0 +1,189 @@
+name: spec spans merge and check
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+  sample: tests/fixtures/specs/span-merge-sample.md
+  lexicon: tests/fixtures/specs/span-lexicon.json
+testcases:
+- name: tag dual-emit lexicon merge and read-only check
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.sample}}' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual span-merge-sample
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.tag
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.spans.spans0.id ShouldContainSubstring "sp:"
+    - result.systemoutjson.spans.spans0.origin ShouldEqual promote
+  - type: exec
+    script: "find '{{.dir}}' -type f -name spans.json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring spans.json
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec spans merge --lexicon '{{.lexicon}}' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.spans.merge
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.merged ShouldNotBeEmpty
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function walk(dir){for(const name of readdirSync(dir,{withFileTypes:true})){const p=join(dir,name.name); if(name.isDirectory()) walk(p); else if(name.name==="spans.json"){const doc=JSON.parse(readFileSync(p,"utf8")); if(!doc.spans.some(s=>s.origin==="lexicon")) process.exit(2); if(!doc.spans.some(s=>String(s.surface).toLowerCase().includes("support agent"))) process.exit(3); process.exit(0);}} process.exit(1);}
+      walk(process.argv[1]);
+      ' '{{.dir}}'
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync,writeFileSync}=require("fs");
+      const {join}=require("path");
+      function findSpans(dir){for(const name of readdirSync(dir,{withFileTypes:true})){const p=join(dir,name.name); if(name.isDirectory()){const hit=findSpans(p); if(hit) return hit;} else if(name.name==="spans.json") return p;} return null;}
+      const path=findSpans(process.argv[1]);
+      if(!path) process.exit(1);
+      writeFileSync(process.argv[2], readFileSync(path));
+      ' '{{.dir}}' '{{.dir}}/spans.before.json'
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec spans check --lexicon '{{.lexicon}}' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.spans.check
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.spans ShouldNotBeEmpty
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function findSpans(dir){for(const name of readdirSync(dir,{withFileTypes:true})){const p=join(dir,name.name); if(name.isDirectory()){const hit=findSpans(p); if(hit) return hit;} else if(name.name==="spans.json") return p;} return null;}
+      const path=findSpans(process.argv[1]);
+      const before=readFileSync(process.argv[2],"utf8");
+      const after=readFileSync(path,"utf8");
+      if(before!==after) process.exit(2);
+      ' '{{.dir}}' '{{.dir}}/spans.before.json'
+    assertions:
+    - result.code ShouldEqual 0
+
+- name: interactive merge then force-auto lexicon
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      printf 'Create Ticket today.\n' > '{{.dir}}/short.md'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/short.md' --session short --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.session ShouldEqual short
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --session short --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.ok ShouldBeTrue
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync,writeFileSync}=require("fs");
+      const {join}=require("path");
+      function findSpans(dir){for(const name of readdirSync(dir,{withFileTypes:true})){const p=join(dir,name.name); if(name.isDirectory()){const hit=findSpans(p); if(hit) return hit;} else if(name.name==="spans.json") return p;} return null;}
+      const path=findSpans(process.argv[1]);
+      const doc=JSON.parse(readFileSync(path,"utf8"));
+      const create=doc.spans.find(s=>s.surface==="Create");
+      const ticket=doc.spans.find(s=>s.surface==="Ticket");
+      if(!create||!ticket) process.exit(2);
+      writeFileSync(process.argv[2], [create.id, ticket.id].join("\n"));
+      ' '{{.dir}}' '{{.dir}}/ids.txt'
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: |
+      ids=$(tr '\n' ' ' < '{{.dir}}/ids.txt')
+      set -- $ids
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec spans merge --session short --id "$1" --id "$2" --tags Noun --link none --json
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.spans.merge
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.merged ShouldHaveLength 1
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function findSpans(dir){for(const name of readdirSync(dir,{withFileTypes:true})){const p=join(dir,name.name); if(name.isDirectory()){const hit=findSpans(p); if(hit) return hit;} else if(name.name==="spans.json") return p;} return null;}
+      const doc=JSON.parse(readFileSync(findSpans(process.argv[1]),"utf8"));
+      const cover=doc.spans.find(s=>s.origin==="interactive");
+      if(!cover) process.exit(2);
+      if(cover.explicitlySet!==true) process.exit(3);
+      if(cover.entityLinkExplicitlySet!==true) process.exit(4);
+      if(cover.entityId!==undefined) process.exit(5);
+      if(JSON.stringify(cover.tags)!==JSON.stringify(["Noun"])) process.exit(6);
+      ' '{{.dir}}'
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec spans merge --session short --lexicon '{{.lexicon}}' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.ok ShouldBeTrue
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function findSpans(dir){for(const name of readdirSync(dir,{withFileTypes:true})){const p=join(dir,name.name); if(name.isDirectory()){const hit=findSpans(p); if(hit) return hit;} else if(name.name==="spans.json") return p;} return null;}
+      const doc=JSON.parse(readFileSync(findSpans(process.argv[1]),"utf8"));
+      if(!doc.spans.some(s=>s.origin==="interactive"&&s.explicitlySet===true)) process.exit(2);
+      ' '{{.dir}}'
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec spans merge --session short --lexicon '{{.lexicon}}' --force-auto --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.spans.merge
+    - result.systemoutjson.merged ShouldNotBeEmpty
+  - type: exec
+    script: |
+      node -e '
+      const {readdirSync,readFileSync}=require("fs");
+      const {join}=require("path");
+      function findSpans(dir){for(const name of readdirSync(dir,{withFileTypes:true})){const p=join(dir,name.name); if(name.isDirectory()){const hit=findSpans(p); if(hit) return hit;} else if(name.name==="spans.json") return p;} return null;}
+      const doc=JSON.parse(readFileSync(findSpans(process.argv[1]),"utf8"));
+      const cover=doc.spans.find(s=>s.lexiconEntryId==="create-ticket");
+      if(!cover) process.exit(2);
+      if(cover.origin!=="lexicon") process.exit(3);
+      if(cover.explicitlySet!==false) process.exit(4);
+      ' '{{.dir}}'
+    assertions:
+    - result.code ShouldEqual 0
