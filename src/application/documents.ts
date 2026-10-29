@@ -227,6 +227,43 @@ export interface SpecTagDocument {
   session?: string;
   tagger?: { name: string; version: string };
   sentences?: SpecTaggedView[];
+  spans?: SpecSpanView[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecSpanView {
+  id: string;
+  firstTokenId: string;
+  lastTokenId: string;
+  surface: string;
+  tags: string[];
+  origin: 'promote' | 'lexicon' | 'interactive';
+  lexiconEntryId?: string;
+  explicitlySet: boolean;
+  entityId?: string;
+  entityLinkExplicitlySet: boolean;
+  insignificant?: boolean;
+}
+
+export interface SpecSpanConflictView {
+  kind: 'tag-conflict' | 'multi-entity';
+  spanIds: string[];
+  surfaces: string[];
+  childTags: string[][];
+  entityIds: (string | undefined)[];
+  lexiconEntryId?: string;
+  lexiconKey?: string;
+}
+
+export interface SpecSpansDocument {
+  command: 'spec.spans.merge' | 'spec.spans.check';
+  ok: boolean;
+  session?: string;
+  spans?: SpecSpanView[];
+  merged?: string[];
+  skipped?: SpecSpanConflictView[];
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -435,6 +472,7 @@ export type CommandDocument =
   | CompareDocument
   | SpecInitDocument
   | SpecTagDocument
+  | SpecSpansDocument
   | SpecEntitiesDocument
   | SpecFactsDocument
   | SpecTraceDocument

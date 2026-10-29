@@ -44,6 +44,9 @@ testcases:
     - result.systemoutjson.sentences.sentences0.tokens.tokens2.tags.tags1 ShouldEqual Actor
     - result.systemoutjson.sentences.sentences0.tokens.tokens3.text ShouldEqual submits
     - result.systemoutjson.sentences.sentences0.tokens.tokens3.tags.tags0 ShouldEqual Verb
+    - result.systemoutjson.spans ShouldHaveLength 37
+    - result.systemoutjson.spans.spans0.id ShouldContainSubstring "sp:"
+    - result.systemoutjson.spans.spans0.origin ShouldEqual promote
     - result.systemoutjson.findings ShouldHaveLength 0
     - result.systemoutjson.issues ShouldHaveLength 0
   - type: exec
@@ -55,12 +58,13 @@ testcases:
     - result.systemoutjson.sentences ShouldHaveLength 1
     - result.systemoutjson.sentences.sentences0.id ShouldEqual s1
   - type: exec
-    script: "find '{{.dir}}' -type f -name session.json -o -type f -name sentences.json -o -type f -name tokens.json | sort"
+    script: "find '{{.dir}}' -type f \\( -name session.json -o -name sentences.json -o -name tokens.json -o -name spans.json \\) | sort"
     assertions:
     - result.code ShouldEqual 0
     - result.systemout ShouldContainSubstring session.json
     - result.systemout ShouldContainSubstring sentences.json
     - result.systemout ShouldContainSubstring tokens.json
+    - result.systemout ShouldContainSubstring spans.json
     - result.systemout ShouldNotContainSubstring ".lock"
 
 - name: init and tag human summary
@@ -82,7 +86,7 @@ testcases:
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
-    - 'result.systemout ShouldContainSubstring "session order: tagged 3 sentences (compromise 14.19.0)"'
+    - 'result.systemout ShouldContainSubstring "session order: tagged 3 sentences, 37 spans (compromise 14.19.0)"'
 
 - name: tag before init
   steps:

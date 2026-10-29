@@ -17,6 +17,7 @@ import {
   type Fact,
   type GraphState,
   type GraphTransition,
+  type LiveSpan,
   type Sentence,
   type SpecFlow,
   type SpecHistoryEntry,
@@ -30,6 +31,7 @@ import { specSessionDir, specRoot } from './data-dir.js';
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const TOKEN_ID = /^s[1-9][0-9]*\.t[1-9][0-9]*$/;
+const SPAN_ID = /^sp:s[1-9][0-9]*\.t[1-9][0-9]*\.\.s[1-9][0-9]*\.t[1-9][0-9]*$/;
 
 const SentenceSchema = z.strictObject({
   id: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE),
@@ -80,6 +82,25 @@ const SentencesFileSchema = z.strictObject({
 const TokensFileSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
   sentences: z.array(TaggedSchema),
+});
+
+const LiveSpanSchema = z.strictObject({
+  id: z.string().regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2'),
+  firstTokenId: z.string().regex(TOKEN_ID, 'token ids look like s1.t1'),
+  lastTokenId: z.string().regex(TOKEN_ID, 'token ids look like s1.t1'),
+  surface: z.string(),
+  tags: z.array(z.string()),
+  origin: z.enum(['promote', 'lexicon', 'interactive']),
+  lexiconEntryId: z.string().min(1).optional(),
+  explicitlySet: z.boolean(),
+  entityId: z.string().regex(SPEC_ENTITY_ID_PATTERN).optional(),
+  entityLinkExplicitlySet: z.boolean(),
+  insignificant: z.boolean().optional(),
+});
+
+const SpansFileSchema = z.strictObject({
+  schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
+  spans: z.array(LiveSpanSchema),
 });
 
 const EntitySchema = z.strictObject({
@@ -270,6 +291,25 @@ function toTagged(raw: z.infer<typeof TaggedSchema>): TaggedSentence | undefined
   return { id: raw.id, status: raw.status, clauses, tokens };
 }
 
+function toLiveSpan(raw: z.infer<typeof LiveSpanSchema>): LiveSpan {
+  const tags: string[] = [];
+  for (const tag of raw.tags) tags.push(tag);
+  const span: LiveSpan = {
+    id: raw.id,
+    firstTokenId: raw.firstTokenId,
+    lastTokenId: raw.lastTokenId,
+    surface: raw.surface,
+    tags,
+    origin: raw.origin,
+    explicitlySet: raw.explicitlySet,
+    entityLinkExplicitlySet: raw.entityLinkExplicitlySet,
+  };
+  if (raw.lexiconEntryId !== undefined) span.lexiconEntryId = raw.lexiconEntryId;
+  if (raw.entityId !== undefined) span.entityId = raw.entityId;
+  if (raw.insignificant !== undefined) span.insignificant = raw.insignificant;
+  return span;
+}
+
 function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapshot | undefined } | SpecStoreResult & { ok: false } {
   const sessionFile = join(dir, 'session.json');
   if (!existsSync(sessionFile)) {
@@ -332,6 +372,19 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
   };
   if (sessionParsed.data.tagger !== undefined) {
     snapshot.tagger = { name: sessionParsed.data.tagger.name, version: sessionParsed.data.tagger.version };
+  }
+
+  const spansFile = join(dir, 'spans.json');
+  if (existsSync(spansFile)) {
+    const spansRead = readJson(spansFile);
+    if (!spansRead.ok) return spansRead;
+    const spansVersion = versionFault(spansRead.value, spansFile);
+    if (spansVersion !== undefined) return { ok: false, fault: spansVersion.fault, message: spansVersion.message };
+    const spansParsed = SpansFileSchema.safeParse(spansRead.value);
+    if (!spansParsed.success) return { ok: false, ...zodFault(spansFile, spansParsed.error) };
+    const spans: LiveSpan[] = [];
+    for (const raw of spansParsed.data.spans) spans.push(toLiveSpan(raw));
+    snapshot.spans = spans;
   }
 
   const entitiesFile = join(dir, 'entities.json');
@@ -532,6 +585,25 @@ function tokenRecord(token: Token): z.infer<typeof TokenSchema> {
   };
 }
 
+function liveSpanRecord(span: LiveSpan): z.infer<typeof LiveSpanSchema> {
+  const tags: string[] = [];
+  for (const tag of span.tags) tags.push(tag);
+  const record: z.infer<typeof LiveSpanSchema> = {
+    id: span.id,
+    firstTokenId: span.firstTokenId,
+    lastTokenId: span.lastTokenId,
+    surface: span.surface,
+    tags,
+    origin: span.origin,
+    explicitlySet: span.explicitlySet,
+    entityLinkExplicitlySet: span.entityLinkExplicitlySet,
+  };
+  if (span.lexiconEntryId !== undefined) record.lexiconEntryId = span.lexiconEntryId;
+  if (span.entityId !== undefined) record.entityId = span.entityId;
+  if (span.insignificant !== undefined) record.insignificant = span.insignificant;
+  return record;
+}
+
 function writeJson(file: string, value: unknown): void {
   const temporary = `${file}.${process.pid}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
@@ -561,6 +633,11 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
     tagged.push({ id: item.id, status: item.status, clauses, tokens });
   }
   writeJson(join(dir, 'tokens.json'), { schemaVersion: snapshot.schemaVersion, sentences: tagged });
+  if (snapshot.spans !== undefined) {
+    const spans = [];
+    for (const span of snapshot.spans) spans.push(liveSpanRecord(span));
+    writeJson(join(dir, 'spans.json'), { schemaVersion: snapshot.schemaVersion, spans });
+  }
   if (snapshot.entities !== undefined) {
     const entities = [];
     for (const entity of snapshot.entities) entities.push(entityRecord(entity));
@@ -631,6 +708,11 @@ function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; 
   if (entry.args.from !== undefined) args.from = entry.args.from;
   if (entry.args.at !== undefined) args.at = entry.args.at;
   if (entry.args.title !== undefined) args.title = entry.args.title;
+  if (entry.args.lexicon !== undefined) args.lexicon = entry.args.lexicon;
+  if (entry.args.forceAuto !== undefined) args.forceAuto = entry.args.forceAuto;
+  if (entry.args.tags !== undefined) args.tags = entry.args.tags.slice();
+  if (entry.args.entity !== undefined) args.entity = entry.args.entity;
+  if (entry.args.link !== undefined) args.link = entry.args.link;
   const before: string[] = [];
   for (const id of entry.before) before.push(id);
   const after: string[] = [];

@@ -56,7 +56,22 @@ export function humanSummary(document: CommandDocument): string {
   if (document.command === 'spec.tag') {
     if (document.fault !== undefined || document.session === undefined) return '';
     const tagger = document.tagger === undefined ? '' : ` (${document.tagger.name} ${document.tagger.version})`;
-    const lines = [`session ${document.session}: tagged ${document.sentences?.length ?? 0} sentences${tagger}`];
+    const spanCount = document.spans?.length;
+    const spanNote = spanCount === undefined ? '' : `, ${spanCount} spans`;
+    const lines = [`session ${document.session}: tagged ${document.sentences?.length ?? 0} sentences${spanNote}${tagger}`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.spans.merge' || document.command === 'spec.spans.check') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const lines = [
+      document.command === 'spec.spans.merge'
+        ? `session ${document.session}: ${document.merged?.length ?? 0} merged, ${document.skipped?.length ?? 0} skipped, ${document.spans?.length ?? 0} live spans`
+        : `session ${document.session}: ${document.skipped?.length ?? 0} unresolved windows, ${document.spans?.length ?? 0} live spans`,
+    ];
+    for (const window of document.skipped ?? []) {
+      lines.push(`  ${window.kind} ${window.surfaces.join(' + ')} (${window.spanIds.join(', ')})`);
+    }
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }

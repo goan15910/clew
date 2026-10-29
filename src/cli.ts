@@ -8,6 +8,9 @@
 // clew compare <verify.json>... [--out dir] [--json]
 // clew spec init <spec.md> [--session id] [--json]
 // clew spec tag [--session id] [--sentence s1] [--json]
+// clew spec spans merge --lexicon file.json [--force-auto] [--session id] [--json]
+// clew spec spans merge --id sp:... --id sp:... [--tags Noun] [--entity id|--link none] [--session id] [--json]
+// clew spec spans check --lexicon file.json [--session id] [--json]
 // clew spec entities list [--kind actor] [--status candidate] [--session id] [--json]
 // clew spec entities merge|rename|reject|promote [--session id] [--json]
 // clew spec facts propose [--sentence s1] [--session id] [--json]
@@ -32,6 +35,7 @@ import { compromiseTagger } from './adapters/pos/compromise-tagger.js';
 import { loadAddedFacts, loadFactEdit, loadRemovedFacts } from './adapters/spec-store/fact-patch.js';
 import { loadGroupPatch, loadSplitPatch } from './adapters/spec-store/flow-patch.js';
 import { jsonSpecStore } from './adapters/spec-store/json-file-store.js';
+import { loadSpanLexicon } from './adapters/spec-store/lexicon-loader.js';
 import { specTextSource } from './adapters/spec-store/read-spec.js';
 import {
   jsonSpecSessionViewer,
@@ -51,6 +55,7 @@ import { yamlWorkflowWriter } from './adapters/yaml/workflow-writer.js';
 import { analyzeChart } from './application/analyze-chart.js';
 import { buildSpecGraph } from './application/build-graph.js';
 import { checkChart } from './application/check-chart.js';
+import { checkSpans } from './application/check-spans.js';
 import { checkWorkflows } from './application/check-workflows.js';
 import { compareResults } from './application/compare-results.js';
 import { editEntities } from './application/edit-entities.js';
@@ -60,6 +65,7 @@ import { emitSpec } from './application/emit-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listEntities } from './application/list-entities.js';
 import { listSpecSessions } from './application/list-spec-sessions.js';
+import { mergeSpans } from './application/merge-spans.js';
 import { SPEC_SHOW_LAYERS, formatIssues, type CommandDocument, type Outcome, type OutputIssue, type SpecShowLayer } from './application/documents.js';
 import type { ComparePorts, VerifyPorts } from './application/ports.js';
 import { proposeSpecFacts } from './application/propose-facts.js';
@@ -106,6 +112,36 @@ const SpecTagFlags = z.object({
   json: z.boolean().optional(),
   session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
   sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
+});
+const SPAN_ID = /^sp:s[1-9][0-9]*\.t[1-9][0-9]*\.\.s[1-9][0-9]*\.t[1-9][0-9]*$/;
+const SpecSpansMergeFlags = z.object({
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+  lexicon: z.string().min(1).optional(),
+  forceAuto: z.boolean().optional(),
+  id: z.array(z.string().regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2')).optional(),
+  tags: z.array(z.string().min(1)).optional(),
+  entity: z.string().regex(SPEC_ENTITY_ID_PATTERN, SPEC_ENTITY_ID_MESSAGE).optional(),
+  link: z.literal('none').optional(),
+}).superRefine((value, context) => {
+  const hasLexicon = value.lexicon !== undefined;
+  const ids = value.id ?? [];
+  const tags = value.tags ?? [];
+  const hasIds = ids.length > 0;
+  if (hasLexicon === hasIds) {
+    context.addIssue({ code: 'custom', message: 'pass --lexicon for auto-merge, or repeat --id for interactive merge', path: ['lexicon'] });
+  }
+  if (value.entity !== undefined && value.link !== undefined) {
+    context.addIssue({ code: 'custom', message: 'pass --entity or --link none, not both', path: ['entity'] });
+  }
+  if (hasLexicon && (tags.length > 0 || value.entity !== undefined || value.link !== undefined || hasIds)) {
+    context.addIssue({ code: 'custom', message: 'lexicon merge does not take --id, --tags, --entity, or --link', path: ['lexicon'] });
+  }
+});
+const SpecSpansCheckFlags = z.object({
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+  lexicon: z.string().min(1, 'lexicon path is required'),
 });
 const SessionOption = z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional();
 const EntityIdOption = z.string().regex(SPEC_ENTITY_ID_PATTERN, SPEC_ENTITY_ID_MESSAGE);
@@ -518,6 +554,97 @@ setManual(spec
     emit(tagSpec({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore, compromiseTagger), parsed.data.json === true);
   }), {
   examples: ['clew spec tag --json'],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
+
+const spans = spec.command('spans').description('Live span partition: lexicon merge and conflict check.').helpCommand(false);
+
+setManual(spans
+  .command('merge')
+  .description('Merge live spans from a lexicon, or interactively with operator tags/entity link.')
+  .option('--lexicon <file>', 'JSON lexicon for deterministic multi-word merges')
+  .option('--force-auto', 'allow lexicon merge to absorb explicitlySet spans')
+  .option('--id <spanId>', 'live span to merge (repeatable, interactive)', collectFlow, [] as string[])
+  .option('--tags <tag>', 'operator tags for interactive merge (repeatable)', collectFlow, [] as string[])
+  .option('--entity <id>', 'explicit entity link for interactive merge')
+  .option('--link <none>', 'explicit no-entity link for interactive merge (pass none)')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSpansMergeFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.spans.merge', opts, parsed.error);
+    if (parsed.data.lexicon !== undefined) {
+      const lexicon = loadSpanLexicon(parsed.data.lexicon);
+      if (!lexicon.ok) {
+        emit({
+          exit: 'invalid',
+          document: {
+            command: 'spec.spans.merge',
+            ok: false,
+            fault: 'unreadable',
+            findings: [],
+            issues: [{ kind: 'input', path: '', message: lexicon.message, file: parsed.data.lexicon }],
+          },
+        }, parsed.data.json === true);
+        return;
+      }
+      emit(mergeSpans({
+        mode: 'lexicon',
+        sessionId: parsed.data.session,
+        lexiconPath: parsed.data.lexicon,
+        lexicon: lexicon.entries,
+        forceAuto: parsed.data.forceAuto === true,
+      }, jsonSpecStore), parsed.data.json === true);
+      return;
+    }
+    const tags = parsed.data.tags !== undefined && parsed.data.tags.length > 0 ? parsed.data.tags : undefined;
+    emit(mergeSpans({
+      mode: 'interactive',
+      sessionId: parsed.data.session,
+      spanIds: parsed.data.id ?? [],
+      tags,
+      entityId: parsed.data.link === 'none' ? null : parsed.data.entity,
+    }, jsonSpecStore), parsed.data.json === true);
+  }), {
+  examples: [
+    'clew spec spans merge --lexicon tests/fixtures/specs/span-lexicon.json --json',
+    'clew spec spans merge --id sp:s1.t2..s1.t2 --id sp:s1.t3..s1.t3 --tags Noun --json',
+  ],
+  exitCodes: specExits,
+  notes: [jsonNote, sessionNote],
+});
+
+setManual(spans
+  .command('check')
+  .description('List unresolved tag-conflict and multi-entity span windows (read-only).')
+  .option('--lexicon <file>', 'JSON lexicon used to find candidate windows')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSpansCheckFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.spans.check', opts, parsed.error);
+    const lexicon = loadSpanLexicon(parsed.data.lexicon);
+    if (!lexicon.ok) {
+      emit({
+        exit: 'invalid',
+        document: {
+          command: 'spec.spans.check',
+          ok: false,
+          fault: 'unreadable',
+          findings: [],
+          issues: [{ kind: 'input', path: '', message: lexicon.message, file: parsed.data.lexicon }],
+        },
+      }, parsed.data.json === true);
+      return;
+    }
+    emit(checkSpans({
+      sessionId: parsed.data.session,
+      lexicon: lexicon.entries,
+      lexiconPath: parsed.data.lexicon,
+    }, jsonSpecStore), parsed.data.json === true);
+  }), {
+  examples: ['clew spec spans check --lexicon tests/fixtures/specs/span-lexicon.json --json'],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
 });
