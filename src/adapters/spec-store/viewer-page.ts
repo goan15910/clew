@@ -41,15 +41,21 @@ header {
   top: 0;
   z-index: 2;
 }
-header h1 {
+header .brand {
   margin: 0;
-  font: 600 1.35rem/1.2 var(--sans);
+  font: 700 1.35rem/1.2 var(--sans);
   letter-spacing: -0.02em;
 }
+header .brand .version { font: 500 0.8rem var(--mono); color: var(--muted); margin-left: 0.3rem; }
+header .session-line { margin-top: 0.35rem; display: grid; gap: 0.15rem; }
+header h1 {
+  margin: 0;
+  font: 600 1rem/1.3 var(--sans);
+}
 header p {
-  margin: 0.35rem 0 0;
+  margin: 0;
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.88rem;
 }
 .meta { font-family: var(--mono); font-size: 0.82rem; }
 .toolbar {
@@ -60,25 +66,45 @@ header p {
   padding: 0.85rem 1.5rem;
   border-bottom: 1px solid var(--line);
 }
-.tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.tabset { margin-top: 0.25rem; }
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+  margin-bottom: -1px;
+}
 .tabs button, .filters button, details summary {
   font: inherit;
   cursor: pointer;
 }
 .tabs button {
   border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-  padding: 0.4rem 0.75rem;
-  border-radius: 0.35rem;
+  background: #ebe7e0;
+  color: var(--muted);
+  padding: 0.5rem 1.1rem;
+  border-radius: 0.5rem 0.5rem 0 0;
 }
+.tabs button:hover { color: var(--ink); }
 .tabs button[aria-selected="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--panel);
+  border-bottom-color: var(--panel);
+  border-top: 3px solid var(--accent);
+  color: var(--accent);
+  font-weight: 600;
 }
+.tab-body {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0 0.5rem 0.5rem 0.5rem;
+  padding: 0.9rem;
+}
+.tab-body .card { background: #fcfbf9; }
+.tab-body .card:last-child { margin-bottom: 0; }
 .filters {
   display: flex;
+  max-width: 1100px;
   flex-wrap: wrap;
   gap: 0.5rem 0.75rem;
   align-items: end;
@@ -101,6 +127,7 @@ header p {
   background: var(--panel);
   min-width: 8rem;
 }
+.filters #filter-token { width: 15rem; }
 .filters button {
   border: 1px solid var(--line);
   background: var(--panel);
@@ -228,60 +255,104 @@ details.lineage[open] > summary::before { content: "▾ "; }
   border-radius: 999px;
   padding: 0.08rem 0.42rem;
 }
+.line-break { flex-basis: 100%; height: 0; }
 .line-note { color: var(--muted); font-size: 0.78rem; }
-.tokens { margin-top: 0.45rem; display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.token {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  margin: 0;
-  padding: 0.18rem 0.4rem;
-  border-radius: 0.25rem;
-  background: #ecfeff;
-  border: 1px solid #a5f3fc;
+.gloss {
+  margin: 0.55rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 0.6rem;
 }
-.token-id {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--accent);
-  background: #fff;
-  border: 1px solid #99f6e4;
-  border-radius: 0.2rem;
-  padding: 0.02rem 0.28rem;
-}
-.token-text {
-  font-family: var(--sans);
-  font-size: 0.86rem;
-  font-weight: 600;
+.gloss-gap {
+  white-space: pre;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  padding-bottom: 0.25rem;
   color: var(--ink);
 }
+.gloss-token {
+  --pos: #78716c;
+  --pos-soft: #f5f5f4;
+  position: relative;
+  display: inline-flex;
+  cursor: default;
+}
+.gloss-word {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--ink);
+  padding: 0 0.08rem 0.1rem;
+  border-bottom: 3px solid var(--pos);
+}
+.gloss-pos {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 0.2rem;
+  z-index: 2;
+  white-space: nowrap;
+  font: 600 0.72rem/1.2 var(--mono);
+  color: var(--pos);
+  background: var(--pos-soft);
+  border: 1px solid var(--pos);
+  border-radius: 0.25rem;
+  padding: 0.15rem 0.4rem;
+}
+.gloss-token:hover .gloss-pos,
+.gloss-token.hit .gloss-pos { display: block; }
+.gloss-token:hover .gloss-word,
+.gloss-token.hit .gloss-word { background: var(--pos-soft); }
+.gloss-token.hit .gloss-word { outline: 2px solid var(--pos); border-radius: 0.2rem; }
+.line-token { cursor: default; }
+.pos-verb { --pos: #b91c1c; --pos-soft: #fee2e2; }
+.pos-noun { --pos: #1d4ed8; --pos-soft: #dbeafe; }
+.pos-pronoun { --pos: #4338ca; --pos-soft: #e0e7ff; }
+.pos-adjective { --pos: #a16207; --pos-soft: #fef9c3; }
+.pos-adverb { --pos: #c2410c; --pos-soft: #ffedd5; }
+.pos-determiner { --pos: #6b7280; --pos-soft: #f3f4f6; }
+.pos-preposition { --pos: #0f766e; --pos-soft: #ccfbf1; }
+.pos-conjunction { --pos: #7e22ce; --pos-soft: #f3e8ff; }
+.pos-value { --pos: #15803d; --pos-soft: #dcfce7; }
+.pos-negative { --pos: #be123c; --pos-soft: #ffe4e6; }
+.gloss-token.match .gloss-word { background: var(--pos-soft); }
 .empty { color: var(--muted); padding: 1.5rem 0; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Clew session <span class="meta" id="session-id">…</span></h1>
-  <p id="session-meta">Loading session JSON…</p>
+  <div class="brand">Clew<span class="version">v__CLEW_VERSION__</span></div>
+  <div class="session-line">
+    <h1>Session <span class="meta" id="session-id">…</span></h1>
+    <p id="session-meta">Loading session JSON…</p>
+  </div>
 </header>
 <div class="toolbar">
-  <div class="tabs" role="tablist" aria-label="Views">
-    <button type="button" role="tab" id="tab-facts" aria-selected="true" data-tab="facts">Facts</button>
-    <button type="button" role="tab" id="tab-entities" aria-selected="false" data-tab="entities">Entities</button>
-    <button type="button" role="tab" id="tab-sentences" aria-selected="false" data-tab="sentences">Sentences</button>
-  </div>
   <div class="filters">
     <label>Search<input type="search" id="filter-text" placeholder="id or surface form"></label>
     <label>Entity kind<select id="filter-kind"><option value="">any</option></select></label>
     <label>Fact type<select id="filter-type"><option value="">any</option></select></label>
     <label>Fact status<select id="filter-status"><option value="">any</option><option>current</option><option>stale</option></select></label>
+    <label>Token<select id="filter-token"><option value="">any</option></select></label>
     <button type="button" id="filter-clear">Clear filters</button>
   </div>
 </div>
 <main>
   <p class="status" id="banner">Fetching session files…</p>
-  <section class="panel active" id="panel-facts" role="tabpanel" aria-labelledby="tab-facts"></section>
-  <section class="panel" id="panel-entities" role="tabpanel" aria-labelledby="tab-entities" hidden></section>
-  <section class="panel" id="panel-sentences" role="tabpanel" aria-labelledby="tab-sentences" hidden></section>
+  <div class="tabset">
+    <div class="tabs" role="tablist" aria-label="Views">
+      <button type="button" role="tab" id="tab-facts" aria-selected="true" data-tab="facts">Facts</button>
+      <button type="button" role="tab" id="tab-entities" aria-selected="false" data-tab="entities">Entities</button>
+      <button type="button" role="tab" id="tab-sentences" aria-selected="false" data-tab="sentences">Sentences</button>
+    </div>
+    <div class="tab-body">
+      <section class="panel active" id="panel-facts" role="tabpanel" aria-labelledby="tab-facts"></section>
+      <section class="panel" id="panel-entities" role="tabpanel" aria-labelledby="tab-entities" hidden></section>
+      <section class="panel" id="panel-sentences" role="tabpanel" aria-labelledby="tab-sentences" hidden></section>
+    </div>
+  </div>
 </main>
 <script>
 (function () {
@@ -305,6 +376,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     kind: document.getElementById("filter-kind"),
     type: document.getElementById("filter-type"),
     status: document.getElementById("filter-status"),
+    token: document.getElementById("filter-token"),
     clear: document.getElementById("filter-clear"),
     facts: document.getElementById("panel-facts"),
     entities: document.getElementById("panel-entities"),
@@ -442,6 +514,11 @@ details.lineage[open] > summary::before { content: "▾ "; }
   function renderPart(piece) {
     const value = esc(piece.value);
     if (piece.kind === "id") return '<code class="line-id">' + value + "</code>";
+    if (piece.kind === "break") return '<span class="line-break"></span>';
+    if (piece.kind === "token") {
+      return '<code class="line-ref line-token" data-token="' + esc(piece.token) + '" title="' + esc(piece.token) + '">' +
+        value + "</code>";
+    }
     if (piece.kind === "ref") return '<code class="line-ref">' + value + "</code>";
     if (piece.kind === "up") return '<code class="line-up">' + value + "</code>";
     if (piece.kind === "down") return '<code class="line-down">' + value + "</code>";
@@ -513,29 +590,41 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return html;
   }
 
-  function sentenceRow(sentence, withSection, markTokens) {
-    const text = withSection
-      ? sentence.id + " [" + sentence.section + "] “" + sentence.text + "”"
-      : sentence.id + " “" + sentence.text + "”";
-    const bits = [part("id", sentence.id)];
-    if (withSection) bits.push(part("type", sentence.section));
-    const marks = markTokens || [];
-    if (marks.length) {
-      bits.push({ kind: "content", quoted: true, raw: true, html: markedSentenceHtml(sentence, marks) });
-    } else {
-      bits.push(part("content", sentence.text, true));
-    }
-    return { layer: "sentence", text: text, bits: bits };
+  function sentenceRow(sentence) {
+    return {
+      layer: "sentence",
+      text: sentence.id + " “" + sentence.text + "”",
+      bits: [part("id", sentence.id), part("content", sentence.text, true)],
+    };
   }
 
-  function appendTokenSources(rows, sources, withSection) {
+  function tokenRangeLabel(marks) {
+    const first = marks[0].id;
+    return marks.length > 1 ? first + "–" + marks[marks.length - 1].id : first;
+  }
+
+  function tokenSentenceRow(sentence, marks) {
+    const ids = tokenRangeLabel(marks);
+    return {
+      layer: "token",
+      text: ids + " [" + sentence.section + "] “" + sentence.text + "”",
+      bits: [
+        part("id", ids),
+        part("type", sentence.section),
+        { kind: "break" },
+        { kind: "content", quoted: true, raw: true, html: markedSentenceHtml(sentence, marks) },
+      ],
+    };
+  }
+
+  function appendTokenSources(rows, sources) {
     const tokens = indexTokens();
     let run = [];
     function flush() {
       if (!run.length) return;
       const marks = run.map(function (hit) { return hit.token; });
       const sentence = sentenceById(run[0].sentenceId);
-      if (sentence) rows.push(sentenceRow(sentence, withSection, marks));
+      if (sentence) rows.push(tokenSentenceRow(sentence, marks));
       else {
         for (const hit of run) rows.push(tokenRow(hit.token.id, hit.token, true));
       }
@@ -570,18 +659,18 @@ details.lineage[open] > summary::before { content: "▾ "; }
         text: field + " → " + id + " (" + label + ")",
         bits: [part("type", field), part("note", "→"), part("id", id), part("content", label)],
       });
-      if (entity) appendTokenSources(rows, entity.sources, false);
+      if (entity) appendTokenSources(rows, entity.sources);
     }
     for (const source of fact.sources || []) {
       if (/^s[1-9][0-9]*$/.test(source)) {
         const sentence = sentenceById(source);
         rows.push(sentence
-          ? sentenceRow(sentence, false)
+          ? sentenceRow(sentence)
           : { layer: "sentence", text: source, bits: [part("id", source)] });
       } else if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
         const hit = tokens.get(source);
         const sentence = hit ? sentenceById(hit.sentenceId) : null;
-        if (sentence) rows.push(sentenceRow(sentence, false, [hit.token]));
+        if (sentence) rows.push(tokenSentenceRow(sentence, [hit.token]));
         else rows.push(tokenRow(source, hit ? hit.token : null, false));
       } else {
         rows.push({ layer: "source", text: source, bits: [part("id", source)] });
@@ -627,7 +716,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 
   function entityLineage(entity) {
     const rows = [];
-    appendTokenSources(rows, entity.sources, true);
+    appendTokenSources(rows, entity.sources);
     for (const fact of state.facts) {
       const refs = [fact.actor, fact.action, fact.object, fact.condition];
       if (refs.indexOf(entity.id) >= 0) {
@@ -641,19 +730,21 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return lineageBlock(rows);
   }
 
-  function sentenceLineage(sentence, tagged) {
+  function viaPart(source, tokens) {
+    const hit = tokens.get(source);
+    return hit ? { kind: "token", value: hit.token.text, token: source } : part("ref", source);
+  }
+
+  function sentenceLineage(sentence) {
+    const tokens = indexTokens();
     const rows = [];
-    const tokens = (tagged && tagged.tokens) || [];
-    for (const token of tokens) {
-      rows.push(tokenRow(token.id, token, true));
-    }
     for (const entity of state.entities) {
       for (const source of entity.sources || []) {
         if (source === sentence.id || source.indexOf(sentence.id + ".") === 0) {
           rows.push({
             layer: "entity",
             text: entity.id + " via " + source,
-            bits: [part("id", entity.id), part("note", "via"), part("ref", source)],
+            bits: [part("id", entity.id), part("note", "via"), viaPart(source, tokens)],
           });
           break;
         }
@@ -665,7 +756,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
           rows.push({
             layer: "fact",
             text: fact.id + " " + fact.type + " via " + source,
-            bits: [part("id", fact.id), part("type", fact.type), part("note", "via"), part("ref", source)],
+            bits: [part("id", fact.id), part("type", fact.type), part("note", "via"), viaPart(source, tokens)],
           });
           break;
         }
@@ -747,12 +838,111 @@ details.lineage[open] > summary::before { content: "▾ "; }
     }).join("");
   }
 
+  const POS_ORDER = [
+    "Verb", "Noun", "Pronoun", "Adjective", "Adverb", "Determiner",
+    "Preposition", "Conjunction", "Value", "Negative",
+  ];
+
+  function coarsePos(tags) {
+    for (const pos of POS_ORDER) {
+      if (tags.indexOf(pos) >= 0) return pos;
+    }
+    return tags[0] || "";
+  }
+
+  const TAG_SKIP = ["Connector", "TextValue", "NumericValue"];
+
+  function posLabel(tags) {
+    const pos = coarsePos(tags);
+    return (pos ? [pos] : []).concat(otherTags(tags).sort()).join(" · ");
+  }
+
+  function otherTags(tags) {
+    const pos = coarsePos(tags);
+    return tags.filter(function (tag) { return tag !== pos && TAG_SKIP.indexOf(tag) < 0; });
+  }
+
+  function tokenFilterActive() {
+    return els.token.value !== "";
+  }
+
+  function tokenMatches(token) {
+    const tags = token.tags || [];
+    const value = els.token.value;
+    if (value.indexOf("pos:") === 0) return coarsePos(tags) === value.slice(4);
+    return posLabel(tags) === value;
+  }
+
+  function fillTokenFilter() {
+    const groups = new Map();
+    for (const row of state.tagged) {
+      for (const token of row.tokens || []) {
+        const tags = token.tags || [];
+        const pos = coarsePos(tags);
+        if (!pos) continue;
+        if (!groups.has(pos)) groups.set(pos, { total: 0, labels: new Map() });
+        const group = groups.get(pos);
+        const label = posLabel(tags);
+        group.total += 1;
+        group.labels.set(label, (group.labels.get(label) || 0) + 1);
+      }
+    }
+    const order = POS_ORDER.filter(function (pos) { return groups.has(pos); })
+      .concat(Array.from(groups.keys()).filter(function (pos) { return POS_ORDER.indexOf(pos) < 0; }).sort());
+    let html = '<option value="">any</option>';
+    for (const pos of order) {
+      const group = groups.get(pos);
+      const labels = Array.from(group.labels.entries()).sort(function (a, b) { return b[1] - a[1] || (a[0] < b[0] ? -1 : 1); });
+      html += '<optgroup label="' + esc(pos) + '">' +
+        '<option value="pos:' + esc(pos) + '">' + esc(pos) + " · all (" + group.total + ")</option>";
+      for (const [label, count] of labels) {
+        if (label === pos && labels.length === 1) continue;
+        html += '<option value="' + esc(label) + '">' + esc(label) + " (" + count + ")</option>";
+      }
+      html += "</optgroup>";
+    }
+    els.token.innerHTML = html;
+  }
+
+  function glossToken(token) {
+    const tags = token.tags || [];
+    const pos = coarsePos(tags);
+    const label = posLabel(tags);
+    const match = tokenFilterActive() && tokenMatches(token) ? " match" : "";
+    return '<span class="gloss-token pos-' + esc(pos.toLowerCase() || "none") + match + '" data-token="' + esc(token.id) +
+      '" title="' + esc(token.id + (tags.length ? " · " + tags.join(", ") : "")) + '">' +
+      '<span class="gloss-word">' + esc(token.text) + "</span>" +
+      (label ? '<span class="gloss-pos">' + esc(label) + "</span>" : "") + "</span>";
+  }
+
+  function glossHtml(sentence, tokens) {
+    const text = sentence.text || "";
+    const base = sentence.span && sentence.span.length === 2 ? sentence.span[0] : null;
+    if (base === null || !tokens.length) return '<p class="blurb">' + esc(text) + "</p>";
+    let html = "";
+    let cursor = 0;
+    for (const token of tokens) {
+      const start = token.span && token.span.length === 2 ? token.span[0] - base : -1;
+      const end = start >= 0 ? token.span[1] - base : -1;
+      if (start < cursor || end > text.length || text.slice(start, end) !== token.text) {
+        return '<p class="blurb">' + esc(text) + "</p>" +
+          '<div class="gloss">' + tokens.map(glossToken).join("") + "</div>";
+      }
+      if (start > cursor) html += '<span class="gloss-gap">' + esc(text.slice(cursor, start)) + "</span>";
+      html += glossToken(token);
+      cursor = end;
+    }
+    if (cursor < text.length) html += '<span class="gloss-gap">' + esc(text.slice(cursor)) + "</span>";
+    return '<p class="gloss" aria-label="' + esc(text) + '">' + html + "</p>";
+  }
+
   function renderSentences() {
     const tagged = indexTagged();
     const visible = state.sentences.filter(function (sentence) {
       const row = tagged.get(sentence.id);
       const tokenText = ((row && row.tokens) || []).map(function (token) { return token.text; });
       const tokenIds = ((row && row.tokens) || []).map(function (token) { return token.id; });
+      if (tokenFilterActive() && !((row && row.tokens) || []).some(tokenMatches)) return false;
       return matchesText([sentence.id, sentence.text, sentence.section, sentence.status, ...tokenText, ...tokenIds]);
     });
     if (visible.length === 0) {
@@ -761,18 +951,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
     }
     els.sentences.innerHTML = visible.map(function (sentence) {
       const row = tagged.get(sentence.id);
-      const tokens = ((row && row.tokens) || []).map(function (token) {
-        return '<span class="token" title="' + esc((token.tags || []).join(", ")) + '">' +
-          '<code class="token-id">' + esc(token.id) + "</code>" +
-          '<span class="token-text">' + esc(token.text) + "</span></span>";
-      }).join("");
       return (
         '<article class="card">' +
         "<h2><span class=\\"id\\">" + esc(sentence.id) + "</span>" +
         pill(sentence.section) + pill(sentence.status, statusTone(sentence.status)) + "</h2>" +
-        '<p class="blurb">' + esc(sentence.text) + "</p>" +
-        (tokens ? '<div class="tokens">' + tokens + "</div>" : "") +
-        sentenceLineage(sentence, row) +
+        glossHtml(sentence, (row && row.tokens) || []) +
+        sentenceLineage(sentence) +
         "</article>"
       );
     }).join("");
@@ -803,6 +987,18 @@ details.lineage[open] > summary::before { content: "▾ "; }
       selectTab(button.getAttribute("data-tab"));
     });
   }
+  function markToken(event, on) {
+    const ref = event.target instanceof Element ? event.target.closest(".line-token") : null;
+    if (!ref) return;
+    const card = ref.closest("article.card");
+    if (!card) return;
+    for (const word of card.querySelectorAll('.gloss-token[data-token="' + ref.getAttribute("data-token") + '"]')) {
+      word.classList.toggle("hit", on);
+    }
+  }
+  document.addEventListener("mouseover", function (event) { markToken(event, true); });
+  document.addEventListener("mouseout", function (event) { markToken(event, false); });
+
   document.addEventListener("click", function (event) {
     const target = event.target;
     if (!target || !target.closest) return;
@@ -818,7 +1014,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       pane.hidden = pane.getAttribute("data-layer") !== layer;
     }
   });
-  for (const input of [els.text, els.kind, els.type, els.status]) {
+  for (const input of [els.text, els.kind, els.type, els.status, els.token]) {
     input.addEventListener("input", render);
     input.addEventListener("change", render);
   }
@@ -827,8 +1023,14 @@ details.lineage[open] > summary::before { content: "▾ "; }
     els.kind.value = "";
     els.type.value = "";
     els.status.value = "";
+    els.token.value = "";
     render();
   });
+
+  function localTime(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    return isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  }
 
   async function boot() {
     try {
@@ -845,12 +1047,14 @@ details.lineage[open] > summary::before { content: "▾ "; }
       state.facts = (factsFile && factsFile.facts) || [];
       state.graph = await loadJson("graph.json");
       els.sessionId.textContent = session.id;
-      els.meta.textContent = session.specPath + " · updated " + session.updated +
-        " · " + state.sentences.length + " sentences, " +
-        state.entities.length + " entities, " +
+      const tokenCount = state.tagged.reduce(function (sum, row) { return sum + (row.tokens || []).length; }, 0);
+      els.meta.textContent = state.sentences.length + " sentences · " +
+        tokenCount + " tokens · " +
+        state.entities.length + " entities · " +
         state.facts.filter(function (fact) { return fact.removed !== true; }).length + " facts";
       document.title = "Clew · " + session.id;
-      els.banner.textContent = "Loaded from session folder. Reload this page to pick up the latest JSON.";
+      fillTokenFilter();
+      els.banner.textContent = "Session updated " + localTime(session.updated) + " · loaded " + localTime(new Date());
       els.banner.classList.remove("error");
       render();
     } catch (error) {
@@ -866,3 +1070,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 </body>
 </html>
 `;
+
+export function viewerHtml(version: string): string {
+  return VIEWER_HTML.replace('__CLEW_VERSION__', version);
+}

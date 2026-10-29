@@ -45,7 +45,7 @@ export async function visibleCardIds(page: Page, view: View): Promise<string[]> 
   return panel.locator('article.card h2 .id').allTextContents();
 }
 
-function cardById(page: Page, view: View, id: string): Locator {
+export function cardById(page: Page, view: View, id: string): Locator {
   // Match the card title id only — lineage bodies also mention related ids.
   return activePanel(page, view).locator('article.card').filter({
     has: page.locator('h2 > span.id', { hasText: new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }),

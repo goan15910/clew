@@ -5,8 +5,9 @@ import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync, type 
 import { extname, join, relative, resolve, sep } from 'node:path';
 import type { SpecSessionViewer, SpecViewerInstallResult } from '../../application/ports.js';
 import { SPEC_SESSION_ID_PATTERN } from '../../domain/spec.js';
+import { packageVersion } from '../package/package-version.js';
 import { specRoot } from './data-dir.js';
-import { VIEWER_FILE, VIEWER_HTML } from './viewer-page.js';
+import { VIEWER_FILE, viewerHtml } from './viewer-page.js';
 
 function isSessionId(id: string): boolean {
   return SPEC_SESSION_ID_PATTERN.test(id);
@@ -61,8 +62,9 @@ export const jsonSpecSessionViewer: SpecSessionViewer = {
       return { ok: false, fault: 'unreadable', message: `spec session "${id}" has no session.json` };
     }
     const htmlPath = join(located.dir, VIEWER_FILE);
+    const installed = packageVersion();
     try {
-      writeFileSync(htmlPath, VIEWER_HTML, 'utf8');
+      writeFileSync(htmlPath, viewerHtml(installed.ok ? installed.version : 'unknown'), 'utf8');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, fault: 'unreadable', message: `cannot write ${VIEWER_FILE}: ${message}` };
