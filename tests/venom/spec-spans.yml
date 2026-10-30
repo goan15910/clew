@@ -22,6 +22,14 @@ testcases:
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.session ShouldEqual span-merge-sample
   - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show spans --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemoutjson.command ShouldEqual spec.show.spans
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.fault ShouldEqual session
+    - result.systemerr ShouldContainSubstring "run clew spec tag first"
+  - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
     assertions:
     - result.code ShouldEqual 0
@@ -30,6 +38,27 @@ testcases:
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.spans.spans0.id ShouldContainSubstring "sp:"
     - result.systemoutjson.spans.spans0.origin ShouldEqual promote
+    - result.systemoutjson.spans.spans0.sentence ShouldEqual s1
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show spans --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.show.spans
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.session ShouldEqual span-merge-sample
+    - result.systemoutjson.findings ShouldHaveLength 0
+    - result.systemoutjson.spans.spans0.id ShouldEqual "sp:s1.t1..s1.t1"
+    - result.systemoutjson.spans.spans0.sentence ShouldEqual s1
+    - result.systemoutjson.spans.spans0.surface ShouldNotBeEmpty
+    - result.systemoutjson.spans.spans0.tags ShouldNotBeEmpty
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show spans"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "session span-merge-sample:"
+    - result.systemout ShouldContainSubstring "sp:s1.t1..s1.t1  s1  "
   - type: exec
     script: "find '{{.dir}}' -type f -name spans.json"
     assertions:
@@ -43,6 +72,10 @@ testcases:
     - result.systemoutjson.command ShouldEqual spec.spans.merge
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.merged ShouldNotBeEmpty
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show spans --json | node -e 'const d=JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")); const s=d.spans.find(x=>x.origin===\"lexicon\"); if(!s) process.exit(2); if(s.sentence!==s.firstTokenId.split(\".\")[0]) process.exit(3); if(!s.surface.includes(\" \")) process.exit(4);'"
+    assertions:
+    - result.code ShouldEqual 0
   - type: exec
     script: |
       node -e '
