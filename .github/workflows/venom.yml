@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: venom-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   venom:
     runs-on: ubuntu-latest
@@ -15,18 +19,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Cache Graphviz debs
+        uses: actions/cache@v4
+        with:
+          path: .cache/graphviz
+          key: graphviz-16.1.0-${{ runner.os }}-${{ runner.arch }}-ubuntu-24.04-v1
       - name: Install Graphviz 16.1.0
         run: bash scripts/install-graphviz.sh
+        env:
+          GRAPHVIZ_CACHE_DIR: ${{ github.workspace }}/.cache/graphviz
       - name: Install Venom v1.3.0
         run: bash scripts/install-venom.sh
+      - name: Build CLI
+        run: npm run build
       - name: Run Venom
-        run: |
-          bin/venom run tests/venom \
-            --format=xml \
-            --output-dir=venom-results \
-            --html-report \
-            --var "root=${GITHUB_WORKSPACE}" \
-            --var "clew=node_modules/.bin/tsx src/cli.ts"
+        run: bash scripts/run-venom-ci.sh "${GITHUB_WORKSPACE}" "node dist/cli.js"
       - name: Publish the job summary
         if: ${{ !cancelled() }}
         run: node scripts/venom-step-summary.mjs venom-results >> "$GITHUB_STEP_SUMMARY"

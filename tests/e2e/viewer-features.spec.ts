@@ -88,13 +88,20 @@ test.describe('header and banner', () => {
 });
 
 test.describe('session switcher and refresh', () => {
+  // Banner "loaded" uses toLocaleString() (second granularity). Advance the page
+  // clock past one second so a reload/selection produces a different stamp.
+  async function advancePastLoadStamp(page: Page): Promise<void> {
+    await page.clock.install();
+    await page.clock.fastForward(1100);
+  }
+
   test('refresh button sits left of the banner and reloads the load time', async ({ page }) => {
     const button = await box(page, '#refresh');
     const banner = await box(page, '#banner');
     expect(button.x + button.width).toBeLessThanOrEqual(banner.x);
     await expect(page.locator('#refresh')).toHaveText('🔄');
     const before = await page.locator('#banner').textContent();
-    await page.waitForTimeout(1100);
+    await advancePastLoadStamp(page);
     await page.locator('#refresh').click();
     await expect(page.locator('#banner')).not.toHaveText(before ?? '');
     await expect(page.locator('#banner')).toContainText('Session updated ');
@@ -110,7 +117,7 @@ test.describe('session switcher and refresh', () => {
       await select.hover();
       await expect(select.locator('option')).toHaveText([viewer.sessionId, 'zz-other']);
       const before = await page.locator('#banner').textContent();
-      await page.waitForTimeout(1100);
+      await advancePastLoadStamp(page);
       await select.selectOption('zz-other');
       await expect(page).toHaveURL(/[?&]session=zz-other/);
       await expect(select).toHaveValue('zz-other');

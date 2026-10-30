@@ -3,6 +3,7 @@ node_modules/
 dist/
 build/
 out/
+.cache/
 *.tgz
 *.tsbuildinfo
 *.log

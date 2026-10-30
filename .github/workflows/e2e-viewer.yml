@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: e2e-viewer-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   playwright-spec-view:
     name: Playwright spec view
@@ -20,8 +24,16 @@ jobs:
 
       - run: npm ci
 
+      - name: Cache Graphviz debs
+        uses: actions/cache@v4
+        with:
+          path: .cache/graphviz
+          key: graphviz-16.1.0-${{ runner.os }}-${{ runner.arch }}-ubuntu-24.04-v1
+
       - name: Install Graphviz 16.1.0
         run: bash scripts/install-graphviz.sh
+        env:
+          GRAPHVIZ_CACHE_DIR: ${{ github.workspace }}/.cache/graphviz
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
