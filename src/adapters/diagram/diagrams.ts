@@ -82,12 +82,15 @@ export function chartDot(model: Model, title: string, highlight?: WorkflowResult
     }
   }
   const actors = model.transitions().map((edge) => edge.actor);
+  const hasInitial = model.states().some((state) => state.id === model.initial);
   const lines: string[] = [];
   lines.push('digraph G {', '  rankdir=LR; pad=0.3; nodesep=0.5; ranksep=0.9; bgcolor="white";');
   lines.push(`  labelloc=t; fontname="${FONT}"; fontsize=18; label=<<B>${esc(title)}</B>>;`);
   lines.push('  node [shape=box style="rounded,filled" fillcolor="' + NODE_FILL + '" color="' + MUTED + '" fontname="' + FONT + '" fontsize=13 margin="0.18,0.08"];');
   lines.push('  edge [fontname="' + FONT + '" fontsize=11 color="#6e7781" fontcolor="' + TEXT + '" arrowsize=0.8];');
-  lines.push(`  __start [shape=circle label="" width=0.22 style=filled fillcolor=black tooltip="start" URL=${dotQuote(`#${model.initial}`)}];`);
+  if (hasInitial) {
+    lines.push(`  __start [shape=circle label="" width=0.22 style=filled fillcolor=black tooltip="start" URL=${dotQuote(`#${model.initial}`)}];`);
+  }
 
   const groups = new Map<string, State[]>();
   for (const state of model.states()) {
@@ -116,8 +119,10 @@ export function chartDot(model: Model, title: string, highlight?: WorkflowResult
     lines.push('  }');
   }
 
-  const startFade = highlight ? ` color="${FADE_EDGE}" fontcolor="${FADE_FONT}"` : '';
-  lines.push(`  __start -> ${model.initial} [label="new task" tooltip="new task" URL=${dotQuote(`#${model.initial}`)}${startFade}];`);
+  if (hasInitial) {
+    const startFade = highlight ? ` color="${FADE_EDGE}" fontcolor="${FADE_FONT}"` : '';
+    lines.push(`  __start -> ${model.initial} [label="new task" tooltip="new task" URL=${dotQuote(`#${model.initial}`)}${startFade}];`);
+  }
   for (const edge of model.transitions()) {
     const steps = used.get(`${edge.from}|${edge.event}`);
     const onPath = steps !== undefined;
@@ -143,8 +148,14 @@ export function chartDot(model: Model, title: string, highlight?: WorkflowResult
   return lines.join('\n');
 }
 
-/** One workflow (or several) as a straight left-to-right chain. `nodePrefix` keeps ids unique when several chains are packed. */
-export function chainsDot(model: Model, title: string, results: readonly WorkflowResult[], nodePrefix = ''): string {
+/** One workflow (or several) as a straight left-to-right chain. `nodePrefix` keeps ids unique when several chains are packed. `heads: 'expect'` labels heads with the expectation in a neutral color; the default is PASS/FAIL. */
+export function chainsDot(
+  model: Model,
+  title: string,
+  results: readonly WorkflowResult[],
+  nodePrefix = '',
+  heads: 'verdict' | 'expect' = 'verdict',
+): string {
   const label = (id: string) => model.states().find((state) => state.id === id)?.label ?? id;
   const lines: string[] = [];
   lines.push('digraph G {', '  rankdir=LR; pad=0.3; nodesep=0.25; ranksep=0.35; newrank=true;');
@@ -153,8 +164,8 @@ export function chainsDot(model: Model, title: string, results: readonly Workflo
   lines.push('  edge [fontname="' + FONT + '" fontsize=10 color="#57606a"];');
   let prevHead = '';
   results.forEach((result, index) => {
-    const col = result.pass ? PASS : FAIL;
-    const mark = result.pass ? 'PASS' : 'FAIL';
+    const col = heads === 'expect' ? MUTED : result.pass ? PASS : FAIL;
+    const mark = heads === 'expect' ? result.expect : result.pass ? 'PASS' : 'FAIL';
     const head = `${nodePrefix}w${index}_h`;
     lines.push(`  subgraph cluster_${index} { style="rounded" color="${col}" penwidth=1.5; label=""; `);
     lines.push(`    ${head} [shape=plaintext style="" label=<<FONT COLOR="${col}"><B>${esc(result.id)} ${mark}</B></FONT><BR/><FONT POINT-SIZE="10">${esc(result.title)}</FONT>>];`);
@@ -170,6 +181,9 @@ export function chainsDot(model: Model, title: string, results: readonly Workflo
       } else if (step.accepted) {
         lines.push(`    ${node} [label="${esc(label(step.to!))}"];`);
         lines.push(`    ${prev} -> ${node} [label=<<B>${esc(step.event)}</B>>];`);
+      } else if (heads === 'expect') {
+        lines.push(`    ${node} [shape=box style="filled,dashed" fillcolor="${NODE_FILL}" color="${MUTED}" fontcolor="${MUTED}" label="refused"];`);
+        lines.push(`    ${prev} -> ${node} [label=<<B>${esc(step.event)}</B>> color="${MUTED}" fontcolor="${MUTED}" style=dashed];`);
       } else {
         const good = result.expect === 'rejected' && result.pass;
         const color = good ? PASS : FAIL;
