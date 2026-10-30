@@ -64,6 +64,14 @@ test('short help omits examples and clew help prints them for every command', ()
     assert.ok(section(full.stdout, 'Notes:').length > 0, label);
 
     if (label === 'chart check') assert.ok(examples.includes('clew chart check examples/todo/b-full.yaml --json'));
+    if (label === 'chart view') {
+      assert.ok(examples.includes('clew chart view examples/todo/b-full.yaml --json'));
+      assert.ok(examples.includes('clew chart view examples/todo/b-full.yaml --open'));
+    }
+    if (label === 'workflows view') {
+      assert.ok(examples.includes('clew workflows view examples/todo/workflows.yaml --json'));
+      assert.ok(examples.includes('clew workflows view examples/todo/workflows.yaml --open'));
+    }
     if (label === 'verify') assert.ok(examples.some((line) => line.includes('--heatmap --replay --out out')));
     if (label === 'spec graph split') assert.ok(examples.includes('clew spec graph split --id W1 --at tr2 --json'));
     if (label === 'spec trace') assert.ok(examples.includes('clew spec trace actor:customer --json'));

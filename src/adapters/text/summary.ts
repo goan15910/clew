@@ -158,6 +158,17 @@ export function humanSummary(document: CommandDocument): string {
     }
     return `session ${document.session}: wrote ${document.htmlPath}\n  open with: clew spec view ${document.session} --open`;
   }
+  if (document.command === 'chart.view' || document.command === 'workflows.view') {
+    if (!document.ok || document.htmlPath === undefined) return '';
+    const label = document.command === 'chart.view' ? 'chart' : 'workflows';
+    if (document.url !== undefined) {
+      return `${label} view at ${document.url}\n  ${document.htmlPath}\n  serving until Ctrl+C`;
+    }
+    const openHint = document.command === 'chart.view'
+      ? `clew chart view ${document.chartFile ?? '<chart.yaml>'} --open`
+      : `clew workflows view ${document.workflowsFile ?? '<workflows.yaml>'} --open`;
+    return `${label} view: wrote ${document.htmlPath}\n  open with: ${openHint}`;
+  }
   if (isSpecShow(document)) return showSummary(document);
   if (document.command !== 'compare' || document.fault !== undefined) return '';
   const lines = [document.winner ? `winner: ${document.winner}` : 'no winner'];
