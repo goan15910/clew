@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Exercise scripts/install-clew.sh: local (untagged + tagged), github, and release.
+# Untagged builds read {pkg}.dev.{commit count}+g{sha7}; a tag keeps the package.json version.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -9,6 +10,8 @@ chmod +x "$install" "$root/scripts/install-clew.sh"
 
 base=$(node -p "require('./package.json').version")
 hash=$(git rev-parse --short HEAD)
+count=$(git rev-list --count HEAD)
+dev="${base}.dev.${count}+g${hash}"
 sha=$(git rev-parse HEAD)
 prefix_root=$(mktemp -d)
 temp_tag=""
@@ -45,16 +48,16 @@ echo "== local (current HEAD) =="
 prefix_local="$prefix_root/local"
 mkdir -p "$prefix_local"
 "$install" --from local "$root" --prefix "$prefix_local"
-if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
+if git describe --tags --match "v*" --exact-match HEAD >/dev/null 2>&1; then
   assert_version "$prefix_local" "$base"
 else
-  assert_version "$prefix_local" "${base}-${hash}"
+  assert_version "$prefix_local" "$dev"
 fi
 "$prefix_local/bin/clew" --help >/dev/null
 
 echo "== local (exact tag, no hash suffix) =="
-temp_tag="jef86-install-test-${hash}"
-git tag -f "$temp_tag" HEAD
+temp_tag="v0.0.0-install-test-${hash}"
+git -c tag.gpgSign=false tag -f "$temp_tag" HEAD
 prefix_tagged="$prefix_root/tagged"
 mkdir -p "$prefix_tagged"
 "$install" --from local "$root" --prefix "$prefix_tagged"
@@ -70,7 +73,11 @@ git -C "$bare" fetch --quiet "$root" "+refs/heads/*:refs/heads/*" 2>/dev/null ||
 prefix_gh="$prefix_root/github"
 mkdir -p "$prefix_gh"
 "$install" --from github "$sha" --git-url "$bare" --prefix "$prefix_gh"
-assert_version "$prefix_gh" "$base"
+if git describe --tags --match "v*" --exact-match HEAD >/dev/null 2>&1; then
+  assert_version "$prefix_gh" "$base"
+else
+  assert_version "$prefix_gh" "$dev"
+fi
 "$prefix_gh/bin/clew" --help >/dev/null
 
 echo "== release (local tarball path) =="

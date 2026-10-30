@@ -11,6 +11,11 @@ function countPhrase(count: number, singular: string, plural: string): string {
 }
 
 export function humanSummary(document: CommandDocument): string {
+  if (document.command === 'upgrade') {
+    if (document.action === 'current') return `clew ${document.from}: ${document.note ?? 'up to date'}`;
+    if (document.action === 'would-install') return `would upgrade clew ${document.from} -> ${document.to} (${document.channel} channel)`;
+    return `upgraded clew ${document.from} -> ${document.to} (${document.channel} channel)`;
+  }
   if (document.command === 'chart.check') {
     if (document.ok && document.chart) {
       return `${document.chart.id}: schema valid, graph valid (${document.chart.states.length} states, ${document.chart.transitions.length} transitions)`;

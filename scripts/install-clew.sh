@@ -7,11 +7,14 @@
 #   scripts/install-clew.sh --from github [REF] [--prefix DIR] [--repo OWNER/NAME] [--git-url URL]
 #   scripts/install-clew.sh --from release [TAG|URL|PATH] [--prefix DIR] [--repo OWNER/NAME]
 #
-# Version stamp (written into the installed package.json; reported by `clew --version`
-# on builds that support that flag):
-#   ${package.json version}[-${short git commit hash}]
-# The hash suffix is applied only for --from local when HEAD has no exact git tag.
-# GitHub and release installs keep the package.json / release version as-is.
+# Version stamp (written into the installed package.json with a build-info.json receipt
+# that `clew upgrade` reads; reported by `clew --version`):
+#   {tag}                          when the commit has an exact v* tag
+#   {pkg}.dev.{commit count}+g{sha7}  otherwise (a stable {pkg} bumps its patch first)
+# Receipt channel: local for --from local, head for --from github (release when the ref is a tag).
+# --from release keeps the packed version and its receipt.
+# --from release verifies the tarball against SHA256SUMS from the same release and fails closed.
+# Without a tag, --from release installs the highest SemVer release, prereleases included.
 set -euo pipefail
 
 repo_default="goan15910/clew"
@@ -97,35 +100,24 @@ read_pkg_version() {
   node -p "require('${dir}/package.json').version"
 }
 
-short_hash() {
-  local dir="$1"
-  git -C "$dir" rev-parse --short HEAD
-}
+stamp_script="$(cd "$(dirname "$0")" && pwd)/build-stamp.mjs"
 
-has_exact_tag() {
-  local dir="$1"
-  git -C "$dir" describe --tags --exact-match HEAD >/dev/null 2>&1
-}
-
-# Rewrite package/package.json version inside an npm-pack layout, then retar.
-stamp_tarball_version() {
+# Re-pack a tarball with the version and build-info.json that build-stamp.mjs writes.
+# Prints the stamped tarball path, then the stamped version.
+stamp_tarball() {
   local tarball="$1"
-  local version="$2"
+  local git_dir="$2"
+  local channel="$3"
   local extract="$work/extract"
   rm -rf "$extract"
   mkdir -p "$extract"
   tar -xzf "$tarball" -C "$extract"
-  node --input-type=module -e "
-import { readFileSync, writeFileSync } from 'node:fs';
-const file = process.argv[1];
-const version = process.argv[2];
-const pkg = JSON.parse(readFileSync(file, 'utf8'));
-pkg.version = version;
-writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
-" "${extract}/package/package.json" "$version"
+  local version
+  [[ -f "$stamp_script" ]] || stamp_script="$git_dir/scripts/build-stamp.mjs"
+  version=$(node "$stamp_script" "$git_dir" "$extract/package" --channel "$channel")
   local stamped="$work/clew-${version}.tgz"
   tar -czf "$stamped" -C "$extract" package
-  printf '%s\n' "$stamped"
+  printf '%s\n%s\n' "$stamped" "$version"
 }
 
 pack_from_source() {
@@ -188,6 +180,26 @@ ensure_git_repo() {
   fi
 }
 
+pack_stamp_install() {
+  local src="$1"
+  local label="$2"
+  local channel="$3"
+  local tarball stamped version out
+  tarball=$(pack_from_source "$src")
+  [[ -n "$tarball" && -f "$src/$tarball" ]] || {
+    echo "npm pack failed for $label" >&2
+    exit 1
+  }
+  out=$(stamp_tarball "$src/$tarball" "$src" "$channel")
+  stamped=$(printf '%s\n' "$out" | sed -n 1p)
+  version=$(printf '%s\n' "$out" | sed -n 2p)
+  rm -f "$src/$tarball"
+  echo "packed $label as $version ($channel channel)"
+  install_tarball "$stamped"
+  rm -f "$stamped"
+  report_version
+}
+
 install_from_local() {
   local src
   if [[ -n "$source_arg" ]]; then
@@ -200,30 +212,7 @@ install_from_local() {
     exit 2
   }
   ensure_git_repo "$src"
-
-  local base version tarball stamped
-  base=$(read_pkg_version "$src")
-  if has_exact_tag "$src"; then
-    version="$base"
-  else
-    version="${base}-$(short_hash "$src")"
-  fi
-
-  echo "packing local checkout $src as $version"
-  tarball=$(pack_from_source "$src")
-  [[ -n "$tarball" && -f "$src/$tarball" ]] || {
-    echo "npm pack failed in $src" >&2
-    exit 1
-  }
-  if [[ "$version" == "$base" ]]; then
-    stamped="$src/$tarball"
-  else
-    stamped=$(stamp_tarball_version "$src/$tarball" "$version")
-    rm -f "$src/$tarball"
-  fi
-  install_tarball "$stamped"
-  [[ "$stamped" == "$src/$tarball" ]] || rm -f "$stamped"
-  report_version
+  pack_stamp_install "$src" "local checkout $src" local
 }
 
 install_from_github() {
@@ -241,17 +230,68 @@ install_from_github() {
       git -C "$clone" checkout --quiet "$ref"
     fi
   fi
+  pack_stamp_install "$clone" "${url}@${ref}" head
+}
 
-  local version tarball
-  version=$(read_pkg_version "$clone")
-  echo "packing ${url}@${ref} as $version (no commit-hash suffix)"
-  tarball=$(pack_from_source "$clone")
-  [[ -n "$tarball" && -f "$clone/$tarball" ]] || {
-    echo "npm pack failed for ${url}@${ref}" >&2
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# Fail closed unless SHA256SUMS names the tarball and the hashes match.
+verify_release_tarball() {
+  local tarball="$1"
+  local sums_url="$2"
+  local name="$3"
+  local sums="$work/SHA256SUMS"
+  curl --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 --max-time 60 \
+    -fsSL -o "$sums" "$sums_url"
+  local want got
+  want=$(awk -v n="$name" '{ f=$2; sub(/^\*/, "", f); if (f == n) print $1 }' "$sums")
+  [[ -n "$want" ]] || {
+    echo "SHA256SUMS has no line for $name" >&2
     exit 1
   }
-  install_tarball "$clone/$tarball"
-  report_version
+  got=$(sha256_of "$tarball")
+  [[ "$want" == "$got" ]] || {
+    echo "checksum mismatch for $name: SHA256SUMS $want, downloaded $got" >&2
+    exit 1
+  }
+  echo "sha256 ok: $name"
+}
+
+# Highest SemVer tag across all releases, prereleases included, drafts excluded.
+latest_release_tag() {
+  curl --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 --max-time 60 -fsSL \
+    ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
+    "https://api.github.com/repos/${repo}/releases?per_page=100" |
+  node -e '
+const releases = JSON.parse(require("fs").readFileSync(0, "utf8")).filter((r) => !r.draft);
+const parse = (t) => {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(t);
+  return m && { core: m.slice(1, 4).map(Number), pre: m[4] ? m[4].split(".").map((x) => (/^\d+$/.test(x) ? Number(x) : x)) : [] };
+};
+const cmp = (a, b) => {
+  for (let i = 0; i < 3; i++) if (a.core[i] !== b.core[i]) return a.core[i] - b.core[i];
+  if (!a.pre.length || !b.pre.length) return b.pre.length - a.pre.length;
+  for (let i = 0; i < Math.min(a.pre.length, b.pre.length); i++) {
+    const x = a.pre[i], y = b.pre[i];
+    if (x === y) continue;
+    if (typeof x === "number" && typeof y === "number") return x - y;
+    if (typeof x === "number") return -1;
+    if (typeof y === "number") return 1;
+    return x < y ? -1 : 1;
+  }
+  return a.pre.length - b.pre.length;
+};
+const tags = releases.map((r) => r.tag_name).filter((t) => parse(t));
+tags.sort((a, b) => cmp(parse(b), parse(a)));
+if (!tags.length) { console.error("no releases found"); process.exit(1); }
+console.log(tags[0]);
+'
 }
 
 install_from_release() {
@@ -259,14 +299,17 @@ install_from_release() {
   local tarball="$work/release.tgz"
 
   if [[ -z "$target" ]]; then
-    target=$(gh release view --repo "$repo" --json tagName --jq .tagName)
+    target=$(latest_release_tag)
+    echo "newest release: $target"
   fi
 
   if [[ -f "$target" ]]; then
     cp "$target" "$tarball"
+    echo "local tarball: skipping checksum (no SHA256SUMS to compare)"
   elif [[ "$target" == https://* || "$target" == http://* ]]; then
     curl --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 --max-time 180 \
       -fsSL -o "$tarball" "$target"
+    verify_release_tarball "$tarball" "$(dirname "$target")/SHA256SUMS" "$(basename "$target")"
   else
     local tag="$target"
     case "$tag" in
@@ -274,10 +317,11 @@ install_from_release() {
       *) tag="v${tag}" ;;
     esac
     local version="${tag#v}"
-    local url="https://github.com/${repo}/releases/download/${tag}/clew-${version}.tgz"
-    echo "downloading $url"
+    local base="https://github.com/${repo}/releases/download/${tag}"
+    echo "downloading ${base}/clew-${version}.tgz"
     curl --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 --max-time 180 \
-      -fsSL -o "$tarball" "$url"
+      -fsSL -o "$tarball" "${base}/clew-${version}.tgz"
+    verify_release_tarball "$tarball" "${base}/SHA256SUMS" "clew-${version}.tgz"
   fi
 
   echo "installing release tarball (version left as packed)"

@@ -1,12 +1,13 @@
 {
   "name": "clew",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha3",
   "description": "Check state charts and workflow sets, and prove each named flow.",
   "bin": {
     "clew": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "build-info.json"
   ],
   "scripts": {
     "clew": "tsx src/cli.ts",
