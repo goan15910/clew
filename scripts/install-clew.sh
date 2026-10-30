@@ -9,9 +9,10 @@
 #
 # Version stamp (written into the installed package.json; reported by `clew --version`
 # on builds that support that flag):
-#   ${package.json version}[-${short git commit hash}]
-# The hash suffix is applied only for --from local when HEAD has no exact git tag.
-# GitHub and release installs keep the package.json / release version as-is.
+#   {tag}[-{commit-date}-{git-short-commit-sha}]
+# {tag} is the package.json version. The -YYYYMMDD-sha suffix (UTC commit date) is
+# applied to --from local and --from github whenever the commit has no exact git tag.
+# Release installs keep the packed version as-is.
 set -euo pipefail
 
 repo_default="goan15910/clew"
@@ -97,9 +98,18 @@ read_pkg_version() {
   node -p "require('${dir}/package.json').version"
 }
 
-short_hash() {
+stamped_version() {
   local dir="$1"
-  git -C "$dir" rev-parse --short HEAD
+  local base
+  base=$(read_pkg_version "$dir")
+  if has_exact_tag "$dir"; then
+    printf '%s\n' "$base"
+    return
+  fi
+  local date sha
+  date=$(TZ=UTC git -C "$dir" show -s --format=%cd --date=format-local:%Y%m%d HEAD)
+  sha=$(git -C "$dir" rev-parse --short HEAD)
+  printf '%s-%s-%s\n' "$base" "$date" "$sha"
 }
 
 has_exact_tag() {
@@ -203,11 +213,7 @@ install_from_local() {
 
   local base version tarball stamped
   base=$(read_pkg_version "$src")
-  if has_exact_tag "$src"; then
-    version="$base"
-  else
-    version="${base}-$(short_hash "$src")"
-  fi
+  version=$(stamped_version "$src")
 
   echo "packing local checkout $src as $version"
   tarball=$(pack_from_source "$src")
@@ -242,15 +248,21 @@ install_from_github() {
     fi
   fi
 
-  local version tarball
-  version=$(read_pkg_version "$clone")
-  echo "packing ${url}@${ref} as $version (no commit-hash suffix)"
+  local base version tarball stamped
+  base=$(read_pkg_version "$clone")
+  version=$(stamped_version "$clone")
+  echo "packing ${url}@${ref} as $version"
   tarball=$(pack_from_source "$clone")
   [[ -n "$tarball" && -f "$clone/$tarball" ]] || {
     echo "npm pack failed for ${url}@${ref}" >&2
     exit 1
   }
-  install_tarball "$clone/$tarball"
+  if [[ "$version" == "$base" ]]; then
+    stamped="$clone/$tarball"
+  else
+    stamped=$(stamp_tarball_version "$clone/$tarball" "$version")
+  fi
+  install_tarball "$stamped"
   report_version
 }
 

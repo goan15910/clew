@@ -21,10 +21,10 @@ bash scripts/install-clew.sh --from local
 
 # From GitHub (branch, tag, or commit) — version is package.json as-is
 bash scripts/install-clew.sh --from github main
-bash scripts/install-clew.sh --from github v0.1.0-alpha.2
+bash scripts/install-clew.sh --from github v0.1.0-alpha3
 
 # From a GitHub Release tarball
-bash scripts/install-clew.sh --from release v0.1.0-alpha.2
+bash scripts/install-clew.sh --from release v0.1.0-alpha3
 ```
 
 `clew --version` prints the installed version string. Pass `--prefix DIR` to install into a non-default prefix (adds `DIR/bin` to your `PATH` yourself).

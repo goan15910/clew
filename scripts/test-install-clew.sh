@@ -9,6 +9,7 @@ chmod +x "$install" "$root/scripts/install-clew.sh"
 
 base=$(node -p "require('./package.json').version")
 hash=$(git rev-parse --short HEAD)
+stamp="$(TZ=UTC git show -s --format=%cd --date=format-local:%Y%m%d HEAD)-${hash}"
 sha=$(git rev-parse HEAD)
 prefix_root=$(mktemp -d)
 temp_tag=""
@@ -48,7 +49,7 @@ mkdir -p "$prefix_local"
 if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
   assert_version "$prefix_local" "$base"
 else
-  assert_version "$prefix_local" "${base}-${hash}"
+  assert_version "$prefix_local" "${base}-${stamp}"
 fi
 "$prefix_local/bin/clew" --help >/dev/null
 
@@ -70,7 +71,11 @@ git -C "$bare" fetch --quiet "$root" "+refs/heads/*:refs/heads/*" 2>/dev/null ||
 prefix_gh="$prefix_root/github"
 mkdir -p "$prefix_gh"
 "$install" --from github "$sha" --git-url "$bare" --prefix "$prefix_gh"
-assert_version "$prefix_gh" "$base"
+if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
+  assert_version "$prefix_gh" "$base"
+else
+  assert_version "$prefix_gh" "${base}-${stamp}"
+fi
 "$prefix_gh/bin/clew" --help >/dev/null
 
 echo "== release (local tarball path) =="
