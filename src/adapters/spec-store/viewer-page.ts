@@ -364,6 +364,9 @@ details.lineage[open] > summary::before { content: "▾ "; }
 .gloss-span.skipped.match { opacity: 0.85; }
 .line-span.skipped { opacity: 0.55; color: var(--muted); }
 .empty { color: var(--muted); padding: 1.5rem 0; }
+.graph-image { display: block; max-width: 100%; height: auto; margin: 0 0 1rem; }
+#panel-graph h2 { font-size: 1.05rem; margin: 0.2rem 0 0.6rem; }
+.graph-skipped { color: var(--muted); margin: 0.5rem 0 0; padding-left: 1.2rem; }
 </style>
 </head>
 <body>
@@ -395,11 +398,13 @@ details.lineage[open] > summary::before { content: "▾ "; }
       <button type="button" role="tab" id="tab-facts" aria-selected="true" data-tab="facts">Facts</button>
       <button type="button" role="tab" id="tab-entities" aria-selected="false" data-tab="entities">Entities</button>
       <button type="button" role="tab" id="tab-sentences" aria-selected="false" data-tab="sentences">Sentences</button>
+      <button type="button" role="tab" id="tab-graph" aria-selected="false" data-tab="graph">Graph</button>
     </div>
     <div class="tab-body">
       <section class="panel active" id="panel-facts" role="tabpanel" aria-labelledby="tab-facts"></section>
       <section class="panel" id="panel-entities" role="tabpanel" aria-labelledby="tab-entities" hidden></section>
       <section class="panel" id="panel-sentences" role="tabpanel" aria-labelledby="tab-sentences" hidden></section>
+      <section class="panel" id="panel-graph" role="tabpanel" aria-labelledby="tab-graph" hidden></section>
     </div>
   </div>
 </main>
@@ -415,6 +420,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
     entities: [],
     facts: [],
     graph: null,
+    graphView: null,
+    graphStatus: "loading",
     tab: "facts",
     page: { facts: 0, entities: 0, sentences: 0 },
   };
@@ -435,6 +442,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     facts: document.getElementById("panel-facts"),
     entities: document.getElementById("panel-entities"),
     sentences: document.getElementById("panel-sentences"),
+    graph: document.getElementById("panel-graph"),
   };
 
   for (const kind of KINDS) {
@@ -1126,10 +1134,72 @@ details.lineage[open] > summary::before { content: "▾ "; }
     });
   }
 
+  let graphTicket = 0;
+
+  function loadGraphView() {
+    const ticket = ++graphTicket;
+    state.graphStatus = "loading";
+    state.graphView = null;
+    if (state.tab === "graph") renderGraph();
+    return loadJson("draft-graph.json").then(function (doc) {
+      if (ticket !== graphTicket) return;
+      state.graphView = doc;
+      state.graphStatus = "ready";
+      if (state.tab === "graph") renderGraph();
+    }).catch(function (error) {
+      if (ticket !== graphTicket) return;
+      state.graphView = {
+        charts: [],
+        workflows: [],
+        findings: [],
+        error: error && error.message ? error.message : String(error),
+      };
+      state.graphStatus = "ready";
+      if (state.tab === "graph") renderGraph();
+    });
+  }
+
+  function renderGraph() {
+    if (state.graphStatus !== "ready") {
+      els.graph.innerHTML = '<p class="empty">Drawing the graph…</p>';
+      return;
+    }
+    const doc = state.graphView;
+    if (!doc || doc.message) {
+      const message = doc && doc.message ? doc.message : "no graph; run clew spec graph build";
+      els.graph.innerHTML = '<p class="empty">' + esc(message) + "</p>";
+      return;
+    }
+    let html = "";
+    if (doc.error) html += '<p class="empty">' + esc(doc.error) + "</p>";
+    html += "<h2>State chart</h2>";
+    const charts = doc.charts || [];
+    if (charts.length === 0) html += '<p class="empty">No state charts.</p>';
+    for (const chart of charts) {
+      html += '<img class="graph-image" alt="' + esc("State chart of " + chart.object) +
+        '" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(chart.svg || "") + '">';
+    }
+    html += "<h2>Workflows</h2>";
+    const workflows = doc.workflows || [];
+    if (workflows.length === 0) html += '<p class="empty">No workflows.</p>';
+    for (const flow of workflows) {
+      html += '<img class="graph-image" alt="' + esc(flow.id + ": " + flow.title) +
+        '" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(flow.svg || "") + '">';
+    }
+    const findings = doc.findings || [];
+    if (findings.length > 0) {
+      html += '<ul class="graph-skipped">';
+      for (const finding of findings) html += "<li>" + esc(finding.message) + "</li>";
+      html += "</ul>";
+    }
+    els.graph.innerHTML = html;
+  }
+
   function render() {
     if (state.tab === "facts") renderFacts();
     else if (state.tab === "entities") renderEntities();
-    else renderSentences();
+    else if (state.tab === "sentences") renderSentences();
+    else if (state.tab === "graph") renderGraph();
   }
 
   function selectTab(name) {
@@ -1138,7 +1208,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const selected = button.getAttribute("data-tab") === name;
       button.setAttribute("aria-selected", selected ? "true" : "false");
     }
-    for (const panel of [["facts", els.facts], ["entities", els.entities], ["sentences", els.sentences]]) {
+    for (const panel of [["facts", els.facts], ["entities", els.entities], ["sentences", els.sentences], ["graph", els.graph]]) {
       const active = panel[0] === name;
       panel[1].classList.toggle("active", active);
       panel[1].hidden = !active;
@@ -1278,6 +1348,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const factsFile = await loadJson("facts.json");
       state.facts = (factsFile && factsFile.facts) || [];
       state.graph = await loadJson("graph.json");
+      const graphReady = loadGraphView();
       setSessionOptions(Array.from(els.sessionId.options, function (opt) { return opt.value; })
         .filter(function (id) { return id !== "…"; }), session.id);
       els.meta.textContent = state.sentences.length + " sentences · " +
@@ -1289,6 +1360,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       els.banner.textContent = "Session updated " + localTime(session.updated) + " · loaded " + localTime(new Date());
       els.banner.classList.remove("error");
       render();
+      await graphReady;
     } catch (error) {
       els.banner.textContent = "Could not load session JSON. Open this page through clew spec view --open (localhost), not as a file:// URL. " +
         (error && error.message ? error.message : String(error));

@@ -49,6 +49,7 @@ describe('spec view', { concurrency: false }, () => {
       assert.match(html, /data-tab="facts"/);
       assert.match(html, /data-tab="entities"/);
       assert.match(html, /data-tab="sentences"/);
+      assert.match(html, /data-tab="graph"/);
       assert.match(html, /fetch\(sessionBase\(\) \+ name/);
       assert.match(html, /: "\.\/";/);
       assert.equal(readFileSync(join(session, 'session.json'), 'utf8'), beforeSession);
