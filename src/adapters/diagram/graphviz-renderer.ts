@@ -25,11 +25,13 @@ function requireGraphviz(bin: string, args: readonly string[]): void {
 
 function dotSvg(source: string): string {
   try {
-    execFileSync('dot', ['-V'], { stdio: 'ignore' });
+    return execFileSync('dot', ['-Tsvg'], { input: source, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
   } catch (error) {
-    throw new Error(graphvizMessage('dot', error, 'Install Graphviz 16.1.0.'));
+    const missing = typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+    if (missing) throw new Error(graphvizMessage('dot', error, 'Install Graphviz 16.1.0.'));
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Graphviz \`dot\` failed (${detail}).`);
   }
-  return execFileSync('dot', ['-Tsvg'], { input: source, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
 }
 
 export const graphvizGraphImages: GraphImageRenderer = {
