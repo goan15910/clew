@@ -80,7 +80,7 @@ async function readViewDocument(child: ChildProcess): Promise<{ url: string; htm
   });
 }
 
-/** Preferred path: spawn `clew spec view <id> --open --json` (browser open stubbed). */
+/** Spawn `clew spec view <id> --open --json` (browser open stubbed). Prefer `startViewerWithServeApi` in CI. */
 export async function startViewerWithCliOpen(): Promise<RunningViewer> {
   const dataDir = mkdtempSync(join(tmpdir(), 'clew-e2e-'));
   const sessionDir = plantFixture(dataDir);
@@ -122,7 +122,7 @@ export async function startViewerWithCliOpen(): Promise<RunningViewer> {
   }
 }
 
-/** Fallback / unit-style path: install via port + serveSessionViewer (same server as --open). */
+/** Install + serveSessionViewer in-process (same HTTP server as `clew spec view --open`). */
 export async function startViewerWithServeApi(): Promise<RunningViewer> {
   const dataDir = mkdtempSync(join(tmpdir(), 'clew-e2e-serve-'));
   const previous = process.env.CLEW_DATA_DIR;

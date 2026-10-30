@@ -7,7 +7,9 @@ export default defineConfig({
   fullyParallel: isCi,
   forbidOnly: isCi,
   retries: isCi ? 1 : 0,
-  workers: isCi ? 4 : 1,
+  // 4-vCPU ubuntu-latest: 4 Chromium + 4 viewer servers thrash; 2 workers scales more reliably.
+  // CI also shards the suite across matrix jobs (see e2e-viewer.yml).
+  workers: isCi ? 2 : 1,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   reporter: [
