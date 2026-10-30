@@ -1,5 +1,5 @@
 // Interactive Cytoscape payloads from the chart/chain model, with `clew spec trace` hover details.
-// Shareable with a future `clew chart view` / `clew workflows view` (via adapters/diagram/interactive).
+// Shareable with a future `clew chart view` / `clew workflows view` through the interactive diagram adapter.
 import { chartEventName, chartStateId, type Model } from '../domain/model.js';
 import type { DraftGraph, Entity, GraphTransition, SpecSnapshot } from '../domain/spec.js';
 import { traceItem, type TraceLink } from '../domain/spec-query.js';
