@@ -4,10 +4,10 @@ const isCi = process.env.CI === 'true' || process.env.CI === '1';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: false,
+  fullyParallel: isCi,
   forbidOnly: isCi,
   retries: isCi ? 1 : 0,
-  workers: 1,
+  workers: isCi ? 4 : 1,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   reporter: [
