@@ -109,7 +109,6 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     const snapshot: SpecSnapshot = {
       schemaVersion: current.schemaVersion,
       id: current.id,
-      specPath: current.specPath,
       specHash: current.specHash,
       tagger: { name: tagger.name, version: tagger.version },
       created: current.created,

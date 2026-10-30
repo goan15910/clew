@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { clewDataDir, findProjectRoot, projectKey } from '../../src/adapters/spec-store/data-dir.js';
+import { clewDataDir } from '../../src/adapters/spec-store/data-dir.js';
 import {
   applySpecText,
   initFindings,
@@ -150,19 +150,6 @@ test('data dir follows XDG, LOCALAPPDATA, and CLEW_DATA_DIR', () => {
   assert.equal(clewDataDir({ LOCALAPPDATA: '/local' }, 'win32', '/home/a'), join('/local', 'clew'));
   assert.equal(clewDataDir({}, 'win32', '/home/a'), join('/home/a', 'AppData', 'Local', 'clew'));
   assert.equal(clewDataDir({ CLEW_DATA_DIR: '/override', XDG_DATA_HOME: '/xdg' }, 'linux', '/home/a'), '/override');
-});
-
-test('project key uses the git root when one exists', () => {
-  const root = findProjectRoot(repoRoot);
-  assert.equal(findProjectRoot(join(root, 'src')), root);
-  const key = projectKey(root);
-  assert.match(key, /-[0-9a-f]{12}$/);
-  const bare = mkdtempSync(join(tmpdir(), 'clew-root-'));
-  try {
-    assert.equal(findProjectRoot(bare), bare);
-  } finally {
-    rmSync(bare, { recursive: true, force: true });
-  }
 });
 
 function draftSentence(id: string, text: string, status: Sentence['status'], span: [number, number] = [0, text.length]): Sentence {

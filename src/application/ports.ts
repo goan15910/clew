@@ -74,7 +74,6 @@ export interface SpecTextSource {
 
 export interface SessionRef {
   id: string;
-  specPath: string;
 }
 
 /** Live sentences, facts, and flows. Stale sentences, stale facts, and removed facts are omitted. */
@@ -84,7 +83,6 @@ export interface SpecSessionCounts {
   flows: number;
 }
 
-/** A `listSessions` row. `id` and `specPath` stay what that listing already returned. */
 export interface SpecSessionSummary extends SessionRef {
   updated: string;
   summary: SpecSessionCounts;

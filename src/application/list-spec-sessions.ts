@@ -1,4 +1,4 @@
-// Use case: list spec sessions for this repo. An empty list is a successful result.
+// Use case: list spec sessions. An empty list is a successful result.
 import type { Outcome, SpecSessionListDocument, SpecSessionListRow } from './documents.js';
 import type { SpecStore } from './ports.js';
 
@@ -8,7 +8,6 @@ export function listSpecSessions(store: SpecStore): Outcome<SpecSessionListDocum
   for (const session of listed) {
     sessions.push({
       id: session.id,
-      specPath: session.specPath,
       updated: session.updated,
       summary: {
         sentences: session.summary.sentences,

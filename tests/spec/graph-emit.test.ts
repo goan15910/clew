@@ -388,7 +388,7 @@ function writeSpec(dir: string, name: string, text: string): string {
 }
 
 function sessionFile(dir: string, name: string): string {
-  return join(specSessionDir('order-sentence', { CLEW_DATA_DIR: dir }, root), name);
+  return join(specSessionDir('order-sentence', { CLEW_DATA_DIR: dir }), name);
 }
 
 function historyCount(dir: string, session: string): number {
@@ -396,7 +396,7 @@ function historyCount(dir: string, session: string): number {
 }
 
 function historyEntries(dir: string, session: string): { command: string; before: string[]; after: string[] }[] {
-  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }, root), 'history.jsonl');
+  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }), 'history.jsonl');
   const text = readFileSync(file, 'utf8').trim();
   if (text === '') return [];
   const entries: { command: string; before: string[]; after: string[] }[] = [];

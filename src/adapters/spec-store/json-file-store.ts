@@ -65,7 +65,6 @@ const TaggedSchema = z.strictObject({
 const SessionSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
   id: z.string().regex(SPEC_SESSION_ID_PATTERN),
-  specPath: z.string().min(1),
   specHash: z.string().regex(HASH, 'hash must be sha256:<hex>'),
   tagger: z.strictObject({
     name: z.string().min(1),
@@ -366,7 +365,6 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
   const snapshot: SpecSnapshot = {
     schemaVersion: SPEC_SCHEMA_VERSION,
     id: sessionParsed.data.id,
-    specPath: sessionParsed.data.specPath,
     specHash: sessionParsed.data.specHash,
     created: sessionParsed.data.created,
     updated: sessionParsed.data.updated,
@@ -619,7 +617,6 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
   const session: Record<string, unknown> = {
     schemaVersion: snapshot.schemaVersion,
     id: snapshot.id,
-    specPath: snapshot.specPath,
     specHash: snapshot.specHash,
     created: snapshot.created,
     updated: snapshot.updated,
@@ -789,16 +786,6 @@ function acquireLock(dir: string, id: string): { ok: true; release: () => void }
   return { ok: false, message: `spec session "${id}" is locked by another process` };
 }
 
-function listSpecPath(dir: string): string {
-  try {
-    const raw: unknown = JSON.parse(readFileSync(join(dir, 'session.json'), 'utf8'));
-    if (typeof raw === 'object' && raw !== null && 'specPath' in raw && typeof raw.specPath === 'string') return raw.specPath;
-  } catch {
-    return '';
-  }
-  return '';
-}
-
 function sessionIdMessage(id: string): string {
   return `session id "${id}" is not a safe name`;
 }
@@ -851,7 +838,7 @@ function sessionDetail(dir: string, id: string): { updated: string; summary: Spe
       return { updated: loaded.snapshot.updated, summary: liveCounts(loaded.snapshot) };
     }
   } catch {
-    // listSessions still returns the directory. Callers only require id and specPath.
+    // listSessions still returns the directory. Callers only require the id.
   }
   return { updated: lastWritten(dir), summary: { sentences: 0, facts: 0, flows: 0 } };
 }
@@ -867,7 +854,6 @@ export const jsonSpecStore: SpecStore = {
       const detail = sessionDetail(dir, entry.name);
       refs.push({
         id: entry.name,
-        specPath: listSpecPath(dir),
         updated: detail.updated,
         summary: detail.summary,
       });

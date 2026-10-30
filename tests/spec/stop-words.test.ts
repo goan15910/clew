@@ -82,7 +82,7 @@ describe('stop-word skip policy', () => {
       writeFileSync(join(dir, 'sample.md'), 'When the customer cannot edit the order after submit.\n');
       assert.equal(run(dir, ['spec', 'init', join(dir, 'sample.md'), '--session', 'skip', '--json']).status, 0);
       assert.equal(run(dir, ['spec', 'tag', '--session', 'skip', '--json']).status, 0);
-      const session = specSessionDir('skip', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('skip', { CLEW_DATA_DIR: dir });
       const tokensDoc = JSON.parse(readFileSync(join(session, 'tokens.json'), 'utf8')) as {
         sentences: Array<{ tokens: Array<{ text: string; skipped?: boolean; span: [number, number] }> }>;
       };

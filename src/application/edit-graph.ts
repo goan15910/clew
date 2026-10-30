@@ -78,7 +78,6 @@ function replaceGraph(current: SpecSnapshot, graph: NonNullable<SpecSnapshot['gr
   return {
     schemaVersion: current.schemaVersion,
     id: current.id,
-    specPath: current.specPath,
     specHash: current.specHash,
     created: current.created,
     updated: current.updated,
