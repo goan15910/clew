@@ -20,6 +20,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Install Graphviz 16.1.0
+        run: bash scripts/install-graphviz.sh
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
