@@ -527,6 +527,42 @@ export interface SpecViewDocument {
   issues: OutputIssue[];
 }
 
+/** One chart panel in a standalone diagram viewer (no Graphviz SVG required). */
+export interface DiagramViewChart {
+  object: string;
+  interactive: DraftGraphInteractive;
+}
+
+/** One workflow panel in a standalone diagram viewer. */
+export interface DiagramViewWorkflow {
+  id: string;
+  title: string;
+  expect: 'accepted' | 'rejected';
+  interactive: DraftGraphInteractive;
+}
+
+/**
+ * Result of `clew chart view` / `clew workflows view`.
+ * Interactive payloads reuse the same Cytoscape document shape as the spec Graph tab.
+ */
+export interface DiagramViewDocument {
+  command: 'chart.view' | 'workflows.view';
+  ok: boolean;
+  chartFile?: string;
+  workflowsFile?: string;
+  /** Absolute path to the written viewer.html. */
+  htmlPath?: string;
+  /** Directory that holds viewer.html, diagram.json, and Cytoscape assets. */
+  viewDir?: string;
+  mode?: 'standalone';
+  /** Localhost URL when a read-only server is running (only set with --open). */
+  url?: string;
+  charts: DiagramViewChart[];
+  workflows: DiagramViewWorkflow[];
+  fault?: 'unreadable' | 'invalid-chart' | 'invalid-workflows';
+  issues: OutputIssue[];
+}
+
 interface SpecShowBase {
   ok: boolean;
   session?: string;
@@ -574,6 +610,7 @@ export type CommandDocument =
   | SpecSessionListDocument
   | SpecSessionRemoveDocument
   | SpecViewDocument
+  | DiagramViewDocument
   | SpecGraphDocument
   | SpecEmitDocument;
 

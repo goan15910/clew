@@ -4,7 +4,9 @@
 // clew upgrade [--check] [--channel release|head] [--version v] [--checksum sha256] [--verify-provenance] [--force] [--json]
 // clew chart check <chart.yaml> [--json]
 // clew chart analyze <chart.yaml> [--json]
+// clew chart view <chart.yaml> [--workflows <set.yaml>] [--open] [--json]
 // clew workflows check <set.yaml> [--json]
+// clew workflows view <set.yaml> [--chart <chart.yaml>] [--open] [--json]
 // clew verify <chart.yaml> <set.yaml> [--flow W1] [--select file] [--highlight W2] [--heatmap] [--replay] [--out dir] [--json]
 // clew compare <verify.json>... [--out dir] [--json]
 // clew spec init <spec.md> [--session id] [--json]
@@ -50,6 +52,12 @@ import {
 } from './adapters/spec-store/session-viewer.js';
 import { jsonVerifyResultLoader } from './adapters/json/verify-result-loader.js';
 import { graphvizDiagramRenderer } from './adapters/diagram/graphviz-renderer.js';
+import {
+  installDiagramViewer,
+  openDiagramViewerUrl,
+  serveDiagramViewer,
+  waitForDiagramInterrupt,
+} from './adapters/diagram/interactive/diagram-viewer.js';
 import { fileReportWriter } from './adapters/report/file-report-writer.js';
 import { humanSummary } from './adapters/text/summary.js';
 import { xstateTraversalEngine } from './adapters/xstate/traversal-engine.js';
@@ -71,7 +79,7 @@ import { initSpec } from './application/init-spec.js';
 import { listEntities } from './application/list-entities.js';
 import { listSpecSessions } from './application/list-spec-sessions.js';
 import { mergeSpans } from './application/merge-spans.js';
-import { SPEC_SHOW_LAYERS, formatIssues, type CommandDocument, type Outcome, type OutputIssue, type SpecShowLayer } from './application/documents.js';
+import { SPEC_SHOW_LAYERS, formatIssues, type CommandDocument, type DiagramViewDocument, type Outcome, type OutputIssue, type SpecShowLayer } from './application/documents.js';
 import type { ComparePorts, UpgradePorts, VerifyPorts } from './application/ports.js';
 import { proposeSpecFacts } from './application/propose-facts.js';
 import { readSpecStatus } from './application/spec-status.js';
@@ -81,6 +89,7 @@ import { tagSpec } from './application/tag-spec.js';
 import { traceSpec } from './application/trace-spec.js';
 import { verifyFlows } from './application/verify-flows.js';
 import { upgradeClew } from './application/upgrade-clew.js';
+import { viewChart, viewWorkflows } from './application/view-diagram.js';
 import { viewSpecSession } from './application/view-spec.js';
 import { assertManuals, findCommand, fullHelp, jsonNote, listCommands, sessionNote, setManual, specExits } from './cli/help.js';
 import type { FactDraft } from './domain/spec-facts.js';
@@ -375,6 +384,67 @@ function emit(outcome: Outcome<CommandDocument>, json: boolean): never {
   process.exit(outcome.exit === 'pass' ? EXIT_PASS : outcome.exit === 'fail' ? EXIT_FAILED : EXIT_INVALID);
 }
 
+async function emitDiagramView(
+  outcome: Outcome<DiagramViewDocument>,
+  json: boolean,
+  open: boolean,
+): Promise<never> {
+  if (outcome.exit !== 'pass' || !outcome.document.ok) {
+    emit(outcome, json);
+  }
+  const installed = installDiagramViewer(outcome.document);
+  if (!installed.ok) {
+    emit({
+      exit: 'invalid',
+      document: {
+        ...outcome.document,
+        ok: false,
+        fault: 'unreadable',
+        issues: [{ kind: 'input', path: '', message: installed.message }],
+      },
+    }, json);
+  }
+  outcome.document.htmlPath = installed.htmlPath;
+  outcome.document.viewDir = installed.viewDir;
+  if (open) {
+    let server;
+    try {
+      server = await serveDiagramViewer(installed.viewDir);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      emit({
+        exit: 'invalid',
+        document: {
+          ...outcome.document,
+          ok: false,
+          fault: 'unreadable',
+          issues: [{ kind: 'input', path: '', message }],
+        },
+      }, json);
+    }
+    outcome.document.url = server.url;
+    const opened = openDiagramViewerUrl(server.url);
+    if (!opened.ok) {
+      await server.close();
+      emit({
+        exit: 'invalid',
+        document: {
+          ...outcome.document,
+          ok: false,
+          fault: 'unreadable',
+          issues: [{ kind: 'input', path: '', message: opened.message }],
+        },
+      }, json);
+    }
+    if (json) console.log(JSON.stringify(outcome.document, null, 2));
+    else console.log(humanSummary(outcome.document));
+    await waitForDiagramInterrupt();
+    await server.close();
+    process.exit(EXIT_PASS);
+  }
+  emit(outcome, json);
+}
+
 function collectFlow(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
@@ -433,7 +503,18 @@ program
   .exitOverride();
 
 // Group commands turn Commander's implicit help subcommand off. Long help is `clew help`.
-const chart = program.command('chart').description('Check or analyze one state chart.').helpCommand(false);
+const chart = program.command('chart').description('Check, analyze, or view one state chart.').helpCommand(false);
+
+const DiagramViewFlags = z.object({
+  json: z.boolean().optional(),
+  open: z.boolean().optional(),
+});
+const ChartViewFlags = DiagramViewFlags.extend({
+  workflows: z.string().min(1, 'workflow set path must not be empty').optional(),
+});
+const WorkflowsViewFlags = DiagramViewFlags.extend({
+  chart: z.string().min(1, 'chart path must not be empty').optional(),
+});
 
 setManual(chart
   .command('check')
@@ -473,7 +554,43 @@ setManual(chart
   notes: [jsonNote],
 });
 
-const workflows = program.command('workflows').description('Check a workflow set.').helpCommand(false);
+setManual(chart
+  .command('view')
+  .description('Render a state chart in the interactive viewer (no spec session).')
+  .argument('<chart>', 'YAML state chart')
+  .option('--workflows <file>', 'also render this workflow set beside the chart')
+  .option('--open', 'serve the viewer on localhost and open it in a browser')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action(async (file, opts) => {
+    const parsed = ChartViewFlags.safeParse(opts);
+    if (!parsed.success) usage('chart.view', opts, parsed.error);
+    const flags = parsed.data;
+    const outcome = viewChart(
+      { chartFile: file, workflowsFile: flags.workflows },
+      yamlModelLoader,
+      yamlWorkflowLoader,
+    );
+    await emitDiagramView(outcome, flags.json === true, flags.open === true);
+  }), {
+  examples: [
+    'clew chart view examples/todo/b-full.yaml --json',
+    'clew chart view examples/todo/b-full.yaml --open',
+    'clew chart view examples/todo/b-full.yaml --workflows examples/todo/workflows.yaml --open',
+  ],
+  exitCodes: [
+    { code: 0, meaning: 'the viewer was written, and with --open the local server ran until interrupt' },
+    { code: 1, meaning: 'the chart or workflow set schema/graph is invalid' },
+    { code: 2, meaning: 'a file is unreadable, the viewer could not be written, or the arguments are wrong' },
+  ],
+  notes: [
+    jsonNote,
+    'chart view writes a standalone HTML page that mounts the same Cytoscape renderer as the spec Graph tab.',
+    'No spec session is required. Browsers block fetch() from file://, so --open serves the page on 127.0.0.1.',
+    'Pass --workflows to show the chart and the workflow set together.',
+  ],
+});
+
+const workflows = program.command('workflows').description('Check or view a workflow set.').helpCommand(false);
 
 setManual(workflows
   .command('check')
@@ -492,6 +609,42 @@ setManual(workflows
     { code: 2, meaning: 'the file is unreadable or the arguments are wrong' },
   ],
   notes: [jsonNote],
+});
+
+setManual(workflows
+  .command('view')
+  .description('Render a workflow set in the interactive viewer (no spec session).')
+  .argument('<workflows>', 'YAML workflow set')
+  .option('--chart <file>', 'also render this state chart (and use it for state labels)')
+  .option('--open', 'serve the viewer on localhost and open it in a browser')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action(async (file, opts) => {
+    const parsed = WorkflowsViewFlags.safeParse(opts);
+    if (!parsed.success) usage('workflows.view', opts, parsed.error);
+    const flags = parsed.data;
+    const outcome = viewWorkflows(
+      { workflowsFile: file, chartFile: flags.chart },
+      yamlModelLoader,
+      yamlWorkflowLoader,
+    );
+    await emitDiagramView(outcome, flags.json === true, flags.open === true);
+  }), {
+  examples: [
+    'clew workflows view examples/todo/workflows.yaml --json',
+    'clew workflows view examples/todo/workflows.yaml --open',
+    'clew workflows view examples/todo/workflows.yaml --chart examples/todo/b-full.yaml --open',
+  ],
+  exitCodes: [
+    { code: 0, meaning: 'the viewer was written, and with --open the local server ran until interrupt' },
+    { code: 1, meaning: 'the workflow set or chart schema/graph is invalid' },
+    { code: 2, meaning: 'a file is unreadable, the viewer could not be written, or the arguments are wrong' },
+  ],
+  notes: [
+    jsonNote,
+    'workflows view writes a standalone HTML page that mounts the same Cytoscape renderer as the spec Graph tab.',
+    'No spec session is required. Browsers block fetch() from file://, so --open serves the page on 127.0.0.1.',
+    'Pass --chart to show the chart beside the workflows and to label states from the chart.',
+  ],
 });
 
 setManual(program

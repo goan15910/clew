@@ -22,7 +22,7 @@ export function interactiveGraphClientPath(): string {
 
 /**
  * Copy vendored Cytoscape + client mount into `targetDir`.
- * Safe to call from `spec view` install and from a future `chart view` / `workflows view`.
+ * Safe to call from `spec view` install and from `chart view` / `workflows view`.
  */
 export function installInteractiveGraphAssets(targetDir: string): { ok: true; files: string[] } | { ok: false; message: string } {
   try {

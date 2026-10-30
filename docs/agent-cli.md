@@ -27,7 +27,9 @@ clew help
 clew help <command>...
 clew chart check <chart.yaml> [--json]
 clew chart analyze <chart.yaml> [--json]
+clew chart view <chart.yaml> [--workflows <set.yaml>] [--open] [--json]
 clew workflows check <set.yaml> [--json]
+clew workflows view <set.yaml> [--chart <chart.yaml>] [--open] [--json]
 clew verify <chart.yaml> <set.yaml> [--flow <id>] [--select <file>] [--highlight <id>] [--heatmap] [--replay] [--out <dir>] [--json]
 clew compare <verify.json>... [--out <dir>] [--json]
 clew spec init <spec.md> [--session <id>] [--json]
