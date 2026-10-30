@@ -11,9 +11,13 @@ concurrency:
 
 jobs:
   playwright-spec-view:
-    name: Playwright spec view
+    name: Playwright spec view (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
 
@@ -35,12 +39,23 @@ jobs:
         env:
           GRAPHVIZ_CACHE_DIR: ${{ github.workspace }}/.cache/graphviz
 
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}-chromium
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
       - name: Run Playwright e2e (spec view)
         id: e2e
-        run: npm run test:e2e
+        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           CI: true
 
@@ -59,7 +74,7 @@ jobs:
         if: always()
         run: |
           {
-            echo '## Spec view Playwright e2e'
+            echo "## Spec view Playwright e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})"
             echo
             echo 'Adds Playwright coverage for the HTML inspector from `clew spec view` (PR #22 viewer).'
             echo
@@ -97,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: allure-report-spec-view
+          name: allure-report-spec-view-${{ matrix.shard }}
           path: allure-report/
           retention-days: 14
           if-no-files-found: warn
@@ -106,7 +121,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-spec-view
+          name: playwright-report-spec-view-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
           if-no-files-found: warn
@@ -115,7 +130,19 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces-spec-view
+          name: playwright-traces-spec-view-${{ matrix.shard }}
           path: test-results/
           retention-days: 14
           if-no-files-found: warn
+
+  # Single check name for humans / branch filters; shards above do the work.
+  playwright-spec-view-result:
+    name: Playwright spec view
+    needs: playwright-spec-view
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all shards
+        run: |
+          echo "shard_result=${{ needs.playwright-spec-view.result }}"
+          test "${{ needs.playwright-spec-view.result }}" = "success"
