@@ -6,7 +6,7 @@ import { basename, dirname, extname, join, relative, resolve, sep } from 'node:p
 import { viewSpecGraph } from '../../application/view-spec-graph.js';
 import type { SpecSessionViewer, SpecViewerInstallResult } from '../../application/ports.js';
 import { SPEC_SESSION_ID_PATTERN } from '../../domain/spec.js';
-import { installInteractiveGraphAssets } from '../diagram/interactive/index.js';
+import { installInteractiveGraphAssets } from '../diagram/interactive/assets.js';
 import { graphvizGraphImages } from '../diagram/graphviz-renderer.js';
 import { packageVersion } from '../package/package-version.js';
 import { specRoot } from './data-dir.js';

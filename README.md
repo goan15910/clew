@@ -91,3 +91,10 @@ clew spec init examples/spec/order.md --json
 clew spec tag
 clew spec view <session-id> --open
 ```
+
+View a chart or workflow set without a session (`--workflows` / `--chart` for a combined page):
+
+```bash
+clew chart view examples/todo/b-full.yaml --open
+clew workflows view examples/todo/workflows.yaml --chart examples/todo/b-full.yaml --open
+```
