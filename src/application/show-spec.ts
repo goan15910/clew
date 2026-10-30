@@ -1,27 +1,30 @@
 import { currentSentences, type SpecSnapshot } from '../domain/spec.js';
-import { uniqueTokens } from '../domain/spec-query.js';
+import { sentenceWorkflows, uniqueTokens } from '../domain/spec-query.js';
 import type { Outcome, SpecFault, SpecShowDocument, SpecShowLayer } from './documents.js';
 import { specInput } from './documents.js';
 import type { SpecStore } from './ports.js';
 import { resolveSession } from './spec-session.js';
-import { entityViews, factViews, taggedViews, uniqueTokenViews } from './spec-views.js';
+import { entityViews, factViews, sentenceContextViews, spanViews, taggedViews, uniqueTokenViews } from './spec-views.js';
 
 export interface ShowSpecCommand {
   layer: SpecShowLayer;
   sessionId?: string;
 }
 
-type Need = 'tag' | 'entities' | 'facts';
+type Need = 'tag' | 'spans' | 'entities' | 'facts';
 
 const NEEDS: Record<SpecShowLayer, readonly Need[]> = {
+  sentences: [],
   tagged: ['tag'],
   tokens: ['tag'],
+  spans: ['tag', 'spans'],
   entities: ['tag', 'entities'],
   facts: ['tag', 'entities', 'facts'],
 };
 
 const PRODUCER: Record<Need, string> = {
   tag: 'no tokens; run clew spec tag first',
+  spans: 'no spans; run clew spec tag again to promote tokens into spans',
   entities: 'no entities; run clew spec entities list first',
   facts: 'no facts; run clew spec facts propose first',
 };
@@ -47,6 +50,8 @@ function written(snapshot: SpecSnapshot, need: Need): boolean {
   switch (need) {
     case 'tag':
       return tagLayerWritten(snapshot);
+    case 'spans':
+      return snapshot.spans !== undefined;
     case 'entities':
       return snapshot.entities !== undefined;
     case 'facts':
@@ -65,10 +70,14 @@ function tagLayerWritten(snapshot: SpecSnapshot): boolean {
 function shown(layer: SpecShowLayer, snapshot: SpecSnapshot): SpecShowDocument {
   const base = { ok: true as const, session: snapshot.id, findings: [], issues: [] };
   switch (layer) {
+    case 'sentences':
+      return { ...base, command: 'spec.show.sentences', sentences: sentenceContextViews(snapshot.sentences, sentenceWorkflows(snapshot)) };
     case 'tagged':
       return { ...base, command: 'spec.show.tagged', sentences: taggedViews(currentSentences(snapshot.sentences), snapshot.tagged) };
     case 'tokens':
       return { ...base, command: 'spec.show.tokens', tokens: uniqueTokenViews(uniqueTokens(snapshot.sentences, snapshot.tagged)) };
+    case 'spans':
+      return { ...base, command: 'spec.show.spans', spans: spanViews(snapshot.spans ?? []) };
     case 'entities':
       return { ...base, command: 'spec.show.entities', entities: entityViews(snapshot.entities ?? []) };
     case 'facts':
@@ -78,14 +87,5 @@ function shown(layer: SpecShowLayer, snapshot: SpecSnapshot): SpecShowDocument {
 
 function invalid(layer: SpecShowLayer, fault: SpecFault, message: string): Outcome<SpecShowDocument> {
   const document = { ok: false as const, fault, findings: [], issues: [specInput(undefined, message)] };
-  switch (layer) {
-    case 'tagged':
-      return { exit: 'invalid', document: { ...document, command: 'spec.show.tagged' } };
-    case 'tokens':
-      return { exit: 'invalid', document: { ...document, command: 'spec.show.tokens' } };
-    case 'entities':
-      return { exit: 'invalid', document: { ...document, command: 'spec.show.entities' } };
-    case 'facts':
-      return { exit: 'invalid', document: { ...document, command: 'spec.show.facts' } };
-  }
+  return { exit: 'invalid', document: { ...document, command: `spec.show.${layer}` } };
 }

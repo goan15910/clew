@@ -2,8 +2,10 @@
 import type { UniqueToken } from '../domain/spec-query.js';
 import type { DraftGraph, Entity, Fact, LiveSpan, Sentence, SpecFlow, TaggedSentence, Token } from '../domain/spec.js';
 import { visibleFacts } from '../domain/spec-facts.js';
+import { sentenceIdOfToken } from '../domain/spec-spans.js';
 import type {
   SpecEntityView,
+  SpecSentenceContextView,
   SpecFactView,
   SpecFlowView,
   SpecGraphView,
@@ -37,6 +39,19 @@ export function taggedViews(sentences: readonly Sentence[], tagged: readonly Tag
   return views;
 }
 
+export function sentenceContextViews(
+  sentences: readonly Sentence[],
+  workflows: ReadonlyMap<string, readonly SpecFlow[]>,
+): SpecSentenceContextView[] {
+  const views: SpecSentenceContextView[] = [];
+  for (const sentence of sentences) {
+    const flows: { id: string; title: string }[] = [];
+    for (const flow of workflows.get(sentence.id) ?? []) flows.push({ id: flow.id, title: flow.title });
+    views.push({ id: sentence.id, text: sentence.text, section: sentence.section, status: sentence.status, workflows: flows });
+  }
+  return views;
+}
+
 function tokenView(token: Token): SpecTokenView {
   const tags: string[] = [];
   for (const tag of token.tags) tags.push(tag);
@@ -58,6 +73,7 @@ export function spanViews(spans: readonly LiveSpan[]): SpecSpanView[] {
     for (const tag of span.tags) tags.push(tag);
     const view: SpecSpanView = {
       id: span.id,
+      sentence: sentenceIdOfToken(span.firstTokenId) ?? '',
       firstTokenId: span.firstTokenId,
       lastTokenId: span.lastTokenId,
       surface: span.surface,
