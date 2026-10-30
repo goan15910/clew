@@ -30,6 +30,26 @@ test.beforeEach(async ({ page }) => {
   await waitForViewerReady(page);
 });
 
+test.describe('rejected entities', () => {
+  const rejected = fixture.entities.filter((entity) => entity.status === 'rejected').map((entity) => entity.id);
+
+  test('hidden by default, shown by the toggle, hidden again by clear', async ({ page }) => {
+    expect(rejected.length).toBeGreaterThan(0);
+    await selectView(page, 'entities');
+    const toggle = page.locator('#filter-rejected');
+    await expect(toggle).not.toBeChecked();
+    expect(await visibleCardIds(page, 'entities')).toEqual(expectedVisibleIds('entities', emptyFilters));
+    expect(await visibleCardIds(page, 'entities')).not.toContain(rejected[0]);
+
+    await toggle.check();
+    expect(await visibleCardIds(page, 'entities')).toEqual(fixture.entities.map((entity) => entity.id));
+
+    await clearFilters(page);
+    await expect(toggle).not.toBeChecked();
+    expect(await visibleCardIds(page, 'entities')).not.toContain(rejected[0]);
+  });
+});
+
 test.describe('header and banner', () => {
   test('brand row shows Clew and the CLI version', async ({ page }) => {
     const brand = page.locator('header .brand');
