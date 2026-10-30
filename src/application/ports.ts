@@ -42,6 +42,12 @@ export interface ReplayFile {
   frames: number;
 }
 
+/** Draws one draft chart or one draft workflow chain as SVG. Failures throw. */
+export interface GraphImageRenderer {
+  chartSvg(model: Model, title: string): string;
+  chainSvg(model: Model, title: string, result: WorkflowResult): string;
+}
+
 export interface DiagramRenderer {
   render(model: Model, name: string, results: readonly WorkflowResult[], passed: number, outDir: string, highlight: string | undefined): void;
   writeHeatmap(model: Model, candidate: string, workflowCount: number, coverage: readonly TransitionCoverage[], outDir: string): string;

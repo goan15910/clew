@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { actorStroke, chainsDot, chartDot } from '../../src/adapters/diagram/diagrams.js';
-import { assembleModel } from '../../src/domain/model.js';
+import { assembleModel, type Model } from '../../src/domain/model.js';
 import type { WorkflowResult } from '../../src/domain/verification.js';
 
 const model = assembleModel({
@@ -108,6 +108,18 @@ describe('state chart dot', () => {
     assert.match(dot, /__start -> draft \[label="new task".*color="#d0d7de"/);
   });
 
+  test('a chart with no initial state omits the start node', () => {
+    const bare: Model = {
+      id: 'package',
+      initial: '',
+      states: () => [{ id: 'held', label: 'held', final: false, data: [] }],
+      transitions: () => [],
+    };
+    const dot = chartDot(bare, 'package');
+    assert.equal(dot.includes('__start'), false);
+    assert.match(dot, /held \[/);
+  });
+
   test('dot 16.1.0 writes the tooltip and the link into the svg', () => {
     const dir = mkdtempSync(join(tmpdir(), 'clew-chart-'));
     const dotPath = join(dir, 'chart.dot');
@@ -148,5 +160,38 @@ describe('workflow chain dot', () => {
     assert.match(dot, /subgraph cluster_0 \{/);
     assert.match(dot, /style=dashed/);
     assert.match(dot, /refused \(as required\)/);
+    assert.match(dot, /W9 PASS/);
+    assert.match(dot, /#1a7f37/);
+  });
+
+  test('an expectation head names accepted or rejected and does not say PASS', () => {
+    const dot = chainsDot(model, 'Draft', [opened], '', 'expect');
+    assert.match(dot, /W1 accepted/);
+    assert.equal(dot.includes('PASS'), false);
+    assert.equal(dot.includes('FAIL'), false);
+    assert.equal(dot.includes('#1a7f37'), false);
+    assert.equal(dot.includes('#cf222e'), false);
+    const refused: WorkflowResult = {
+      ...opened,
+      id: 'W9',
+      title: 'Refuse the close',
+      expect: 'rejected',
+      trace: [{
+        n: 1,
+        text: 'Close',
+        event: 'CLOSE',
+        from: 'open',
+        to: null,
+        accepted: false,
+        workflowEvent: 'close',
+        workflowFrom: 'open',
+        workflowTo: null,
+      }],
+    };
+    const draft = chainsDot(model, 'Draft', [refused], '', 'expect');
+    assert.match(draft, /W9 rejected/);
+    assert.match(draft, /label="refused"/);
+    assert.equal(draft.includes('PASS'), false);
+    assert.equal(draft.includes('as required'), false);
   });
 });

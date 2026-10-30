@@ -129,20 +129,20 @@ test.describe('toolbar and tab block', () => {
     }
     await expect(toolbar.locator('#filter-token')).toHaveCount(0);
     await expect(toolbar.locator('.tabs')).toHaveCount(0);
-    await expect(page.locator('main .tabset > .tabs [role="tab"]')).toHaveCount(3);
+    await expect(page.locator('main .tabset > .tabs [role="tab"]')).toHaveCount(4);
     const toolbarBox = await box(page, '.toolbar');
     const tabsetBox = await box(page, '.tabset');
     expect(tabsetBox.y).toBeGreaterThan(toolbarBox.y + toolbarBox.height - 1);
   });
 
   test('every panel renders inside the shared tab body', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences']) {
+    for (const view of ['facts', 'entities', 'sentences', 'graph']) {
       await expect(page.locator(`.tabset > .tab-body > #panel-${view}`)).toHaveCount(1);
     }
   });
 
   test('selected tab merges with the tab body; others stay distinct', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences'] as const) {
+    for (const view of ['facts', 'entities', 'sentences', 'graph'] as const) {
       await selectView(page, view);
       const styles = await page.evaluate(() => {
         const body = getComputedStyle(document.querySelector('.tab-body')!).backgroundColor;
@@ -158,6 +158,33 @@ test.describe('toolbar and tab block', () => {
         expect(style.bottomMatchesBody, `${style.tab} bottom edge`).toBe(style.selected);
       }
     }
+  });
+});
+
+test.describe('graph tab', () => {
+  test('shows the order chart and HappyPath as static images, with no lineage', async ({ page }) => {
+    test.setTimeout(60_000);
+    await selectView(page, 'graph');
+    const panel = page.locator('#panel-graph');
+    const order = panel.locator('img[alt="State chart of order"]');
+    const happy = panel.locator('img[alt="HappyPath: Submit then approve"]');
+    await expect(order).toBeVisible({ timeout: 20_000 });
+    await expect(happy).toBeVisible({ timeout: 20_000 });
+    const orderWidth = await order.evaluate(async (img: HTMLImageElement) => {
+      await img.decode();
+      return img.naturalWidth;
+    });
+    const happyWidth = await happy.evaluate(async (img: HTMLImageElement) => {
+      await img.decode();
+      return img.naturalWidth;
+    });
+    expect(orderWidth).toBeGreaterThan(0);
+    expect(happyWidth).toBeGreaterThan(0);
+    await expect(panel.locator('details.lineage')).toHaveCount(0);
+    await page.locator('#filter-text').fill('zzzz-no-match');
+    await expect(order).toBeVisible();
+    await expect(happy).toBeVisible();
+    await expect(panel.locator('details.lineage')).toHaveCount(0);
   });
 });
 
