@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // clew (-V|--version)
 // clew help [command...]
+// clew upgrade [--check] [--channel release|head] [--version v] [--checksum sha256] [--verify-provenance] [--force] [--json]
 // clew chart check <chart.yaml> [--json]
 // clew chart analyze <chart.yaml> [--json]
 // clew workflows check <set.yaml> [--json]
@@ -29,6 +30,10 @@
 // Composition root: parse arguments, wire adapters into use cases, map results to output and exit codes.
 import { Command, CommanderError } from '@commander-js/extra-typings';
 import { z } from 'zod';
+import { githubReleases } from './adapters/upgrade/github-releases.js';
+import { locateInstall } from './adapters/upgrade/install-location.js';
+import { localFiles } from './adapters/upgrade/local-files.js';
+import { ghProvenance, npmGlobal } from './adapters/upgrade/npm-global.js';
 import { jsonSelectionLoader } from './adapters/json/selection-loader.js';
 import { packageVersion } from './adapters/package/package-version.js';
 import { compromiseTagger } from './adapters/pos/compromise-tagger.js';
@@ -67,7 +72,7 @@ import { listEntities } from './application/list-entities.js';
 import { listSpecSessions } from './application/list-spec-sessions.js';
 import { mergeSpans } from './application/merge-spans.js';
 import { SPEC_SHOW_LAYERS, formatIssues, type CommandDocument, type Outcome, type OutputIssue, type SpecShowLayer } from './application/documents.js';
-import type { ComparePorts, VerifyPorts } from './application/ports.js';
+import type { ComparePorts, UpgradePorts, VerifyPorts } from './application/ports.js';
 import { proposeSpecFacts } from './application/propose-facts.js';
 import { readSpecStatus } from './application/spec-status.js';
 import { showSpec } from './application/show-spec.js';
@@ -75,6 +80,7 @@ import { removeSpecSession } from './application/remove-spec-session.js';
 import { tagSpec } from './application/tag-spec.js';
 import { traceSpec } from './application/trace-spec.js';
 import { verifyFlows } from './application/verify-flows.js';
+import { upgradeClew } from './application/upgrade-clew.js';
 import { viewSpecSession } from './application/view-spec.js';
 import { assertManuals, findCommand, fullHelp, jsonNote, listCommands, sessionNote, setManual, specExits } from './cli/help.js';
 import type { FactDraft } from './domain/spec-facts.js';
@@ -98,6 +104,32 @@ const comparePorts: ComparePorts = {
   results: jsonVerifyResultLoader,
   reports: fileReportWriter,
 };
+
+const upgradePorts: UpgradePorts = {
+  install: { locate: locateInstall },
+  releases: githubReleases,
+  files: localFiles,
+  npm: npmGlobal,
+  provenance: ghProvenance,
+};
+
+const UpgradeFlags = z.object({
+  json: z.boolean().optional(),
+  check: z.boolean().optional(),
+  dryRun: z.boolean().optional(),
+  channel: z.enum(['release', 'head']).optional(),
+  version: z.string().regex(/^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/, 'version looks like 0.1.0 or v0.1.0-alpha3').optional(),
+  checksum: z.string().regex(/^[0-9a-fA-F]{64}$/, 'checksum is a 64-character SHA-256 hex digest').optional(),
+  verifyProvenance: z.boolean().optional(),
+  force: z.boolean().optional(),
+}).superRefine((value, context) => {
+  if (value.version !== undefined && value.channel === 'head') {
+    context.addIssue({ code: 'custom', message: '--version names a release; it cannot combine with --channel head', path: ['version'] });
+  }
+  if (value.checksum !== undefined && value.channel === 'head') {
+    context.addIssue({ code: 'custom', message: '--checksum pins a release tarball; the head channel moves', path: ['checksum'] });
+  }
+});
 
 const JsonFlag = z.object({ json: z.boolean().optional() });
 const OutFlag = z.object({
@@ -397,6 +429,7 @@ program
   .name('clew')
   .description('Check state charts and workflow sets, and prove each named flow.')
   .version(installed.version, '-V, --version', 'print the installed version')
+  .enablePositionalOptions()
   .exitOverride();
 
 // Group commands turn Commander's implicit help subcommand off. Long help is `clew help`.
@@ -501,6 +534,57 @@ setManual(program
   notes: [
     jsonNote,
     '--heatmap and --replay need --out. A workflow state that is not on the chart exits 2. An event the chart never declares fails only that flow.',
+  ],
+});
+
+setManual(program
+  .command('upgrade')
+  .description('Move this global install to the newest build on its channel.')
+  .option('--check', 'say what would change and exit without installing')
+  .option('--dry-run', 'same as --check')
+  .option('--channel <channel>', 'switch channel on purpose: release or head')
+  .option('--version <version>', 'install exactly this release, even if it is a downgrade')
+  .option('--checksum <sha256>', 'also require the tarball to match this SHA-256')
+  .option('--verify-provenance', 'also run gh attestation verify on the tarball')
+  .option('--force', 'reinstall the same build, or replace a local build')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action(async (opts) => {
+    const parsed = UpgradeFlags.safeParse(opts);
+    if (!parsed.success) usage('upgrade', opts, parsed.error);
+    const flags = parsed.data;
+    const outcome = await upgradeClew({
+      channel: flags.channel,
+      version: flags.version,
+      check: flags.check === true || flags.dryRun === true,
+      force: flags.force === true,
+      checksum: flags.checksum,
+      verifyProvenance: flags.verifyProvenance === true,
+    }, upgradePorts);
+    if (outcome.exit !== 'pass') {
+      console.error(formatIssues(outcome.document.issues).join('\n'));
+      if (outcome.document.retry !== undefined) console.error(`run: ${outcome.document.retry}`);
+      if (flags.json === true) console.log(JSON.stringify(outcome.document, null, 2));
+      process.exit(outcome.exit === 'fail' ? EXIT_FAILED : EXIT_INVALID);
+    }
+    emit(outcome, flags.json === true);
+  }), {
+  examples: [
+    'clew upgrade',
+    'clew upgrade --check --json',
+    'clew upgrade --version 0.1.0-alpha3',
+    'clew upgrade --channel head',
+  ],
+  exitCodes: [
+    { code: 0, meaning: 'the install is current, or the upgrade finished, or --check reported' },
+    { code: 1, meaning: 'the lookup, download, checksum, or install failed and nothing changed' },
+    { code: 2, meaning: 'this install is not one clew made, or the arguments are wrong' },
+  ],
+  notes: [
+    jsonNote,
+    'Release channel: GitHub releases, newest SemVer. A prerelease install may move to prereleases. Head channel: the rolling edge prerelease, compared by commit.',
+    'Plain upgrade stays on the installed channel. The tarball must match SHA256SUMS, or nothing is installed. Spec sessions are never touched.',
+    'Local builds (scripts/install-clew.sh --from local) are refused without --force. An unwritable prefix prints the npm command to run. Clew never runs sudo.',
+    'GITHUB_TOKEN raises the API rate limit. --version needs no API call.',
   ],
 });
 
@@ -1214,7 +1298,9 @@ setManual(program
 
 async function main(): Promise<void> {
   assertManuals(program);
-  await program.parseAsync(process.argv);
+  const argv = process.argv.slice();
+  if (argv[2] === 'self-update') argv[2] = 'upgrade';
+  await program.parseAsync(argv);
 }
 
 main().catch((error: unknown) => {

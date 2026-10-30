@@ -16,18 +16,36 @@ The command contract, JSON shapes, and file format are in [docs/agent-cli.md](do
 Clew is not published to the npm registry. Use the install script:
 
 ```bash
-# From a local checkout (version is package.json, plus -<shortSha> when HEAD has no git tag)
+# From a local checkout
 bash scripts/install-clew.sh --from local
 
-# From GitHub (branch, tag, or commit) — version is package.json as-is
+# From GitHub (branch, tag, or commit)
 bash scripts/install-clew.sh --from github main
 bash scripts/install-clew.sh --from github v0.1.0-alpha3
 
-# From a GitHub Release tarball
+# From a GitHub Release tarball (no tag means the highest SemVer release, prereleases included).
+# The tarball must match SHA256SUMS or nothing is installed.
 bash scripts/install-clew.sh --from release v0.1.0-alpha3
 ```
 
+A commit with an exact `v*` tag installs as its tag, such as `0.1.0-alpha3`. Any other commit installs as `{pkg}.dev.{commit count}+g{sha7}`, such as `0.1.0-alpha3.dev.36+g24cb67d`. Each install also records its channel (`release`, `head`, or `local`) and commit in `build-info.json` for `clew upgrade`.
+
 `clew --version` prints the installed version string. Pass `--prefix DIR` to install into a non-default prefix (adds `DIR/bin` to your `PATH` yourself).
+
+## Upgrade
+
+```bash
+clew upgrade                    # newest build on the channel you installed from
+clew upgrade --check --json     # report what would change, install nothing
+clew upgrade --version 0.1.0-alpha3   # exact release, downgrades allowed, no API call
+clew upgrade --channel head     # switch to the rolling edge prerelease built from main
+```
+
+`release` installs from GitHub releases (highest SemVer; prereleases only when the installed build is one). `head` installs the rolling `edge` prerelease that CI publishes on every push to main, and compares by commit. Plain `clew upgrade` never changes channel.
+
+The tarball must match `SHA256SUMS` (and GitHub's asset digest, and `--checksum` when given) before `npm install -g <that file>` runs. `--verify-provenance` also runs `gh attestation verify`. Local builds, `npm link`, and checkouts are refused unless `--force`. An unwritable prefix prints the `npm install -g` command to run, and Clew never runs `sudo`. Spec sessions are never touched. Set `GITHUB_TOKEN` to raise the API rate limit. macOS and Linux only.
+
+Installs up to `0.1.0-alpha.2` have no `upgrade` command. Re-run the install script for those.
 
 ## Help
 

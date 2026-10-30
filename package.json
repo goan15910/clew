@@ -6,7 +6,8 @@
     "clew": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "build-info.json"
   ],
   "scripts": {
     "clew": "tsx src/cli.ts",

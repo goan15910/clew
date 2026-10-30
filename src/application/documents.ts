@@ -475,7 +475,21 @@ export type SpecShowDocument =
   | (SpecShowBase & { command: 'spec.show.entities'; entities?: SpecEntityView[] })
   | (SpecShowBase & { command: 'spec.show.facts'; facts?: SpecFactView[] });
 
+export interface UpgradeDocument {
+  command: 'upgrade';
+  ok: boolean;
+  action?: 'current' | 'would-install' | 'installed';
+  channel?: 'release' | 'head';
+  from?: string;
+  to?: string;
+  fault?: 'refused' | 'resolve' | 'download' | 'checksum' | 'provenance' | 'install' | 'permission';
+  retry?: string;
+  note?: string;
+  issues: OutputIssue[];
+}
+
 export type CommandDocument =
+  | UpgradeDocument
   | ChartCheckDocument
   | ChartAnalyzeDocument
   | WorkflowCheckDocument

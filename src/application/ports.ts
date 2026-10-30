@@ -1,5 +1,6 @@
 // Ports the use cases need. Adapters implement these; the use cases do not import adapters.
 import type { Model } from '../domain/model.js';
+import type { BuildInfo } from '../domain/upgrade.js';
 import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
 import type { Traversal } from '../domain/traversal.js';
 import type { TransitionCoverage, WorkflowResult } from '../domain/verification.js';
@@ -129,4 +130,49 @@ export interface PosTaggerPort {
 export interface WorkflowSetWriter {
   render(draft: WorkflowSetDraft): string;
   write(file: string, yaml: string): { ok: true } | { ok: false; message: string };
+}
+
+export type Fetched<T> = { ok: true; value: T } | { ok: false; message: string };
+
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  sha256?: string;
+}
+
+export interface Release {
+  tag: string;
+  prerelease: boolean;
+  assets: ReleaseAsset[];
+}
+
+export interface EdgeRelease {
+  commit: string;
+  release: Release;
+}
+
+export type InstallLocation =
+  | { kind: 'global'; build: BuildInfo; prefix: string; writable: boolean }
+  | { kind: 'other'; build: BuildInfo; reason: string };
+
+export interface UpgradePorts {
+  install: { locate(): InstallLocation };
+  releases: {
+    list(): Promise<Fetched<Release[]>>;
+    edge(): Promise<Fetched<EdgeRelease>>;
+    direct(tag: string): Release;
+  };
+  files: {
+    makeTempDir(): string;
+    removeDir(dir: string): void;
+    fetchText(url: string): Promise<Fetched<string>>;
+    download(url: string, file: string): Promise<Fetched<void>>;
+    sha256(file: string): Promise<string>;
+    inspect(tarball: string): Fetched<BuildInfo>;
+  };
+  npm: {
+    install(tarball: string, prefix: string): Promise<Fetched<void>>;
+    installedVersion(prefix: string): Fetched<string>;
+  };
+  provenance: { verify(tarball: string): Promise<Fetched<void>> };
 }
