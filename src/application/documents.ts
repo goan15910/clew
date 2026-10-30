@@ -442,16 +442,60 @@ export interface SpecSessionRemoveDocument {
   issues: OutputIssue[];
 }
 
+/** Hover payload for one interactive graph node/edge (mirrors `clew spec trace` chain). */
+export interface DraftGraphHoverDetail {
+  id: string;
+  kind: 'state' | 'start' | 'transition' | 'step' | 'refused';
+  title: string;
+  summary: string[];
+  condition?: string;
+  sentence?: string;
+  lineage: TraceLink[];
+}
+
+export interface DraftGraphCyElement {
+  group: 'nodes' | 'edges';
+  data: {
+    id: string;
+    label: string;
+    kind: 'state' | 'start' | 'transition' | 'step' | 'refused';
+    detail?: string;
+    source?: string;
+    target?: string;
+    initial?: boolean;
+    final?: boolean;
+    actor?: string;
+    event?: string;
+    guard?: string;
+    path?: boolean;
+  };
+  classes?: string;
+}
+
+/** Interactive Cytoscape document for one chart or workflow. */
+export interface DraftGraphInteractive {
+  id: string;
+  title: string;
+  kind: 'chart' | 'workflow';
+  expect?: 'accepted' | 'rejected';
+  elements: DraftGraphCyElement[];
+  details: Record<string, DraftGraphHoverDetail>;
+}
+
 export interface DraftGraphChartImage {
   object: string;
-  svg: string;
+  /** Graphviz SVG fallback/export when drawing succeeded. */
+  svg?: string;
+  interactive: DraftGraphInteractive;
 }
 
 export interface DraftGraphWorkflowImage {
   id: string;
   title: string;
   expect: 'accepted' | 'rejected';
-  svg: string;
+  /** Graphviz SVG fallback/export when drawing succeeded. */
+  svg?: string;
+  interactive: DraftGraphInteractive;
 }
 
 /** JSON for the spec inspector Graph tab. Not a CLI command document. */
@@ -462,7 +506,7 @@ export interface DraftGraphImageDocument {
   findings: Finding[];
   /** Set when the session has no graph layer. */
   message?: string;
-  /** Set when the session cannot be read or Graphviz cannot draw. */
+  /** Set when the session cannot be read or Graphviz cannot draw (interactive may still be present). */
   error?: string;
 }
 

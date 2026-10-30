@@ -181,14 +181,26 @@ describe('spec view', { concurrency: false }, () => {
         const drawn = await (await fetch(`${origin}/draft-graph.json`)).json() as DraftGraphImageDocument;
         assert.equal(drawn.session, 'viewer-matrix');
         assert.equal(drawn.message, undefined);
-        assert.equal(drawn.error, undefined);
         const order = drawn.charts.find((chart) => chart.object === 'order');
         const happy = drawn.workflows.find((flow) => flow.id === 'HappyPath');
         assert.ok(order);
-        assert.match(order.svg, /<svg/);
+        assert.ok(order.interactive);
+        assert.ok(order.interactive.elements.length > 0);
         assert.ok(happy);
         assert.equal(happy.expect, 'accepted');
-        assert.match(happy.svg, /<svg/);
+        assert.ok(happy.interactive.elements.length > 0);
+        if (drawn.error) {
+          assert.match(drawn.error, /Graphviz|dot/);
+          assert.equal(order.svg, undefined);
+          assert.equal(happy.svg, undefined);
+        } else {
+          assert.match(order.svg ?? '', /<svg/);
+          assert.match(happy.svg ?? '', /<svg/);
+        }
+        const guarded = Object.values(order.interactive.details).find((detail) => detail.condition);
+        assert.ok(guarded);
+        assert.match(guarded.condition ?? '', /under 500 dollars/);
+        assert.ok((guarded.lineage?.length ?? 0) > 0);
         assert.equal(drawn.workflows.some((flow) => flow.id === 'ForbidCancel'), false);
         assert.ok(drawn.findings.some((finding) => finding.refs.includes('ForbidCancel')));
         const missing = await (await fetch(`${origin}/sessions/no-graph/draft-graph.json`)).json() as DraftGraphImageDocument;
@@ -212,7 +224,9 @@ describe('spec view', { concurrency: false }, () => {
         },
       } satisfies GraphImageRenderer);
       assert.match(failed.error ?? '', /not runnable/);
-      assert.deepEqual(failed.charts, []);
+      assert.ok(failed.charts.length > 0);
+      assert.ok(failed.charts[0]?.interactive.elements.length);
+      assert.equal(failed.charts[0]?.svg, undefined);
       assert.ok(failed.findings.some((finding) => finding.refs.includes('ForbidCancel')));
     } finally {
       if (previous === undefined) delete process.env.CLEW_DATA_DIR;
@@ -232,11 +246,28 @@ describe('spec view', { concurrency: false }, () => {
   });
 
   test('viewer.html inline script parses', () => {
-    const start = VIEWER_HTML.indexOf('<script>');
+    const start = VIEWER_HTML.indexOf('<script>\n(function ()');
     const end = VIEWER_HTML.indexOf('</script>', start);
     assert.ok(start >= 0 && end > start);
     const script = VIEWER_HTML.slice(start + '<script>'.length, end);
     assert.doesNotThrow(() => new Function(script));
+  });
+
+  test('spec view installs vendored interactive graph assets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clew-view-assets-'));
+    try {
+      assert.equal(clew(['spec', 'init', sample, '--json'], dir).status, 0);
+      assert.equal(clew(['spec', 'view', 'order-sentence', '--json'], dir).status, 0);
+      const session = specSessionDir('order-sentence', { CLEW_DATA_DIR: dir });
+      assert.equal(existsSync(join(session, 'cytoscape.min.js')), true);
+      assert.equal(existsSync(join(session, 'cytoscape-dagre.min.js')), true);
+      assert.equal(existsSync(join(session, 'clew-interactive-graph.js')), true);
+      const html = readFileSync(join(session, VIEWER_FILE), 'utf8');
+      assert.match(html, /src="cytoscape\.min\.js"/);
+      assert.match(html, /ClewInteractiveGraph/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

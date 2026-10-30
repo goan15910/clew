@@ -373,9 +373,55 @@ details.lineage[open] > summary::before { content: "▾ "; }
 .gloss-span.skipped.match { opacity: 0.85; }
 .line-span.skipped { opacity: 0.55; color: var(--muted); }
 .empty { color: var(--muted); padding: 1.5rem 0; }
-.graph-image { display: block; max-width: 100%; height: auto; margin: 0 0 1rem; }
+.graph-image { display: block; max-width: 100%; height: auto; margin: 0.5rem 0 0; border: 1px solid var(--line); }
 #panel-graph h2 { font-size: 1.05rem; margin: 0.2rem 0 0.6rem; }
 .graph-skipped { color: var(--muted); margin: 0.5rem 0 0; padding-left: 1.2rem; }
+.graph-block { margin: 0 0 1.25rem; }
+.graph-block-head {
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: baseline;
+  margin: 0 0 0.45rem;
+}
+.graph-block-head h3 { margin: 0; font: 600 0.95rem/1.3 var(--sans); }
+.graph-block-head .expect { font: 500 0.78rem var(--mono); color: var(--muted); }
+.graph-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
+  gap: 0.75rem;
+  align-items: stretch;
+}
+@media (max-width: 900px) {
+  .graph-stage { grid-template-columns: 1fr; }
+}
+.graph-canvas-wrap {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background:
+    linear-gradient(180deg, #fbfaf7 0%, #f3f1ec 100%);
+  min-height: 280px;
+  height: 360px;
+  position: relative;
+}
+.graph-cy { width: 100%; height: 100%; }
+.graph-detail {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: #fbfaf7;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.88rem;
+  overflow: auto;
+  max-height: 360px;
+}
+.graph-detail[hidden] { display: none; }
+.graph-detail-placeholder { color: var(--muted); margin: 0; }
+.graph-detail-head { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: baseline; }
+.graph-detail-kind { font: 500 0.75rem var(--mono); color: var(--muted); }
+.graph-detail-summary { margin: 0.45rem 0 0; padding-left: 1.1rem; }
+.graph-detail-condition, .graph-detail-sentence, .graph-detail-empty { margin: 0.5rem 0 0; }
+.graph-detail .k { font: 600 0.72rem var(--mono); color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.35rem; }
+.graph-detail-lineage { margin-top: 0.55rem; }
+.graph-detail-lineage ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+.graph-fallback details { margin-top: 0.45rem; }
+.graph-fallback summary { color: var(--muted); font-size: 0.82rem; }
 </style>
 </head>
 <body>
@@ -420,6 +466,9 @@ details.lineage[open] > summary::before { content: "▾ "; }
     </div>
   </div>
 </main>
+<script src="cytoscape.min.js"></script>
+<script src="cytoscape-dagre.min.js"></script>
+<script src="clew-interactive-graph.js"></script>
 <script>
 (function () {
   const KINDS = ["actor", "object", "action", "condition"];
@@ -435,7 +484,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
     graphView: null,
     graphStatus: "loading",
     tab: "facts",
+<<<<<<< HEAD
     page: { facts: 0, entities: 0, sentences: 0, spans: 0 },
+=======
+    page: { facts: 0, entities: 0, sentences: 0 },
+    graphMounts: [],
+>>>>>>> 0fafaeb (feat(spec): interactive Cytoscape Graph tab with hover lineage)
   };
   const PAGE_SIZE = 30;
 
@@ -1292,7 +1346,23 @@ details.lineage[open] > summary::before { content: "▾ "; }
     });
   }
 
+  function destroyGraphMounts() {
+    for (const mount of state.graphMounts) {
+      try { if (mount && mount.destroy) mount.destroy(); } catch (_) { /* ignore */ }
+    }
+    state.graphMounts = [];
+  }
+
+  function graphFallbackHtml(svg, alt) {
+    if (!svg) return "";
+    return '<div class="graph-fallback"><details><summary>Graphviz SVG</summary>' +
+      '<img class="graph-image" alt="' + esc(alt) +
+      '" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '">' +
+      "</details></div>";
+  }
+
   function renderGraph() {
+    destroyGraphMounts();
     if (state.graphStatus !== "ready") {
       els.graph.innerHTML = '<p class="empty">Drawing the graph…</p>';
       return;
@@ -1308,17 +1378,34 @@ details.lineage[open] > summary::before { content: "▾ "; }
     html += "<h2>State chart</h2>";
     const charts = doc.charts || [];
     if (charts.length === 0) html += '<p class="empty">No state charts.</p>';
-    for (const chart of charts) {
-      html += '<img class="graph-image" alt="' + esc("State chart of " + chart.object) +
-        '" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(chart.svg || "") + '">';
-    }
+    charts.forEach(function (chart, index) {
+      const alt = "State chart of " + chart.object;
+      html += '<article class="graph-block" data-graph-kind="chart" data-graph-object="' + esc(chart.object) + '">';
+      html += '<div class="graph-block-head"><h3>' + esc(chart.object) + "</h3></div>";
+      html += '<div class="graph-stage">';
+      html += '<div class="graph-canvas-wrap" data-graph-mount="chart-' + index + '" aria-label="' + esc(alt) + '"></div>';
+      html += '<aside class="graph-detail" data-graph-detail="chart-' + index +
+        '" hidden><p class="graph-detail-placeholder">Hover a node or edge for details.</p></aside>';
+      html += "</div>";
+      html += graphFallbackHtml(chart.svg, alt);
+      html += "</article>";
+    });
     html += "<h2>Workflows</h2>";
     const workflows = doc.workflows || [];
     if (workflows.length === 0) html += '<p class="empty">No workflows.</p>';
-    for (const flow of workflows) {
-      html += '<img class="graph-image" alt="' + esc(flow.id + ": " + flow.title) +
-        '" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(flow.svg || "") + '">';
-    }
+    workflows.forEach(function (flow, index) {
+      const alt = flow.id + ": " + flow.title;
+      html += '<article class="graph-block" data-graph-kind="workflow" data-graph-id="' + esc(flow.id) + '">';
+      html += '<div class="graph-block-head"><h3>' + esc(flow.id) + ": " + esc(flow.title) + "</h3>";
+      html += '<span class="expect">' + esc(flow.expect || "") + "</span></div>";
+      html += '<div class="graph-stage">';
+      html += '<div class="graph-canvas-wrap" data-graph-mount="workflow-' + index + '" aria-label="' + esc(alt) + '"></div>';
+      html += '<aside class="graph-detail" data-graph-detail="workflow-' + index +
+        '" hidden><p class="graph-detail-placeholder">Hover a node or edge for details.</p></aside>';
+      html += "</div>";
+      html += graphFallbackHtml(flow.svg, alt);
+      html += "</article>";
+    });
     const findings = doc.findings || [];
     if (findings.length > 0) {
       html += '<ul class="graph-skipped">';
@@ -1326,6 +1413,33 @@ details.lineage[open] > summary::before { content: "▾ "; }
       html += "</ul>";
     }
     els.graph.innerHTML = html;
+    if (!window.ClewInteractiveGraph || typeof window.ClewInteractiveGraph.mount !== "function") {
+      const note = document.createElement("p");
+      note.className = "empty";
+      note.textContent = "Interactive graph assets failed to load. Open this page through clew spec view --open.";
+      els.graph.prepend(note);
+      return;
+    }
+    charts.forEach(function (chart, index) {
+      const mountEl = els.graph.querySelector('[data-graph-mount="chart-' + index + '"]');
+      const detailEl = els.graph.querySelector('[data-graph-detail="chart-' + index + '"]');
+      if (!mountEl || !chart.interactive) return;
+      try {
+        state.graphMounts.push(window.ClewInteractiveGraph.mount(mountEl, chart.interactive, { detailPanel: detailEl }));
+      } catch (error) {
+        mountEl.innerHTML = '<p class="empty">' + esc(error && error.message ? error.message : String(error)) + "</p>";
+      }
+    });
+    workflows.forEach(function (flow, index) {
+      const mountEl = els.graph.querySelector('[data-graph-mount="workflow-' + index + '"]');
+      const detailEl = els.graph.querySelector('[data-graph-detail="workflow-' + index + '"]');
+      if (!mountEl || !flow.interactive) return;
+      try {
+        state.graphMounts.push(window.ClewInteractiveGraph.mount(mountEl, flow.interactive, { detailPanel: detailEl }));
+      } catch (error) {
+        mountEl.innerHTML = '<p class="empty">' + esc(error && error.message ? error.message : String(error)) + "</p>";
+      }
+    });
   }
 
   function render() {

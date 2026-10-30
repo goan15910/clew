@@ -1,0 +1,3 @@
+cytoscape 3.34.4 — cytoscape.min.js
+cytoscape-dagre 4.0.1 — cytoscape-dagre.min.js (bundles @dagrejs/dagre)
+License: MIT (upstream packages)

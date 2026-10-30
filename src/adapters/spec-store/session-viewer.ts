@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, relative, resolve, sep } from 'node:p
 import { viewSpecGraph } from '../../application/view-spec-graph.js';
 import type { SpecSessionViewer, SpecViewerInstallResult } from '../../application/ports.js';
 import { SPEC_SESSION_ID_PATTERN } from '../../domain/spec.js';
+import { installInteractiveGraphAssets } from '../diagram/interactive/index.js';
 import { graphvizGraphImages } from '../diagram/graphviz-renderer.js';
 import { packageVersion } from '../package/package-version.js';
 import { specRoot } from './data-dir.js';
@@ -72,6 +73,8 @@ export const jsonSpecSessionViewer: SpecSessionViewer = {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, fault: 'unreadable', message: `cannot write ${VIEWER_FILE}: ${message}` };
     }
+    const assets = installInteractiveGraphAssets(located.dir);
+    if (!assets.ok) return { ok: false, fault: 'unreadable', message: assets.message };
     return { ok: true, session: id, htmlPath, sessionDir: located.dir };
   },
 };

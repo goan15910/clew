@@ -163,29 +163,53 @@ test.describe('toolbar and tab block', () => {
 });
 
 test.describe('graph tab', () => {
-  test('shows the order chart and HappyPath as static images, with no lineage', async ({ page }) => {
+  test('renders interactive order chart and HappyPath with pan/zoom canvases', async ({ page }) => {
     test.setTimeout(60_000);
     await selectView(page, 'graph');
     const panel = page.locator('#panel-graph');
-    const order = panel.locator('img[alt="State chart of order"]');
-    const happy = panel.locator('img[alt="HappyPath: Submit then approve"]');
+    const order = panel.locator('[data-graph-object="order"] [data-graph-mount]');
+    const happy = panel.locator('[data-graph-id="HappyPath"] [data-graph-mount]');
     await expect(order).toBeVisible({ timeout: 20_000 });
     await expect(happy).toBeVisible({ timeout: 20_000 });
-    const orderWidth = await order.evaluate(async (img: HTMLImageElement) => {
-      await img.decode();
-      return img.naturalWidth;
+    await expect.poll(async () => order.locator('.graph-cy').count()).toBeGreaterThan(0);
+    await expect.poll(async () => happy.locator('.graph-cy').count()).toBeGreaterThan(0);
+    const nodeCount = await order.evaluate((el) => {
+      const cy = (el as HTMLElement & { __clewCy?: { nodes: () => { length: number } } }).__clewCy;
+      return cy ? cy.nodes().length : 0;
     });
-    const happyWidth = await happy.evaluate(async (img: HTMLImageElement) => {
-      await img.decode();
-      return img.naturalWidth;
-    });
-    expect(orderWidth).toBeGreaterThan(0);
-    expect(happyWidth).toBeGreaterThan(0);
+    expect(nodeCount).toBeGreaterThan(0);
     await expect(panel.locator('details.lineage')).toHaveCount(0);
     await page.locator('#filter-text').fill('zzzz-no-match');
     await expect(order).toBeVisible();
     await expect(happy).toBeVisible();
-    await expect(panel.locator('details.lineage')).toHaveCount(0);
+  });
+
+  test('hovering a guarded transition shows condition, sentence, and lineage', async ({ page }) => {
+    test.setTimeout(60_000);
+    await selectView(page, 'graph');
+    const panel = page.locator('#panel-graph');
+    const order = panel.locator('[data-graph-object="order"]');
+    await expect(order.locator('[data-graph-mount] .graph-cy')).toBeVisible({ timeout: 20_000 });
+    const hovered = await order.evaluate((block) => {
+      type CyCollection = { length: number; emit: (name: string) => void; data: (key: string) => unknown };
+      const mount = block.querySelector('[data-graph-mount]') as HTMLElement & {
+        __clewCy?: { $: (sel: string) => CyCollection };
+      };
+      const cy = mount?.__clewCy;
+      if (!cy) return { ok: false as const, reason: 'no-cy' };
+      const guarded = cy.$('edge.guarded');
+      if (guarded.length === 0) return { ok: false as const, reason: 'no-guarded-edge' };
+      guarded.emit('mouseover');
+      return { ok: true as const, detail: guarded.data('detail') };
+    });
+    expect(hovered.ok, JSON.stringify(hovered)).toBe(true);
+    const detail = order.locator('[data-graph-detail]');
+    await expect(detail).toBeVisible();
+    await expect(detail).toContainText('condition');
+    await expect(detail).toContainText('the total is under 500 dollars');
+    await expect(detail.locator('[data-testid="graph-hover-lineage"]')).toBeVisible();
+    await expect(detail).toContainText('sentence');
+    await expect(detail).toContainText('When the customer submits an order');
   });
 });
 
