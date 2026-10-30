@@ -16,6 +16,7 @@ export function draftCharts(graph: DraftGraph): DraftChart[] {
   const charts: DraftChart[] = [];
   for (const object of graph.objects) {
     const states = statesFor(graph.states, object);
+    if (states.length === 0) continue;
     charts.push({ object, model: asModel(object, initialOf(graph.states, object), states, edgesFor(graph.transitions, object)) });
   }
   return charts;

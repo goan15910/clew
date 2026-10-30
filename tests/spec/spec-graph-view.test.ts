@@ -36,10 +36,7 @@ describe('draft graph view', () => {
       ['approved', 'approved'],
     ]);
 
-    const packageChart = charts.find((chart) => chart.object === 'package');
-    assert.ok(packageChart);
-    assert.equal(packageChart.model.initial, '');
-    assert.deepEqual(packageChart.model.states(), []);
+    assert.equal(charts.some((chart) => chart.object === 'package'), false);
 
     const entities = readJson<{ entities: Entity[] }>('entities.json').entities;
     const facts = readJson<{ facts: Fact[] }>('facts.json').facts;
