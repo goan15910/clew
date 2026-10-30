@@ -8,7 +8,7 @@ export async function waitForViewerReady(page: Page): Promise<void> {
   await expect(banner).not.toHaveClass(/error/);
 }
 
-export async function selectView(page: Page, view: View | 'graph'): Promise<void> {
+export async function selectView(page: Page, view: View | 'spans' | 'graph'): Promise<void> {
   await page.locator(`.tabs button[data-tab="${view}"]`).click();
   await expect(page.locator(`#panel-${view}`)).toHaveClass(/active/);
   await expect(page.locator(`#panel-${view}`)).toBeVisible();

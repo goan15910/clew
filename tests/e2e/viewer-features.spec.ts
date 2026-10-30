@@ -3,6 +3,7 @@ import {
   expectedSpanCount,
   expectedSpanFilterGroups,
   expectedSpanFilterMatches,
+  expectedSpanTabEntries,
   expectedVisibleIds,
   fixture,
   PACKAGE_VERSION,
@@ -129,20 +130,20 @@ test.describe('toolbar and tab block', () => {
     }
     await expect(toolbar.locator('#filter-token')).toHaveCount(0);
     await expect(toolbar.locator('.tabs')).toHaveCount(0);
-    await expect(page.locator('main .tabset > .tabs [role="tab"]')).toHaveCount(4);
+    await expect(page.locator('main .tabset > .tabs [role="tab"]')).toHaveCount(5);
     const toolbarBox = await box(page, '.toolbar');
     const tabsetBox = await box(page, '.tabset');
     expect(tabsetBox.y).toBeGreaterThan(toolbarBox.y + toolbarBox.height - 1);
   });
 
   test('every panel renders inside the shared tab body', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences', 'graph']) {
+    for (const view of ['facts', 'entities', 'sentences', 'spans', 'graph']) {
       await expect(page.locator(`.tabset > .tab-body > #panel-${view}`)).toHaveCount(1);
     }
   });
 
   test('selected tab merges with the tab body; others stay distinct', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences', 'graph'] as const) {
+    for (const view of ['facts', 'entities', 'sentences', 'spans', 'graph'] as const) {
       await selectView(page, view);
       const styles = await page.evaluate(() => {
         const body = getComputedStyle(document.querySelector('.tab-body')!).backgroundColor;
@@ -185,6 +186,201 @@ test.describe('graph tab', () => {
     await expect(order).toBeVisible();
     await expect(happy).toBeVisible();
     await expect(panel.locator('details.lineage')).toHaveCount(0);
+  });
+});
+
+type PlantedSpan = {
+  id: string;
+  firstTokenId: string;
+  lastTokenId: string;
+  surface: string;
+  tags: string[];
+  origin: string;
+  explicitlySet: boolean;
+  entityLinkExplicitlySet: boolean;
+  insignificant?: boolean;
+};
+
+function multiTokenSpan(
+  first: string,
+  last: string,
+  surface: string,
+  tags: string[],
+  extras: { insignificant?: boolean } = {},
+): PlantedSpan {
+  const span: PlantedSpan = {
+    id: `sp:${first}..${last}`,
+    firstTokenId: first,
+    lastTokenId: last,
+    surface,
+    tags,
+    origin: 'lexicon',
+    explicitlySet: false,
+    entityLinkExplicitlySet: false,
+  };
+  if (extras.insignificant) span.insignificant = true;
+  return span;
+}
+
+function plantSpanSession(
+  viewerSessionDir: string,
+  id: string,
+  spans: PlantedSpan[],
+): string {
+  const other = join(dirname(viewerSessionDir), id);
+  cpSync(viewerSessionDir, other, { recursive: true });
+  const session = JSON.parse(readFileSync(join(other, 'session.json'), 'utf8')) as { id: string };
+  writeFileSync(join(other, 'session.json'), JSON.stringify({ ...session, id }));
+  const spansDoc = JSON.parse(readFileSync(join(other, 'spans.json'), 'utf8')) as {
+    schemaVersion: number;
+    spans: PlantedSpan[];
+  };
+  spansDoc.spans = spans;
+  writeFileSync(join(other, 'spans.json'), JSON.stringify(spansDoc, null, 2));
+  return other;
+}
+
+async function openPlantedSession(page: Page, id: string): Promise<void> {
+  await page.locator('#session-id').hover();
+  await page.locator('#session-id').selectOption(id);
+  await expect(page).toHaveURL(new RegExp(`[?&]session=${id}`));
+}
+
+test.describe('span tab', () => {
+  test('ignores single-token spans on the default fixture', async ({ page }) => {
+    expect(expectedSpanTabEntries()).toEqual([]);
+    await selectView(page, 'spans');
+    await expect(page.locator('#panel-spans .empty')).toHaveText('No spans match these filters.');
+    await expect(page.locator('#panel-spans article.card')).toHaveCount(0);
+  });
+
+  test('lists unique multi-token (surface, tags) entries grouped by main POS', async ({ page, viewer }) => {
+    const spans = [
+      multiTokenSpan('s1.t5', 's1.t6', 'an order', ['Noun', 'Singular']),
+      multiTokenSpan('s1.t10', 's1.t11', 'an order', ['Noun', 'Singular']),
+      multiTokenSpan('s1.t3', 's1.t4', 'customer submits', ['Verb', 'PresentTense']),
+      multiTokenSpan('s2.t1', 's2.t2', 'must not', ['Verb', 'Negative']),
+      multiTokenSpan('s1.t1', 's1.t2', 'When the', ['Conjunction']),
+      // single-token decoys must stay out of the tab
+      {
+        id: 'sp:s1.t7..s1.t7',
+        firstTokenId: 's1.t7',
+        lastTokenId: 's1.t7',
+        surface: 'solo',
+        tags: ['Noun', 'Singular'],
+        origin: 'promote',
+        explicitlySet: false,
+        entityLinkExplicitlySet: false,
+      },
+    ];
+    const dir = plantSpanSession(viewer.sessionDir, 'zz-span-multi', spans);
+    try {
+      await openPlantedSession(page, 'zz-span-multi');
+      await selectView(page, 'spans');
+      const expected = expectedSpanTabEntries({ spans });
+      expect(expected.map((entry) => entry.key)).toEqual([
+        'customer submits|Verb|PresentTense',
+        'must not|Verb|Negative',
+        'an order|Noun|Singular',
+        'When the|Conjunction',
+      ]);
+      const panel = page.locator('#panel-spans');
+      const keys = await panel.locator('article.card').evaluateAll((els) =>
+        els.map((el) => (el as HTMLElement).dataset.entryKey),
+      );
+      expect(keys).toEqual(expected.map((entry) => entry.key));
+      expect(keys).not.toContain('solo|Noun|Singular');
+      const groups = await panel.locator('h2.span-group').allTextContents();
+      expect(groups).toEqual([...new Set(expected.map((entry) => entry.pos))]);
+      const order = expected.find((entry) => entry.surface === 'an order')!;
+      expect(order.count).toBe(2);
+      await expect(panel.locator(`article.card[data-entry-key="${order.key}"] .blurb`)).toHaveText(
+        '2 occurrences',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('hides insignificant multi-token spans by default and shows them when toggled', async ({
+    page,
+    viewer,
+  }) => {
+    const spans = [
+      multiTokenSpan('s1.t5', 's1.t6', 'an order', ['Noun', 'Singular']),
+      multiTokenSpan('s1.t2', 's1.t5', 'the customer submits an', ['Determiner'], { insignificant: true }),
+      {
+        id: 'sp:s1.t7..s1.t7',
+        firstTokenId: 's1.t7',
+        lastTokenId: 's1.t7',
+        surface: 'the',
+        tags: ['Determiner'],
+        origin: 'promote',
+        explicitlySet: false,
+        entityLinkExplicitlySet: false,
+        insignificant: true,
+      },
+    ];
+    const dir = plantSpanSession(viewer.sessionDir, 'zz-span-insig', spans);
+    try {
+      await openPlantedSession(page, 'zz-span-insig');
+      const hidden = expectedSpanTabEntries({ spans });
+      const shown = expectedSpanTabEntries({ spans, showInsignificant: true });
+      expect(hidden.map((entry) => entry.key)).toEqual(['an order|Noun|Singular']);
+      expect(shown.length).toBeGreaterThan(hidden.length);
+      await selectView(page, 'spans');
+      const toggle = page.locator('#filter-insignificant');
+      await expect(toggle).not.toBeChecked();
+      expect(
+        await page.locator('#panel-spans article.card').evaluateAll((els) =>
+          els.map((el) => (el as HTMLElement).dataset.entryKey),
+        ),
+      ).toEqual(hidden.map((entry) => entry.key));
+
+      await toggle.check();
+      expect(
+        await page.locator('#panel-spans article.card').evaluateAll((els) =>
+          els.map((el) => (el as HTMLElement).dataset.entryKey),
+        ),
+      ).toEqual(shown.map((entry) => entry.key));
+      await expect(page.locator('#panel-spans article.card.skipped')).toHaveCount(
+        shown.filter((entry) => entry.insignificant).length,
+      );
+
+      await clearFilters(page);
+      await expect(toggle).not.toBeChecked();
+      expect(
+        await page.locator('#panel-spans article.card').evaluateAll((els) =>
+          els.map((el) => (el as HTMLElement).dataset.entryKey),
+        ),
+      ).toEqual(hidden.map((entry) => entry.key));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('paginates multi-token entries at 30', async ({ page, viewer }) => {
+    const extras = Array.from({ length: 40 }, (_, index) =>
+      multiTokenSpan(
+        `s1.t${index + 1}`,
+        `s1.t${index + 2}`,
+        `word${String(index).padStart(2, '0')}`,
+        ['Noun', 'Singular'],
+      ),
+    );
+    const dir = plantSpanSession(viewer.sessionDir, 'zz-span-page', extras);
+    try {
+      await openPlantedSession(page, 'zz-span-page');
+      await selectView(page, 'spans');
+      const panel = page.locator('#panel-spans');
+      await expect(panel.locator('nav.pager').first()).toContainText('1–30 of 40');
+      await expect(panel.locator('article.card')).toHaveCount(30);
+      await panel.locator('nav.pager button[data-page="next"]').first().click();
+      await expect(panel.locator('nav.pager').first()).toContainText('31–40 of 40');
+      await expect(panel.locator('article.card')).toHaveCount(10);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

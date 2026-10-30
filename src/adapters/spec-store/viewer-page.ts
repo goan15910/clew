@@ -102,6 +102,15 @@ header p {
 }
 .tab-body .card { background: #fcfbf9; }
 .tab-body .card:last-child { margin-bottom: 0; }
+.tab-body .span-group {
+  margin: 0.85rem 0 0.45rem;
+  font: 600 0.82rem/1.2 var(--sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tab-body .span-group:first-child { margin-top: 0.15rem; }
+.tab-body .card.skipped { opacity: 0.7; }
 .filters {
   display: flex;
   max-width: 1100px;
@@ -385,6 +394,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     <label>Fact status<select id="filter-status"><option value="">any</option><option>current</option><option>stale</option></select></label>
     <label>Span<select id="filter-span"><option value="">any</option></select></label>
     <label><input type="checkbox" id="filter-rejected">Show rejected entities</label>
+    <label><input type="checkbox" id="filter-insignificant">Show insignificant spans</label>
     <button type="button" id="filter-clear">Clear filters</button>
   </div>
 </div>
@@ -398,12 +408,14 @@ details.lineage[open] > summary::before { content: "▾ "; }
       <button type="button" role="tab" id="tab-facts" aria-selected="true" data-tab="facts">Facts</button>
       <button type="button" role="tab" id="tab-entities" aria-selected="false" data-tab="entities">Entities</button>
       <button type="button" role="tab" id="tab-sentences" aria-selected="false" data-tab="sentences">Sentences</button>
+      <button type="button" role="tab" id="tab-spans" aria-selected="false" data-tab="spans">Span</button>
       <button type="button" role="tab" id="tab-graph" aria-selected="false" data-tab="graph">Graph</button>
     </div>
     <div class="tab-body">
       <section class="panel active" id="panel-facts" role="tabpanel" aria-labelledby="tab-facts"></section>
       <section class="panel" id="panel-entities" role="tabpanel" aria-labelledby="tab-entities" hidden></section>
       <section class="panel" id="panel-sentences" role="tabpanel" aria-labelledby="tab-sentences" hidden></section>
+      <section class="panel" id="panel-spans" role="tabpanel" aria-labelledby="tab-spans" hidden></section>
       <section class="panel" id="panel-graph" role="tabpanel" aria-labelledby="tab-graph" hidden></section>
     </div>
   </div>
@@ -423,7 +435,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     graphView: null,
     graphStatus: "loading",
     tab: "facts",
-    page: { facts: 0, entities: 0, sentences: 0 },
+    page: { facts: 0, entities: 0, sentences: 0, spans: 0 },
   };
   const PAGE_SIZE = 30;
 
@@ -438,10 +450,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
     status: document.getElementById("filter-status"),
     span: document.getElementById("filter-span"),
     rejected: document.getElementById("filter-rejected"),
+    insignificant: document.getElementById("filter-insignificant"),
     clear: document.getElementById("filter-clear"),
     facts: document.getElementById("panel-facts"),
     entities: document.getElementById("panel-entities"),
     sentences: document.getElementById("panel-sentences"),
+    spans: document.getElementById("panel-spans"),
     graph: document.getElementById("panel-graph"),
   };
 
@@ -503,6 +517,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
   function indexEntities() {
     const map = new Map();
     for (const entity of state.entities) map.set(entity.id, entity);
+    return map;
+  }
+
+  function indexSentences() {
+    const map = new Map();
+    for (const sentence of state.sentences) map.set(sentence.id, sentence);
     return map;
   }
 
@@ -1134,6 +1154,119 @@ details.lineage[open] > summary::before { content: "▾ "; }
     });
   }
 
+  function spanEntryKey(span) {
+    return span.surface + "\\0" + (span.tags || []).join("|");
+  }
+
+  function isMultiTokenSpan(span) {
+    return span.firstTokenId !== span.lastTokenId;
+  }
+
+  function uniqueSpanEntries(spans) {
+    const map = new Map();
+    for (const span of spans) {
+      // Span tab inventories multi-token covers only; 1:1 promotes stay out.
+      if (!isMultiTokenSpan(span)) continue;
+      const key = spanEntryKey(span);
+      let entry = map.get(key);
+      if (!entry) {
+        entry = {
+          key: key,
+          surface: span.surface,
+          tags: (span.tags || []).slice(),
+          insignificant: span.insignificant === true,
+          spans: [],
+        };
+        map.set(key, entry);
+      }
+      entry.spans.push(span);
+      if (span.insignificant !== true) entry.insignificant = false;
+    }
+    return Array.from(map.values());
+  }
+
+  function compareSpanEntries(left, right) {
+    const leftPos = coarsePos(left.tags);
+    const rightPos = coarsePos(right.tags);
+    const leftIndex = POS_ORDER.indexOf(leftPos);
+    const rightIndex = POS_ORDER.indexOf(rightPos);
+    const leftOrder = leftIndex === -1 ? POS_ORDER.length : leftIndex;
+    const rightOrder = rightIndex === -1 ? POS_ORDER.length : rightIndex;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    if (leftPos !== rightPos) return leftPos < rightPos ? -1 : 1;
+    if (left.surface !== right.surface) return left.surface < right.surface ? -1 : 1;
+    const leftLabel = posLabel(left.tags);
+    const rightLabel = posLabel(right.tags);
+    if (leftLabel !== rightLabel) return leftLabel < rightLabel ? -1 : 1;
+    return 0;
+  }
+
+  function spanEntryLineage(entry) {
+    const rows = [];
+    for (const span of entry.spans) {
+      const sentenceId = sentenceIdOfToken(span.firstTokenId);
+      const sentence = indexSentences().get(sentenceId);
+      rows.push({
+        layer: "span",
+        text: span.id + " “" + span.surface + "”" + (sentence ? " in " + sentenceId : ""),
+        bits: [
+          part("id", span.id),
+          part("content", span.surface),
+          ...(sentence ? [part("note", "in"), part("id", sentenceId)] : []),
+        ],
+      });
+    }
+    return lineageBlock(rows);
+  }
+
+  function spanEntryCard(entry) {
+    const pos = coarsePos(entry.tags);
+    const others = otherTags(entry.tags);
+    const count = entry.spans.length;
+    const skippedClass = entry.insignificant ? " skipped" : "";
+    let pills = pill(pos || "Untagged");
+    for (const tag of others) pills += pill(tag);
+    if (entry.insignificant) pills += pill("skipped", "warn");
+    const entryKey = entry.surface + "|" + (entry.tags || []).join("|");
+    return (
+      '<article class="card' + skippedClass + '" data-entry-key="' + esc(entryKey) + '">' +
+      "<h2><span class=\\"id\\">" + esc(entry.surface) + "</span>" + pills + "</h2>" +
+      '<p class="blurb">' + esc(count === 1 ? "1 occurrence" : count + " occurrences") + "</p>" +
+      spanEntryLineage(entry) +
+      "</article>"
+    );
+  }
+
+  function renderSpans() {
+    const showInsignificant = els.insignificant.checked;
+    const entries = uniqueSpanEntries(state.spans).filter(function (entry) {
+      if (!showInsignificant && entry.insignificant) return false;
+      if (spanFilterActive() && !spanMatches({ tags: entry.tags })) return false;
+      const ids = entry.spans.map(function (span) { return span.id; });
+      return matchesText([entry.surface, posLabel(entry.tags), ...(entry.tags || []), ...ids]);
+    }).sort(compareSpanEntries);
+    if (entries.length === 0) {
+      els.spans.innerHTML = '<p class="empty">No spans match these filters.</p>';
+      return;
+    }
+    const pages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+    const page = Math.min(state.page.spans, pages - 1);
+    state.page.spans = page;
+    const slice = entries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    let html = pages > 1 ? pagerHtml("spans", page, pages, entries.length) : "";
+    let lastPos = null;
+    for (const entry of slice) {
+      const pos = coarsePos(entry.tags) || "Untagged";
+      if (pos !== lastPos) {
+        html += '<h2 class="span-group">' + esc(pos) + "</h2>";
+        lastPos = pos;
+      }
+      html += spanEntryCard(entry);
+    }
+    if (pages > 1) html += pagerHtml("spans", page, pages, entries.length);
+    els.spans.innerHTML = html;
+  }
+
   let graphTicket = 0;
 
   function loadGraphView() {
@@ -1199,6 +1332,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     if (state.tab === "facts") renderFacts();
     else if (state.tab === "entities") renderEntities();
     else if (state.tab === "sentences") renderSentences();
+    else if (state.tab === "spans") renderSpans();
     else if (state.tab === "graph") renderGraph();
   }
 
@@ -1208,7 +1342,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const selected = button.getAttribute("data-tab") === name;
       button.setAttribute("aria-selected", selected ? "true" : "false");
     }
-    for (const panel of [["facts", els.facts], ["entities", els.entities], ["sentences", els.sentences], ["graph", els.graph]]) {
+    for (const panel of [["facts", els.facts], ["entities", els.entities], ["sentences", els.sentences], ["spans", els.spans], ["graph", els.graph]]) {
       const active = panel[0] === name;
       panel[1].classList.toggle("active", active);
       panel[1].hidden = !active;
@@ -1260,7 +1394,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   });
 
   function resetPages() {
-    state.page = { facts: 0, entities: 0, sentences: 0 };
+    state.page = { facts: 0, entities: 0, sentences: 0, spans: 0 };
   }
 
   function filtersChanged() {
@@ -1268,7 +1402,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     render();
   }
 
-  for (const input of [els.text, els.kind, els.type, els.status, els.span, els.rejected]) {
+  for (const input of [els.text, els.kind, els.type, els.status, els.span, els.rejected, els.insignificant]) {
     input.addEventListener("input", filtersChanged);
     input.addEventListener("change", filtersChanged);
   }
@@ -1280,6 +1414,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     els.status.value = "";
     els.span.value = "";
     els.rejected.checked = false;
+    els.insignificant.checked = false;
     render();
   });
 
