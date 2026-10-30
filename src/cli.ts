@@ -118,7 +118,7 @@ const UpgradeFlags = z.object({
   check: z.boolean().optional(),
   dryRun: z.boolean().optional(),
   channel: z.enum(['release', 'head']).optional(),
-  version: z.string().regex(/^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/, 'version looks like 0.1.0 or v0.1.0-alpha3').optional(),
+  version: z.string().regex(/^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/, 'version looks like 0.1.0 or v0.1.0-alpha.3').optional(),
   checksum: z.string().regex(/^[0-9a-fA-F]{64}$/, 'checksum is a 64-character SHA-256 hex digest').optional(),
   verifyProvenance: z.boolean().optional(),
   force: z.boolean().optional(),
@@ -571,7 +571,7 @@ setManual(program
   examples: [
     'clew upgrade',
     'clew upgrade --check --json',
-    'clew upgrade --version 0.1.0-alpha3',
+    'clew upgrade --version 0.1.0-alpha.3',
     'clew upgrade --channel head',
   ],
   exitCodes: [

@@ -1,6 +1,6 @@
 {
   "name": "clew",
-  "version": "0.1.0-alpha3",
+  "version": "0.1.0-alpha.3",
   "description": "Check state charts and workflow sets, and prove each named flow.",
   "bin": {
     "clew": "dist/cli.js"

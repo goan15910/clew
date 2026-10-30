@@ -8,9 +8,9 @@ const order = (a: string, b: string) => compareSemVer(parseSemVer(a)!, parseSemV
 
 test('SemVer precedence puts dev builds above their release and below the next one', () => {
   assert.equal(order('0.1.0-alpha.2', '0.1.0-alpha.10'), -1);
-  assert.equal(order('0.1.0-alpha3', '0.1.0-alpha3.dev.36+g24cb67d'), -1);
-  assert.equal(order('0.1.0-alpha3.dev.36+g24cb67d', '0.1.0-alpha3.dev.37+gffffff0'), -1);
-  assert.equal(order('0.1.0-alpha3.dev.99', '0.1.0-alpha4'), -1);
+  assert.equal(order('0.1.0-alpha.3', '0.1.0-alpha.3.dev.36+g24cb67d'), -1);
+  assert.equal(order('0.1.0-alpha.3.dev.36+g24cb67d', '0.1.0-alpha.3.dev.37+gffffff0'), -1);
+  assert.equal(order('0.1.0-alpha.3.dev.99', '0.1.0-alpha4'), -1);
   assert.equal(order('0.1.0-alpha4', '0.1.0'), -1);
   assert.equal(order('0.1.0+a', '0.1.0+b'), 0);
 });
@@ -23,14 +23,14 @@ test('newestRelease honours the prerelease rule', () => {
 });
 
 test('release and head moves', () => {
-  const release: BuildInfo = { version: '0.1.0-alpha3', channel: 'release' };
+  const release: BuildInfo = { version: '0.1.0-alpha.3', channel: 'release' };
   const move = (target: string, extra = {}) => decideRelease({ installed: release, target, switching: false, exact: false, force: false, ...extra }).action;
-  assert.equal(move('0.1.0-alpha3'), 'current');
-  assert.equal(move('0.1.0-alpha2'), 'current');
+  assert.equal(move('0.1.0-alpha.3'), 'current');
+  assert.equal(move('0.1.0-alpha.2'), 'current');
   assert.equal(move('0.1.0-alpha4'), 'install');
-  assert.equal(move('0.1.0-alpha2', { exact: true }), 'install');
-  assert.equal(move('0.1.0-alpha3', { force: true }), 'install');
-  const head: BuildInfo = { version: '0.1.0-alpha3.dev.4+gabcdef0', channel: 'head', commit: 'abcdef0123' };
+  assert.equal(move('0.1.0-alpha.2', { exact: true }), 'install');
+  assert.equal(move('0.1.0-alpha.3', { force: true }), 'install');
+  const head: BuildInfo = { version: '0.1.0-alpha.3.dev.4+gabcdef0', channel: 'head', commit: 'abcdef0123' };
   assert.equal(decideHead({ installed: head, edgeCommit: 'abcdef0123', force: false }).action, 'current');
   assert.equal(decideHead({ installed: head, edgeCommit: 'ffffff0123', force: false }).action, 'install');
   assert.equal(decideHead({ installed: release, edgeCommit: 'abcdef0123', force: false }).action, 'install');
@@ -89,13 +89,13 @@ function ports(location: InstallLocation, releases: Release[], overrides: Partia
 
 const releases: Release[] = [
   { tag: 'v0.1.0-alpha4', prerelease: true, assets: [{ name: 'clew-0.1.0-alpha4.tgz', url: 'u/t4', sha256: `sha256:${'d'.repeat(64)}` }, { name: 'SHA256SUMS', url: 'u/s' }, { name: 'clew-edge.tgz', url: 'u/e' }] },
-  { tag: 'v0.1.0-alpha3', prerelease: true, assets: [] },
+  { tag: 'v0.1.0-alpha.3', prerelease: true, assets: [] },
 ];
 const global = (build: BuildInfo, writable = true): InstallLocation => ({ kind: 'global', build, prefix: '/p', writable });
 const run: UpgradeCommand = { check: false, force: false, verifyProvenance: false };
 
 test('upgrade installs the verified file from the newest prerelease', async () => {
-  const { ports: p, spy } = ports(global({ version: '0.1.0-alpha3', channel: 'release' }), releases);
+  const { ports: p, spy } = ports(global({ version: '0.1.0-alpha.3', channel: 'release' }), releases);
   const outcome = await upgradeClew(run, p);
   assert.equal(outcome.exit, 'pass');
   assert.equal(outcome.document.action, 'installed');
@@ -103,17 +103,17 @@ test('upgrade installs the verified file from the newest prerelease', async () =
 });
 
 test('upgrade --check installs nothing and refusals cost no download', async () => {
-  const check = ports(global({ version: '0.1.0-alpha3', channel: 'release' }), releases);
+  const check = ports(global({ version: '0.1.0-alpha.3', channel: 'release' }), releases);
   assert.equal((await upgradeClew({ ...run, check: true }, check.ports)).document.action, 'would-install');
   assert.deepEqual(check.spy.downloads, []);
 
-  const local = ports(global({ version: '0.1.0-alpha3', channel: 'local' }), releases);
+  const local = ports(global({ version: '0.1.0-alpha.3', channel: 'local' }), releases);
   const refused = await upgradeClew(run, local.ports);
   assert.equal(refused.exit, 'invalid');
   assert.deepEqual(local.spy.downloads, []);
   assert.equal((await upgradeClew({ ...run, force: true }, local.ports)).document.action, 'installed');
 
-  const other = ports({ kind: 'other', build: { version: '0.1.0-alpha3', channel: 'release' }, reason: 'linked' }, releases);
+  const other = ports({ kind: 'other', build: { version: '0.1.0-alpha.3', channel: 'release' }, reason: 'linked' }, releases);
   assert.equal((await upgradeClew({ ...run, force: true }, other.ports)).exit, 'invalid');
 });
 
@@ -121,18 +121,18 @@ test('a stable install ignores prereleases and a checksum mismatch installs noth
   const stable = ports(global({ version: '0.1.0', channel: 'release' }), releases);
   assert.equal((await upgradeClew(run, stable.ports)).exit, 'fail');
 
-  const bad = ports(global({ version: '0.1.0-alpha3', channel: 'release' }), releases, { sums: `${'0'.repeat(64)}  clew-0.1.0-alpha4.tgz\n` });
+  const bad = ports(global({ version: '0.1.0-alpha.3', channel: 'release' }), releases, { sums: `${'0'.repeat(64)}  clew-0.1.0-alpha4.tgz\n` });
   const outcome = await upgradeClew(run, bad.ports);
   assert.equal(outcome.exit, 'fail');
   assert.equal(outcome.document.fault, 'checksum');
   assert.deepEqual(bad.spy.installs, []);
 
-  const missing = ports(global({ version: '0.1.0-alpha3', channel: 'release' }), releases, { sums: '' });
+  const missing = ports(global({ version: '0.1.0-alpha.3', channel: 'release' }), releases, { sums: '' });
   assert.equal((await upgradeClew(run, missing.ports)).document.fault, 'checksum');
 });
 
 test('an unwritable prefix prints the npm command and never installs', async () => {
-  const { ports: p, spy } = ports(global({ version: '0.1.0-alpha3', channel: 'release' }, false), releases);
+  const { ports: p, spy } = ports(global({ version: '0.1.0-alpha.3', channel: 'release' }, false), releases);
   const outcome = await upgradeClew(run, p);
   assert.equal(outcome.document.fault, 'permission');
   assert.match(outcome.document.retry ?? '', /^npm install -g u\/t4 --prefix \/p$/);
@@ -140,7 +140,7 @@ test('an unwritable prefix prints the npm command and never installs', async () 
 });
 
 test('head channel compares commits and --version downgrades without a list call', async () => {
-  const head = ports(global({ version: '0.1.0-alpha3.dev.1+geeeeeee', channel: 'head', commit: 'e'.repeat(40) }), releases);
+  const head = ports(global({ version: '0.1.0-alpha.3.dev.1+geeeeeee', channel: 'head', commit: 'e'.repeat(40) }), releases);
   assert.equal((await upgradeClew(run, head.ports)).document.action, 'current');
 
   const fromRelease = ports(global({ version: '0.1.0-alpha4', channel: 'release' }), releases);

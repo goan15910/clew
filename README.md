@@ -21,14 +21,14 @@ bash scripts/install-clew.sh --from local
 
 # From GitHub (branch, tag, or commit)
 bash scripts/install-clew.sh --from github main
-bash scripts/install-clew.sh --from github v0.1.0-alpha3
+bash scripts/install-clew.sh --from github v0.1.0-alpha.3
 
 # From a GitHub Release tarball (no tag means the highest SemVer release, prereleases included).
 # The tarball must match SHA256SUMS or nothing is installed.
-bash scripts/install-clew.sh --from release v0.1.0-alpha3
+bash scripts/install-clew.sh --from release v0.1.0-alpha.3
 ```
 
-A commit with an exact `v*` tag installs as its tag, such as `0.1.0-alpha3`. Any other commit installs as `{pkg}.dev.{commit count}+g{sha7}`, such as `0.1.0-alpha3.dev.36+g24cb67d`. Each install also records its channel (`release`, `head`, or `local`) and commit in `build-info.json` for `clew upgrade`.
+A commit with an exact `v*` tag installs as its tag, such as `0.1.0-alpha.3`. Any other commit installs as `{pkg}.dev.{commit count}+g{sha7}`, such as `0.1.0-alpha.3.dev.36+g24cb67d`. Each install also records its channel (`release`, `head`, or `local`) and commit in `build-info.json` for `clew upgrade`.
 
 `clew --version` prints the installed version string. Pass `--prefix DIR` to install into a non-default prefix (adds `DIR/bin` to your `PATH` yourself).
 
@@ -37,7 +37,7 @@ A commit with an exact `v*` tag installs as its tag, such as `0.1.0-alpha3`. Any
 ```bash
 clew upgrade                    # newest build on the channel you installed from
 clew upgrade --check --json     # report what would change, install nothing
-clew upgrade --version 0.1.0-alpha3   # exact release, downgrades allowed, no API call
+clew upgrade --version 0.1.0-alpha.3   # exact release, downgrades allowed, no API call
 clew upgrade --channel head     # switch to the rolling edge prerelease built from main
 ```
 
