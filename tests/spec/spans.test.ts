@@ -195,7 +195,7 @@ describe('span live partition', { concurrency: false }, () => {
       assert.equal(tagged.status, 0, tagged.stderr);
       const tagDoc = json<SpecTagDocument>(tagged);
       assert.ok((tagDoc.spans?.length ?? 0) > 0);
-      const session = specSessionDir('span-merge-sample', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('span-merge-sample', { CLEW_DATA_DIR: dir });
       const spansFile = JSON.parse(readFileSync(join(session, 'spans.json'), 'utf8')) as {
         spans: LiveSpan[];
       };
@@ -223,7 +223,7 @@ describe('span live partition', { concurrency: false }, () => {
       writeFileSync(join(dir, 'short.md'), 'Create Ticket today.\n');
       assert.equal(run(dir, ['spec', 'init', join(dir, 'short.md'), '--session', 'short', '--json']).status, 0);
       assert.equal(run(dir, ['spec', 'tag', '--session', 'short', '--json']).status, 0);
-      const session = specSessionDir('short', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('short', { CLEW_DATA_DIR: dir });
       const before = JSON.parse(readFileSync(join(session, 'spans.json'), 'utf8')) as { spans: LiveSpan[] };
       const create = before.spans.find((span) => span.surface === 'Create');
       const ticket = before.spans.find((span) => span.surface === 'Ticket');
@@ -254,7 +254,7 @@ describe('span live partition', { concurrency: false }, () => {
       writeFileSync(join(dir, 'short.md'), 'Create Ticket today.\n');
       assert.equal(run(dir, ['spec', 'init', join(dir, 'short.md'), '--session', 'short', '--json']).status, 0);
       assert.equal(run(dir, ['spec', 'tag', '--session', 'short', '--json']).status, 0);
-      const session = specSessionDir('short', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('short', { CLEW_DATA_DIR: dir });
       const spansPath = join(session, 'spans.json');
       const beforeCheck = readFileSync(spansPath, 'utf8');
       const checked = run(dir, ['spec', 'spans', 'check', '--session', 'short', '--lexicon', lexiconPath, '--json']);

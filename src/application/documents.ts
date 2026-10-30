@@ -421,7 +421,6 @@ export interface SpecStatusDocument {
 
 export interface SpecSessionListRow {
   id: string;
-  specPath: string;
   updated: string;
   summary: { sentences: number; facts: number; flows: number };
 }

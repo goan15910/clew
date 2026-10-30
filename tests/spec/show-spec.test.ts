@@ -28,7 +28,7 @@ describe('spec show', { concurrency: false }, () => {
       assert.equal(init.status, 0, init.stderr);
       const id = json<SpecInitDocument>(init).session;
       assert.equal(id, 'order-sentence');
-      const session = specSessionDir(id, { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir(id, { CLEW_DATA_DIR: dir });
       assert.equal(existsSync(join(session, 'tokens.json')), true);
       const stored = JSON.parse(readFileSync(join(session, 'session.json'), 'utf8')) as { tagger?: unknown; updated: string };
       assert.equal(stored.tagger, undefined);
@@ -334,7 +334,7 @@ function writeSpec(dir: string, name: string, text: string): string {
 }
 
 function historyCount(dir: string, session: string): number {
-  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }, root), 'history.jsonl');
+  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }), 'history.jsonl');
   if (!existsSync(file)) return 0;
   const text = readFileSync(file, 'utf8').trim();
   if (text === '') return 0;
@@ -342,7 +342,7 @@ function historyCount(dir: string, session: string): number {
 }
 
 function sessionUpdated(dir: string, session: string): string {
-  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }, root), 'session.json');
+  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }), 'session.json');
   const stored = JSON.parse(readFileSync(file, 'utf8')) as { updated: string };
   return stored.updated;
 }

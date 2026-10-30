@@ -21,7 +21,7 @@ export interface RunningViewer {
 }
 
 function plantFixture(dataDir: string): string {
-  const sessionDir = specSessionDir(FIXTURE_SESSION_ID, { CLEW_DATA_DIR: dataDir }, root);
+  const sessionDir = specSessionDir(FIXTURE_SESSION_ID, { CLEW_DATA_DIR: dataDir });
   mkdirSync(dirname(sessionDir), { recursive: true });
   cpSync(FIXTURE_DIR, sessionDir, { recursive: true });
   // Drop non-session files the store does not serve as domain JSON.

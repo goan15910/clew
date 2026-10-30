@@ -98,7 +98,7 @@ function loadJson<T>(name: string): T {
   return JSON.parse(readFileSync(join(FIXTURE_DIR, name), 'utf8')) as T;
 }
 
-const session = loadJson<{ id: string; specPath: string; updated: string }>('session.json');
+const session = loadJson<{ id: string; updated: string }>('session.json');
 const sentencesFile = loadJson<{ sentences: Sentence[] }>('sentences.json');
 const tokensFile = loadJson<{ sentences: TaggedSentence[] }>('tokens.json');
 const spansFile = loadJson<{ spans: Span[] }>('spans.json');

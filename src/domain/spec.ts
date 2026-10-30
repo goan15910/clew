@@ -132,7 +132,6 @@ export interface Fact {
 export interface SpecSnapshot {
   schemaVersion: typeof SPEC_SCHEMA_VERSION;
   id: string;
-  specPath: string;
   specHash: string;
   tagger?: { name: string; version: string };
   created: string;

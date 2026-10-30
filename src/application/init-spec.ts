@@ -19,7 +19,7 @@ import {
   type SpecSnapshot,
 } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecInitDocument, type SpecSentenceView } from './documents.js';
-import type { SessionRef, SpecStore, SpecTextSource } from './ports.js';
+import type { SpecStore, SpecTextSource } from './ports.js';
 
 export interface InitSpecCommand {
   file: string;
@@ -39,7 +39,7 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
       section: sentence.section,
     });
   }
-  const id = allocateSessionId(read.spec.path, store.listSessions(), command.sessionId);
+  const id = allocateSessionId(read.spec.path, command.sessionId);
   const result = store.update(id, { create: true }, (current) => {
     const applied = applySpecText(current?.sentences ?? [], current?.tagged ?? [], drafts);
     const spans = retainValidSpans(current?.spans, applied.tagged);
@@ -49,7 +49,6 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
     const snapshot: SpecSnapshot = {
       schemaVersion: SPEC_SCHEMA_VERSION,
       id,
-      specPath: read.spec.path,
       specHash: read.spec.hash,
       created: current?.created ?? now,
       updated: now,
@@ -63,7 +62,6 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
     if (current?.graph !== undefined) snapshot.graph = current.graph;
     if (
       current !== undefined
-      && current.specPath === snapshot.specPath
       && current.specHash === snapshot.specHash
       && sameSentences(current.sentences, snapshot.sentences)
       && sameTagged(current.tagged, snapshot.tagged)
@@ -79,7 +77,7 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
       history: {
         at: now,
         command: 'spec.init',
-        args: { spec: read.spec.path, session: id },
+        args: { session: id },
         before,
         after: sentenceIds(snapshot.sentences),
       },
@@ -119,18 +117,8 @@ function sentenceViews(sentences: SpecSnapshot['sentences']): SpecSentenceView[]
   return views;
 }
 
-function allocateSessionId(specPath: string, sessions: readonly SessionRef[], requested: string | undefined): string {
-  if (requested !== undefined) return requested;
-  for (const session of sessions) {
-    if (session.specPath === specPath) return session.id;
-  }
-  const base = sessionBase(specPath);
-  const taken = new Set<string>();
-  for (const session of sessions) taken.add(session.id);
-  if (!taken.has(base)) return base;
-  let number = 2;
-  while (taken.has(`${base}-${number}`)) number += 1;
-  return `${base}-${number}`;
+function allocateSessionId(specPath: string, requested: string | undefined): string {
+  return requested ?? sessionBase(specPath);
 }
 
 function sessionBase(filePath: string): string {

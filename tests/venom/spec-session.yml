@@ -42,7 +42,6 @@ testcases:
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.sessions ShouldHaveLength 1
     - result.systemoutjson.sessions.sessions0.id ShouldEqual order
-    - result.systemoutjson.sessions.sessions0.specPath ShouldContainSubstring examples/spec/order.md
     - result.systemoutjson.sessions.sessions0.updated ShouldNotBeEmpty
     - result.systemoutjson.sessions.sessions0.summary.sentences ShouldEqual 3
     - result.systemoutjson.sessions.sessions0.summary.facts ShouldEqual 0

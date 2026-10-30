@@ -339,7 +339,7 @@ describe('spec entities and facts', { concurrency: false }, () => {
       writeFileSync(file, 'The clerk files a receipt.\n');
       const again = run(dir, ['spec', 'init', file, '--json']);
       assert.equal(again.status, 0, again.stderr);
-      const session = specSessionDir('flow', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('flow', { CLEW_DATA_DIR: dir });
       const stored = JSON.parse(readFileSync(join(session, 'entities.json'), 'utf8')) as {
         entities: { id: string; status: string; review?: string }[];
       };
@@ -420,7 +420,7 @@ function historyCount(dir: string, session: string): number {
 }
 
 function historyEntries(dir: string, session: string): { command: string; before: string[]; after: string[] }[] {
-  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }, root), 'history.jsonl');
+  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }), 'history.jsonl');
   const text = readFileSync(file, 'utf8').trim();
   if (text === '') return [];
   const entries: { command: string; before: string[]; after: string[] }[] = [];

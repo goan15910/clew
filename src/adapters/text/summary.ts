@@ -138,7 +138,7 @@ export function humanSummary(document: CommandDocument): string {
     const lines: string[] = [];
     for (const session of document.sessions) {
       const counts = session.summary;
-      lines.push(`${session.id}  ${session.specPath}  ${countPhrase(counts.sentences, 'sentence', 'sentences')}, ${countPhrase(counts.facts, 'fact', 'facts')}, ${countPhrase(counts.flows, 'flow', 'flows')}  ${session.updated}`);
+      lines.push(`${session.id}  ${countPhrase(counts.sentences, 'sentence', 'sentences')}, ${countPhrase(counts.facts, 'fact', 'facts')}, ${countPhrase(counts.flows, 'flow', 'flows')}  ${session.updated}`);
     }
     return lines.join('\n');
   }

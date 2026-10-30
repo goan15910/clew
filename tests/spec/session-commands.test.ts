@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
@@ -35,7 +35,7 @@ describe('spec session list and remove', { concurrency: false }, () => {
     }
   });
 
-  test('list shows this repo only, with path, last write, and live counts', () => {
+  test('list shows id, last write, and live counts, and no origin path', () => {
     const dir = mkdtempSync(join(tmpdir(), 'clew-session-list-'));
     try {
       const first = join(dir, 'a.md');
@@ -57,16 +57,15 @@ describe('spec session list and remove', { concurrency: false }, () => {
       const sessionB = doc.sessions[1];
       assert.ok(sessionA);
       assert.ok(sessionB);
-      assert.equal(sessionA.specPath, resolve(first));
-      assert.equal(sessionB.specPath, resolve(second));
+      assert.deepEqual(Object.keys(sessionA).sort(), ['id', 'summary', 'updated']);
       assert.equal(sessionA.updated, storedUpdated(dir, 'a'));
       assert.equal(sessionB.updated, storedUpdated(dir, 'b'));
       assert.deepEqual(sessionA.summary, { sentences: 2, facts: 0, flows: 0 });
       assert.deepEqual(sessionB.summary, { sentences: 1, facts: 0, flows: 0 });
-      assert.equal(doc.sessions.some((session) => session.specPath.includes('other-repo')), false);
       const human = clew(['spec', 'session', 'list'], dir);
-      assert.match(human.stdout, /a {2}\S+ {2}2 sentences, 0 facts, 0 flows/);
-      assert.match(human.stdout, /b {2}\S+ {2}1 sentence, 0 facts, 0 flows/);
+      assert.match(human.stdout, /^a {2}2 sentences, 0 facts, 0 flows {2}\S+$/m);
+      assert.match(human.stdout, /^b {2}1 sentence, 0 facts, 0 flows {2}\S+$/m);
+      assert.equal(human.stdout.includes(dir), false);
       assert.equal(existsSync(outside.secret), true);
       assert.equal(existsSync(outside.other), true);
 
@@ -131,8 +130,8 @@ describe('spec session list and remove', { concurrency: false }, () => {
       assert.equal(doc.session, 'a');
       assert.deepEqual(doc.findings, []);
       assert.deepEqual(doc.issues, []);
-      assert.equal(existsSync(specSessionDir('a', { CLEW_DATA_DIR: dir }, root)), false);
-      assert.equal(existsSync(specSessionDir('b', { CLEW_DATA_DIR: dir }, root)), true);
+      assert.equal(existsSync(specSessionDir('a', { CLEW_DATA_DIR: dir })), false);
+      assert.equal(existsSync(specSessionDir('b', { CLEW_DATA_DIR: dir })), true);
       assert.equal(existsSync(outside.secret), true);
       assert.equal(existsSync(outside.project), true);
       assert.equal(existsSync(outside.other), true);
@@ -141,7 +140,7 @@ describe('spec session list and remove', { concurrency: false }, () => {
       const human = clew(['spec', 'session', 'remove', 'b'], dir);
       assert.equal(human.status, 0);
       assert.match(human.stdout, /removed session b/);
-      assert.equal(existsSync(specSessionDir('b', { CLEW_DATA_DIR: dir }, root)), false);
+      assert.equal(existsSync(specSessionDir('b', { CLEW_DATA_DIR: dir })), false);
       const again = clew(['spec', 'session', 'remove', 'b', '--json'], dir);
       assert.equal(again.status, 2);
       assert.match(again.stderr, /no spec session "b"/);
@@ -161,8 +160,8 @@ describe('spec session list and remove', { concurrency: false }, () => {
       writeFileSync(join(dir, 'stale.md'), 'The manager approves the order.\n');
       assert.equal(clew(['spec', 'init', join(dir, 'held.md'), '--json'], dir).status, 0);
       assert.equal(clew(['spec', 'init', join(dir, 'stale.md'), '--json'], dir).status, 0);
-      const held = specSessionDir('held', { CLEW_DATA_DIR: dir }, root);
-      const stale = specSessionDir('stale', { CLEW_DATA_DIR: dir }, root);
+      const held = specSessionDir('held', { CLEW_DATA_DIR: dir });
+      const stale = specSessionDir('stale', { CLEW_DATA_DIR: dir });
       const before = readFileSync(join(held, 'session.json'), 'utf8');
       writeFileSync(join(held, '.lock'), JSON.stringify({ pid: process.pid }));
       const denied = clew(['spec', 'session', 'remove', 'held', '--json'], dir);
@@ -191,7 +190,7 @@ describe('spec session list and remove', { concurrency: false }, () => {
       writeFileSync(join(dir, 'a.md'), 'The customer submits an order.\n');
       assert.equal(clew(['spec', 'init', join(dir, 'a.md'), '--json'], dir).status, 0);
       const outside = plantOutside(dir);
-      const session = specSessionDir('a', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('a', { CLEW_DATA_DIR: dir });
       const attacks = ['..', '../secret', 'a/../../secret', '/tmp', 'a/../../../etc', '.', '1bad'];
       for (const id of attacks) {
         const removed = clew(['spec', 'session', 'remove', id, '--json'], dir);
@@ -215,7 +214,7 @@ describe('spec session list and remove', { concurrency: false }, () => {
       const target = join(dir, 'outside-target');
       mkdirSync(target);
       writeFileSync(join(target, 'keep.txt'), 'keep');
-      const link = specSessionDir('Linked', { CLEW_DATA_DIR: dir }, root);
+      const link = specSessionDir('Linked', { CLEW_DATA_DIR: dir });
       mkdirSync(dirname(link), { recursive: true });
       symlinkSync(target, link);
       const linked = clew(['spec', 'session', 'remove', 'Linked', '--json'], dir);
@@ -246,10 +245,10 @@ describe('spec session list and remove', { concurrency: false }, () => {
 });
 
 function plantOutside(dir: string): { secret: string; project: string; other: string } {
-  const session = specSessionDir('a', { CLEW_DATA_DIR: dir }, root);
+  const session = specSessionDir('a', { CLEW_DATA_DIR: dir });
   const project = join(dirname(dirname(session)), 'keep.txt');
   const secret = join(dir, 'secret.txt');
-  const other = join(dir, 'other-repo-000000000000', 'spec', 'order', 'marker.txt');
+  const other = join(dir, 'other', 'spec', 'order', 'marker.txt');
   writeFileSync(secret, 'secret');
   writeFileSync(project, 'project');
   mkdirSync(dirname(other), { recursive: true });
@@ -258,7 +257,7 @@ function plantOutside(dir: string): { secret: string; project: string; other: st
 }
 
 function storedUpdated(dir: string, id: string): string {
-  const file = join(specSessionDir(id, { CLEW_DATA_DIR: dir }, root), 'session.json');
+  const file = join(specSessionDir(id, { CLEW_DATA_DIR: dir }), 'session.json');
   const stored = JSON.parse(readFileSync(file, 'utf8')) as { updated: string };
   return stored.updated;
 }

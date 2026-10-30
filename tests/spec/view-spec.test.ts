@@ -22,7 +22,7 @@ describe('spec view', { concurrency: false }, () => {
       assert.equal(clew(['spec', 'tag', '--json'], dir).status, 0);
       assert.equal(clew(['spec', 'entities', 'list', '--json'], dir).status, 0);
       assert.equal(clew(['spec', 'facts', 'propose', '--json'], dir).status, 0);
-      const session = specSessionDir('order-sentence', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('order-sentence', { CLEW_DATA_DIR: dir });
       const beforeSession = readFileSync(join(session, 'session.json'), 'utf8');
       const beforeFacts = readFileSync(join(session, 'facts.json'), 'utf8');
       const historyBefore = existsSync(join(session, 'history.jsonl'))
@@ -75,7 +75,7 @@ describe('spec view', { concurrency: false }, () => {
       const doc = json<SpecViewDocument>(missing);
       assert.equal(doc.ok, false);
       assert.equal(doc.fault, 'session');
-      const session = specSessionDir('a', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('a', { CLEW_DATA_DIR: dir });
       const secret = join(dir, 'secret.txt');
       writeFileSync(secret, 'secret');
       const attacks = ['..', '../secret', 'a/../../secret', '/tmp', 'a/../../../etc', '.', '1bad'];
@@ -99,7 +99,7 @@ describe('spec view', { concurrency: false }, () => {
       writeFileSync(join(target, 'session.json'), planted);
       writeFileSync(join(target, 'sentences.json'), readFileSync(join(session, 'sentences.json'), 'utf8'));
       writeFileSync(join(target, 'tokens.json'), readFileSync(join(session, 'tokens.json'), 'utf8'));
-      const link = specSessionDir('Linked', { CLEW_DATA_DIR: dir }, root);
+      const link = specSessionDir('Linked', { CLEW_DATA_DIR: dir });
       mkdirSync(dirname(link), { recursive: true });
       symlinkSync(target, link);
       const linked = clew(['spec', 'view', 'Linked', '--json'], dir);

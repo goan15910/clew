@@ -1140,11 +1140,11 @@ setManual(spec
   ],
 });
 
-const session = spec.command('session').description('List or delete spec sessions for this repo.').helpCommand(false);
+const session = spec.command('session').description('List or delete spec sessions.').helpCommand(false);
 
 setManual(session
   .command('list')
-  .description('List spec sessions for this repo.')
+  .description('List spec sessions.')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
     const parsed = JsonFlag.safeParse(opts);
@@ -1153,15 +1153,15 @@ setManual(session
   }), {
   examples: ['clew spec session list --json'],
   exitCodes: [
-    { code: 0, meaning: 'the sessions for this repo were listed' },
+    { code: 0, meaning: 'the sessions were listed' },
     { code: 2, meaning: 'the arguments are wrong' },
   ],
-  notes: [jsonNote, 'List reads the sessions for this repo and does not change the store. An empty list is exit 0.'],
+  notes: [jsonNote, 'List reads every session and does not change the store. An empty list is exit 0.'],
 });
 
 setManual(session
   .command('remove')
-  .description('Delete one spec session for this repo.')
+  .description('Delete one spec session.')
   .argument('<id>', 'session to delete')
   .option('--json', 'print the result document as JSON on stdout')
   .action((id, opts) => {
