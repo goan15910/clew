@@ -135,6 +135,21 @@ header p {
   border-radius: 0.35rem;
   align-self: end;
 }
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.25rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.pager button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.35rem;
+}
+.pager button:disabled { opacity: 0.4; cursor: default; }
 main { padding: 1rem 1.5rem 2.5rem; max-width: 1100px; }
 .panel { display: none; }
 .panel.active { display: block; }
@@ -400,7 +415,9 @@ details.lineage[open] > summary::before { content: "▾ "; }
     facts: [],
     graph: null,
     tab: "facts",
+    page: { facts: 0, entities: 0, sentences: 0 },
   };
+  const PAGE_SIZE = 30;
 
   const els = {
     sessionId: document.getElementById("session-id"),
@@ -897,7 +914,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       els.facts.innerHTML = '<p class="empty">No facts match these filters.</p>';
       return;
     }
-    els.facts.innerHTML = visible.map(function (fact) {
+    renderPage("facts", els.facts, visible, function (fact) {
       const bits = [];
       if (fact.actor) bits.push("actor " + fact.actor);
       if (fact.action) bits.push("action " + fact.action);
@@ -916,7 +933,26 @@ details.lineage[open] > summary::before { content: "▾ "; }
         factLineage(fact) +
         "</article>"
       );
-    }).join("");
+    });
+  }
+
+  function pagerHtml(name, page, pages, total) {
+    const start = page * PAGE_SIZE;
+    return '<nav class="pager" data-tab="' + name + '" aria-label="Pages">' +
+      '<button type="button" data-page="prev"' + (page === 0 ? " disabled" : "") + ">Prev</button>" +
+      "<span>" + (start + 1) + "–" + Math.min(start + PAGE_SIZE, total) + " of " + total +
+      " · page " + (page + 1) + " of " + pages + "</span>" +
+      '<button type="button" data-page="next"' + (page === pages - 1 ? " disabled" : "") + ">Next</button>" +
+      "</nav>";
+  }
+
+  function renderPage(name, panel, visible, card) {
+    const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+    const page = Math.min(state.page[name], pages - 1);
+    state.page[name] = page;
+    const body = visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(card).join("");
+    const pager = pages > 1 ? pagerHtml(name, page, pages, visible.length) : "";
+    panel.innerHTML = pager + body + pager;
   }
 
   function renderEntities() {
@@ -929,7 +965,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       els.entities.innerHTML = '<p class="empty">No entities match these filters.</p>';
       return;
     }
-    els.entities.innerHTML = visible.map(function (entity) {
+    renderPage("entities", els.entities, visible, function (entity) {
       const label = entity.name || entity.text || "";
       return (
         '<article class="card">' +
@@ -940,7 +976,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
         entityLineage(entity) +
         "</article>"
       );
-    }).join("");
+    });
   }
 
   const POS_ORDER = [
@@ -1070,7 +1106,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       els.sentences.innerHTML = '<p class="empty">No sentences match these filters.</p>';
       return;
     }
-    els.sentences.innerHTML = visible.map(function (sentence) {
+    renderPage("sentences", els.sentences, visible, function (sentence) {
       return (
         '<article class="card">' +
         "<h2><span class=\\"id\\">" + esc(sentence.id) + "</span>" +
@@ -1079,7 +1115,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
         sentenceLineage(sentence) +
         "</article>"
       );
-    }).join("");
+    });
   }
 
   function render() {
@@ -1134,11 +1170,32 @@ details.lineage[open] > summary::before { content: "▾ "; }
       pane.hidden = pane.getAttribute("data-layer") !== layer;
     }
   });
+  document.addEventListener("click", function (event) {
+    const target = event.target;
+    if (!target || !target.closest) return;
+    const button = target.closest("nav.pager button");
+    if (!button || button.disabled) return;
+    const name = button.closest("nav.pager").getAttribute("data-tab");
+    state.page[name] += button.getAttribute("data-page") === "next" ? 1 : -1;
+    render();
+    document.getElementById("panel-" + name).scrollIntoView({ block: "start" });
+  });
+
+  function resetPages() {
+    state.page = { facts: 0, entities: 0, sentences: 0 };
+  }
+
+  function filtersChanged() {
+    resetPages();
+    render();
+  }
+
   for (const input of [els.text, els.kind, els.type, els.status, els.span]) {
-    input.addEventListener("input", render);
-    input.addEventListener("change", render);
+    input.addEventListener("input", filtersChanged);
+    input.addEventListener("change", filtersChanged);
   }
   els.clear.addEventListener("click", function () {
+    resetPages();
     els.text.value = "";
     els.kind.value = "";
     els.type.value = "";
