@@ -1158,9 +1158,15 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return span.surface + "\\0" + (span.tags || []).join("|");
   }
 
+  function isMultiTokenSpan(span) {
+    return span.firstTokenId !== span.lastTokenId;
+  }
+
   function uniqueSpanEntries(spans) {
     const map = new Map();
     for (const span of spans) {
+      // Span tab inventories multi-token covers only; 1:1 promotes stay out.
+      if (!isMultiTokenSpan(span)) continue;
       const key = spanEntryKey(span);
       let entry = map.get(key);
       if (!entry) {

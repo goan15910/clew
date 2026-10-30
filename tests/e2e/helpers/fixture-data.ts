@@ -531,8 +531,13 @@ function spanEntryKey(span: Span): string {
   return `${span.surface}\0${(span.tags ?? []).join('|')}`;
 }
 
-/** Mirrors viewer-page.ts uniqueSpanEntries + filters for the Span tab. */
+function isMultiTokenSpan(span: Span): boolean {
+  return span.firstTokenId !== span.lastTokenId;
+}
+
+/** Mirrors viewer-page.ts uniqueSpanEntries + filters for the Span tab (multi-token only). */
 export function expectedSpanTabEntries(options: {
+  spans?: Span[];
   showInsignificant?: boolean;
   text?: string;
   spanFilter?: string;
@@ -540,8 +545,10 @@ export function expectedSpanTabEntries(options: {
   const showInsignificant = options.showInsignificant === true;
   const text = options.text ?? '';
   const spanFilter = options.spanFilter ?? '';
+  const source = options.spans ?? fixture.spans;
   const map = new Map<string, { surface: string; tags: string[]; insignificant: boolean; spans: Span[] }>();
-  for (const span of fixture.spans) {
+  for (const span of source) {
+    if (!isMultiTokenSpan(span)) continue;
     const key = spanEntryKey(span);
     let entry = map.get(key);
     if (!entry) {
