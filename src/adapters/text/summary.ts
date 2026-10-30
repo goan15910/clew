@@ -138,7 +138,7 @@ export function humanSummary(document: CommandDocument): string {
     const lines: string[] = [];
     for (const session of document.sessions) {
       const counts = session.summary;
-      lines.push(`${session.id}  ${session.specPath}  ${countPhrase(counts.sentences, 'sentence', 'sentences')}, ${countPhrase(counts.facts, 'fact', 'facts')}, ${countPhrase(counts.flows, 'flow', 'flows')}  ${session.updated}`);
+      lines.push(`${session.id}  ${countPhrase(counts.sentences, 'sentence', 'sentences')}, ${countPhrase(counts.facts, 'fact', 'facts')}, ${countPhrase(counts.flows, 'flow', 'flows')}  ${session.updated}`);
     }
     return lines.join('\n');
   }
@@ -164,8 +164,10 @@ export function humanSummary(document: CommandDocument): string {
 }
 
 const SPEC_SHOW_COMMANDS = {
+  'spec.show.sentences': true,
   'spec.show.tagged': true,
   'spec.show.tokens': true,
+  'spec.show.spans': true,
   'spec.show.entities': true,
   'spec.show.facts': true,
 } satisfies Record<SpecShowDocument['command'], true>;
@@ -177,6 +179,22 @@ function isSpecShow(document: CommandDocument): document is SpecShowDocument {
 function showSummary(document: SpecShowDocument): string {
   if (document.fault !== undefined || document.session === undefined) return '';
   switch (document.command) {
+    case 'spec.show.sentences': {
+      const sentences = document.sentences ?? [];
+      const lines = [`session ${document.session}: ${countPhrase(sentences.length, 'sentence', 'sentences')}`];
+      for (const sentence of sentences) {
+        const flows = sentence.workflows.map((flow) => flow.id).join(' ');
+        const stale = sentence.status === 'stale' ? ' (stale)' : '';
+        lines.push(`  ${sentence.id}${stale} [${sentence.section}] ${sentence.text}${flows === '' ? '' : `  <- ${flows}`}`);
+      }
+      return lines.join('\n');
+    }
+    case 'spec.show.spans': {
+      const spans = document.spans ?? [];
+      const lines = [`session ${document.session}: ${countPhrase(spans.length, 'span', 'spans')}`];
+      for (const span of spans) lines.push(`  ${span.id}  ${span.sentence}  ${span.surface}/${span.tags.join('|')}`);
+      return lines.join('\n');
+    }
     case 'spec.show.tagged': {
       const sentences = document.sentences ?? [];
       const lines = [`session ${document.session}: ${countPhrase(sentences.length, 'tagged sentence', 'tagged sentences')}`];

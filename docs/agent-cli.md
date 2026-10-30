@@ -74,20 +74,20 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions for this repo. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
-Running `spec init` again on the same file refreshes that session. Unchanged sentence text keeps its id. Changed or removed sentences stay in the store as `stale` and are reported. They are not deleted. A sentence that comes back with the same hash is revived, and token spans shift if the text moved in the file.
+Running `spec init` again with the same session id refreshes that session. Without `--session`, the id is the spec file's basename, so two files with the same basename share a session unless one is given `--session`. Unchanged sentence text keeps its id. Changed or removed sentences stay in the store as `stale` and are reported. They are not deleted. A sentence that comes back with the same hash is revived, and token spans shift if the text moved in the file.
 
 `spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A tag history line lists sentence ids: `before` is the targeted sentences that already had current tokens, and `after` is every targeted sentence id. The first tag has an empty `before`. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. Entity and fact edits are what set `origin` to `agent`.
 
-`--session` selects a session. When it is omitted, Clew uses the only open session for this repo. Zero sessions, or more than one, is exit 2.
+`--session` selects a session. When it is omitted, Clew uses the only open session. Zero sessions, or more than one, is exit 2.
 
-The session store is outside the repo. Nothing is written next to the spec, and there is nothing to commit. On Linux and macOS the base directory is `$XDG_DATA_HOME/clew`, or `~/.local/share/clew` when `XDG_DATA_HOME` is unset. On Windows it is `%LOCALAPPDATA%\clew`. `CLEW_DATA_DIR` overrides that base. Under it, sessions live at:
+The session store is one store per OS user, outside any repo. Every `clew spec` command uses it from any directory, inside a git repo or not. A session is known by its id alone. Clew does not record the directory, repo, or spec path it was registered from. Nothing is written next to the spec, and there is nothing to commit. On Linux and macOS the base directory is `$XDG_DATA_HOME/clew`, or `~/.local/share/clew` when `XDG_DATA_HOME` is unset. On Windows it is `%LOCALAPPDATA%\clew`. `CLEW_DATA_DIR` overrides that base. Under it, sessions live at:
 
 ```txt
-<repo-name>-<path-hash>/spec/<session-id>/
+spec/<session-id>/
   session.json
   sentences.json
   tokens.json
@@ -98,13 +98,13 @@ The session store is outside the repo. Nothing is written next to the spec, and 
   viewer.html
 ```
 
-`<repo-name>` is the git root’s directory name, lowercased, with each run of non-alphanumeric characters replaced by one hyphen and a leading or trailing hyphen removed. An empty name becomes `repo`. When there is no `.git`, the working directory is named the same way. `<path-hash>` is the first 12 hex characters of the SHA-256 of that directory’s real path. `<session-id>` defaults to the spec file’s basename. Clew holds a lock only while a command writes the session, and removes that lock before the command exits. The lock is not a file that stays in the session. A lock whose process is gone is taken over. A live lock is exit 2.
+`<session-id>` defaults to the spec file’s basename. Older Clew versions kept one store per project under `<project-key>/spec/`. The first command that opens the store moves those sessions into `spec/` and drops the spec path they recorded. When two projects have a session with the same id, one is kept and the other is dropped. Clew holds a lock only while a command writes the session, and removes that lock before the command exits. The lock is not a file that stays in the session. A lock whose process is gone is taken over. A live lock is exit 2.
 
 `spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Facts, Entities, and Sentences tabs, collapsed lineage drawers, and filters for entity kind, fact type/status, and text search. It does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
 
 Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `entities.json`, `facts.json`, and `graph.json`. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
 
-`spec session list` lists the sessions for this repo. Each row has the id, the spec source path, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence is `status: current`. A live fact is current and is not a removed tombstone. Flows are the paths stored in `graph.json`; a session with no graph counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
+`spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence is `status: current`. A live fact is current and is not a removed tombstone. Flows are the paths stored in `graph.json`; a session with no graph counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
 
 `spec session remove <id>` deletes that session directory and nothing else. An unknown id is exit 2. A live lock is exit 2 and the directory stays. A lock whose process is gone is taken over, the same way as any other write, and then the directory is deleted. The id is one session name: a letter, then letters, digits, underscores, or hyphens. `..`, a slash, or any other unsafe id is exit 2. Clew deletes the directory only when its real path is `<spec-root>/<id>`. A symlink is left in place. Sessions for other repos are not touched.
 
@@ -189,7 +189,11 @@ Latin-script languages are not detected. Translate those to plain English before
 
 `spec trace <id>` walks provenance. A transition id (`tr1`) or a flow id (`W1`) is resolved first. Otherwise it walks a state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
 
-`spec show tagged`, `spec show tokens`, `spec show entities`, and `spec show facts` print one stored layer. The command values are `spec.show.tagged`, `spec.show.tokens`, `spec.show.entities`, and `spec.show.facts`. These commands leave the session and `history.jsonl` unchanged, and `updated` stays as it was. `findings` is always an empty list. `spec status` recomputes findings.
+`spec show sentences`, `spec show tagged`, `spec show tokens`, `spec show spans`, `spec show entities`, and `spec show facts` print one stored layer. The command values are `spec.show.sentences`, `spec.show.tagged`, `spec.show.tokens`, `spec.show.spans`, `spec.show.entities`, and `spec.show.facts`.
+
+`spec show sentences` works right after `spec init`. Each row has `id`, `text`, `section` (the heading path), `status`, and `workflows`. `workflows` lists the `id` and `title` of each draft-graph flow whose transitions or forbidden fact cite the sentence. It is empty until `spec graph build` writes flows. `spec show spans` lists the live span partition after `spec tag`. Each span has `id`, `sentence`, `surface`, and `tags` (the POS tags), plus its token cover, origin, and entity link. Every span view now carries `sentence`, including the spans in `spec tag` and `spec spans merge` output.
+
+These commands leave the session and `history.jsonl` unchanged, and `updated` stays as it was. `findings` is always an empty list. `spec status` recomputes findings.
 
 Exit 0 means the requested layer has been written. An empty entity list and an empty fact list are written. Exit 2 means the layer has not been written, the session is missing, the session is locked, or the arguments are wrong. The exit is 0 or 2.
 
@@ -601,7 +605,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 }
 ```
 
-`spec.session.list` after `spec init` of `examples/spec/order.md`. `updated` is the timestamp stored in `session.json`. `specPath` is the absolute path stored there. Counts are the live sentences, facts, and flows.
+`spec.session.list` after `spec init` of `examples/spec/order.md`. `updated` is the timestamp stored in `session.json`. Counts are the live sentences, facts, and flows.
 
 ```json
 {
@@ -610,7 +614,6 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
   "sessions": [
     {
       "id": "order",
-      "specPath": "/work/examples/spec/order.md",
       "updated": "2026-10-27T01:24:00.000Z",
       "summary": { "sentences": 3, "facts": 0, "flows": 0 }
     }

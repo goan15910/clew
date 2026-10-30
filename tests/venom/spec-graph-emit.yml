@@ -38,6 +38,17 @@ testcases:
     - result.systemoutjson.findingsByLayer.graph.graph0.code ShouldEqual graph-absent
     - result.systemoutjson.findingsByLayer.graph.graph0.severity ShouldEqual info
   - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show sentences --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.show.sentences
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.sentences.sentences0.id ShouldEqual s1
+    - result.systemoutjson.sentences.sentences0.status ShouldEqual current
+    - result.systemoutjson.sentences.sentences0.text ShouldContainSubstring "the customer submits an order"
+    - result.systemoutjson.sentences.sentences0.workflows ShouldHaveLength 0
+  - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f3 --from-state draft --json"
     assertions:
     - result.code ShouldEqual 0
@@ -78,6 +89,20 @@ testcases:
     - result.code ShouldEqual 1
     - result.systemoutjson.flows.flows0.id ShouldEqual W1
     - result.systemoutjson.flows ShouldHaveLength 1
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show sentences --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.sentences.sentences0.workflows ShouldHaveLength 1
+    - result.systemoutjson.sentences.sentences0.workflows.workflows0.id ShouldEqual W1
+    - result.systemoutjson.sentences.sentences0.workflows.workflows0.title ShouldEqual "Submit order"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show sentences"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemout ShouldContainSubstring "session order-sentence:"
+    - result.systemout ShouldContainSubstring "<- W1"
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --dry-run --json"
     assertions:

@@ -120,7 +120,7 @@ describe('spec commands', { concurrency: false }, () => {
       assert.deepEqual(first.document.sentences?.map((sentence) => sentence.id), ['s1', 's2']);
       const tagged = tagSpec({}, jsonSpecStore, compromiseTagger);
       assert.equal(tagged.exit, 'pass');
-      const session = specSessionDir('flow', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('flow', { CLEW_DATA_DIR: dir });
       const history = () => readFileSync(join(session, 'history.jsonl'), 'utf8').trim().split('\n');
       assert.equal(history().length, 2);
       const tagLine = JSON.parse(history()[1] ?? '{}') as { command: string; before: string[]; after: string[] };
@@ -166,7 +166,7 @@ describe('spec commands', { concurrency: false }, () => {
       writeFileSync(file, `${SAMPLE}\n`);
       initSpec({ file }, specTextSource, jsonSpecStore);
       tagSpec({}, jsonSpecStore, compromiseTagger);
-      const session = specSessionDir('owned', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('owned', { CLEW_DATA_DIR: dir });
       const tokensPath = join(session, 'tokens.json');
       const stored = JSON.parse(readFileSync(tokensPath, 'utf8')) as {
         schemaVersion: number;
@@ -191,7 +191,7 @@ describe('spec commands', { concurrency: false }, () => {
       writeFileSync(file, `${SAMPLE}\n`);
       initSpec({ file }, specTextSource, jsonSpecStore);
       tagSpec({}, jsonSpecStore, compromiseTagger);
-      const session = specSessionDir('versioned', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('versioned', { CLEW_DATA_DIR: dir });
       const sessionPath = join(session, 'session.json');
       const stored = JSON.parse(readFileSync(sessionPath, 'utf8')) as { tagger: { name: string; version: string } };
       stored.tagger.version = '0.0.0';
@@ -226,7 +226,7 @@ describe('spec commands', { concurrency: false }, () => {
       assert.equal(tagDoc.tagger?.name, 'compromise');
       assert.equal(tagDoc.tagger?.version, '14.19.0');
       assert.equal(tagDoc.sentences?.[0]?.clauses.length, 3);
-      const session = specSessionDir(initDoc.session ?? '', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir(initDoc.session ?? '', { CLEW_DATA_DIR: dir });
       assert.equal(session.startsWith(dir), true);
       assert.equal(existsSync(join(session, 'session.json')), true);
       assert.equal(existsSync(join(session, 'sentences.json')), true);
@@ -301,7 +301,7 @@ describe('spec commands', { concurrency: false }, () => {
       const file = join(dir, 'locked.md');
       writeFileSync(file, `${SAMPLE}\n`);
       assert.equal(clew(['spec', 'init', file, '--json'], dir).status, 0);
-      const session = specSessionDir('locked', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('locked', { CLEW_DATA_DIR: dir });
       writeFileSync(join(session, '.lock'), JSON.stringify({ pid: process.pid }));
       const held = clew(['spec', 'tag', '--json'], dir);
       assert.equal(held.status, 2);
@@ -323,7 +323,7 @@ describe('spec commands', { concurrency: false }, () => {
       const file = join(dir, 'old.md');
       writeFileSync(file, `${SAMPLE}\n`);
       assert.equal(clew(['spec', 'init', file, '--json'], dir).status, 0);
-      const session = specSessionDir('old', { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir('old', { CLEW_DATA_DIR: dir });
       const sessionPath = join(session, 'session.json');
       const stored = JSON.parse(readFileSync(sessionPath, 'utf8')) as { schemaVersion: number };
       stored.schemaVersion = 2;

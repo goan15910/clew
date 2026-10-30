@@ -28,7 +28,7 @@ describe('spec show', { concurrency: false }, () => {
       assert.equal(init.status, 0, init.stderr);
       const id = json<SpecInitDocument>(init).session;
       assert.equal(id, 'order-sentence');
-      const session = specSessionDir(id, { CLEW_DATA_DIR: dir }, root);
+      const session = specSessionDir(id, { CLEW_DATA_DIR: dir });
       assert.equal(existsSync(join(session, 'tokens.json')), true);
       const stored = JSON.parse(readFileSync(join(session, 'session.json'), 'utf8')) as { tagger?: unknown; updated: string };
       assert.equal(stored.tagger, undefined);
@@ -212,9 +212,63 @@ describe('spec show', { concurrency: false }, () => {
     });
   });
 
+  test('show spans lists each live span with its tags and sentence id', () => {
+    withData((dir) => {
+      const init = run(dir, ['spec', 'init', sample, '--json']);
+      assert.equal(init.status, 0, init.stderr);
+      const early = run(dir, ['spec', 'show', 'spans', '--json']);
+      assert.equal(early.status, 2);
+      assert.match(early.stderr, /run clew spec tag first/);
+      const tag = json<SpecTagDocument>(run(dir, ['spec', 'tag', '--json']));
+      const shown = run(dir, ['spec', 'show', 'spans', '--json']);
+      assert.equal(shown.status, 0, shown.stderr);
+      const document = json<SpecShowDocument>(shown);
+      assert.equal(document.command, 'spec.show.spans');
+      if (document.command !== 'spec.show.spans') return;
+      assert.deepEqual(document.spans, tag.spans);
+      const first = document.spans?.[0];
+      assert.ok(first);
+      assert.equal(first.sentence, 's1');
+      assert.equal(first.surface, tag.sentences?.[0]?.tokens[0]?.text);
+      assert.deepEqual(first.tags, tag.sentences?.[0]?.tokens[0]?.tags);
+      const human = run(dir, ['spec', 'show', 'spans']);
+      assert.match(human.stdout, /^session order-sentence: \d+ spans/m);
+      assert.match(human.stdout, /sp:s1\.t1\.\.s1\.t1 {2}s1 {2}\S+\/\S+/);
+    });
+  });
+
+  test('show sentences gives each sentence its section and citing workflows', () => {
+    withData((dir) => {
+      const init = run(dir, ['spec', 'init', sample, '--json']);
+      assert.equal(init.status, 0, init.stderr);
+      const bare = json<SpecShowDocument>(run(dir, ['spec', 'show', 'sentences', '--json']));
+      assert.equal(bare.command, 'spec.show.sentences');
+      if (bare.command !== 'spec.show.sentences') return;
+      const sentence = bare.sentences?.[0];
+      assert.ok(sentence);
+      assert.equal(sentence.id, 's1');
+      assert.equal(sentence.status, 'current');
+      assert.equal(sentence.section, json<SpecInitDocument>(init).sentences?.[0]?.section);
+      assert.deepEqual(sentence.workflows, []);
+      run(dir, ['spec', 'tag', '--json']);
+      run(dir, ['spec', 'entities', 'list', '--json']);
+      run(dir, ['spec', 'facts', 'propose', '--json']);
+      run(dir, ['spec', 'facts', 'edit', '--id', 'f3', '--from-state', 'draft', '--json']);
+      run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json']);
+      run(dir, ['spec', 'graph', 'build', '--json']);
+      const built = json<SpecShowDocument>(run(dir, ['spec', 'show', 'sentences', '--json']));
+      if (built.command !== 'spec.show.sentences') return;
+      assert.deepEqual(built.sentences?.[0]?.workflows, [{ id: 'W1', title: 'Submit order' }]);
+      const human = run(dir, ['spec', 'show', 'sentences']);
+      assert.match(human.stdout, /^ {2}s1 \[.*\] .* {2}<- W1$/m);
+    });
+  });
+
   test('help lists spec show tagged', () => {
     const help = clew(['help'], tmpdir());
     assert.equal(help.status, 0);
+    assert.match(help.stdout, /spec show sentences/);
+    assert.match(help.stdout, /spec show spans/);
     assert.match(help.stdout, /spec show tagged/);
     assert.match(help.stdout, /spec show tokens/);
     assert.match(help.stdout, /spec show entities/);
@@ -280,7 +334,7 @@ function writeSpec(dir: string, name: string, text: string): string {
 }
 
 function historyCount(dir: string, session: string): number {
-  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }, root), 'history.jsonl');
+  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }), 'history.jsonl');
   if (!existsSync(file)) return 0;
   const text = readFileSync(file, 'utf8').trim();
   if (text === '') return 0;
@@ -288,7 +342,7 @@ function historyCount(dir: string, session: string): number {
 }
 
 function sessionUpdated(dir: string, session: string): string {
-  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }, root), 'session.json');
+  const file = join(specSessionDir(session, { CLEW_DATA_DIR: dir }), 'session.json');
   const stored = JSON.parse(readFileSync(file, 'utf8')) as { updated: string };
   return stored.updated;
 }

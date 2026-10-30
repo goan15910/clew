@@ -682,7 +682,7 @@ function adjacentCovers(left: LiveSpan, right: LiveSpan, tagged: readonly Tagged
   return false;
 }
 
-function sentenceIdOfToken(tokenId: string): string | undefined {
+export function sentenceIdOfToken(tokenId: string): string | undefined {
   const dot = tokenId.indexOf('.');
   if (dot <= 0) return undefined;
   return tokenId.slice(0, dot);

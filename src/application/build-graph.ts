@@ -66,7 +66,6 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
   const snapshot: SpecSnapshot = {
     schemaVersion: current.schemaVersion,
     id: current.id,
-    specPath: current.specPath,
     specHash: current.specHash,
     created: current.created,
     updated,

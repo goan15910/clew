@@ -192,7 +192,15 @@ export interface SpecTaggedView {
   tokens: SpecTokenView[];
 }
 
-export const SPEC_SHOW_LAYERS = ['tagged', 'tokens', 'entities', 'facts'] as const;
+export interface SpecSentenceContextView {
+  id: string;
+  text: string;
+  section: string;
+  status: 'current' | 'stale';
+  workflows: { id: string; title: string }[];
+}
+
+export const SPEC_SHOW_LAYERS = ['sentences', 'tagged', 'tokens', 'spans', 'entities', 'facts'] as const;
 
 export type SpecShowLayer = (typeof SPEC_SHOW_LAYERS)[number];
 
@@ -236,6 +244,7 @@ export interface SpecTagDocument {
 
 export interface SpecSpanView {
   id: string;
+  sentence: string;
   firstTokenId: string;
   lastTokenId: string;
   surface: string;
@@ -412,7 +421,6 @@ export interface SpecStatusDocument {
 
 export interface SpecSessionListRow {
   id: string;
-  specPath: string;
   updated: string;
   summary: { sentences: number; facts: number; flows: number };
 }
@@ -460,8 +468,10 @@ interface SpecShowBase {
 }
 
 export type SpecShowDocument =
+  | (SpecShowBase & { command: 'spec.show.sentences'; sentences?: SpecSentenceContextView[] })
   | (SpecShowBase & { command: 'spec.show.tagged'; sentences?: SpecTaggedView[] })
   | (SpecShowBase & { command: 'spec.show.tokens'; tokens?: SpecUniqueTokenView[] })
+  | (SpecShowBase & { command: 'spec.show.spans'; spans?: SpecSpanView[] })
   | (SpecShowBase & { command: 'spec.show.entities'; entities?: SpecEntityView[] })
   | (SpecShowBase & { command: 'spec.show.facts'; facts?: SpecFactView[] });
 

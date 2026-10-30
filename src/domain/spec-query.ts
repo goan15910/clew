@@ -174,6 +174,33 @@ function finish(links: TraceLink[]): TraceResult {
   return { links, findings };
 }
 
+/** Flows that cite each sentence through their transitions' facts or their forbidden fact. */
+export function sentenceWorkflows(snapshot: SpecSnapshot): Map<string, SpecFlow[]> {
+  const facts = new Map<string, Fact>();
+  for (const fact of snapshot.facts ?? []) facts.set(fact.id, fact);
+  const transitions = new Map<string, GraphTransition>();
+  for (const transition of snapshot.graph?.transitions ?? []) transitions.set(transition.id, transition);
+  const bySentence = new Map<string, SpecFlow[]>();
+  for (const flow of snapshot.graph?.flows ?? []) {
+    const factIds: string[] = [];
+    for (const id of flow.transitions) {
+      const transition = transitions.get(id);
+      if (transition !== undefined) factIds.push(transition.fact, ...transition.facts);
+    }
+    if (flow.forbidden !== undefined) factIds.push(flow.forbidden);
+    const sentences = new Set<string>();
+    for (const factId of factIds) {
+      for (const source of facts.get(factId)?.sources ?? []) sentences.add(source.split('.')[0] ?? source);
+    }
+    for (const sentence of sentences) {
+      const list = bySentence.get(sentence) ?? [];
+      list.push(flow);
+      bySentence.set(sentence, list);
+    }
+  }
+  return bySentence;
+}
+
 function coverageOf(snapshot: SpecSnapshot): StatusCoverage {
   const facts = visibleFacts(snapshot.facts ?? []).filter((fact) => fact.status === 'current');
   const mapped: string[] = [];

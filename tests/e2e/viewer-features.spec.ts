@@ -51,9 +51,8 @@ test.describe('header and banner', () => {
     expect(stats.y).toBeGreaterThanOrEqual(title.y + title.height - 1);
   });
 
-  test('stats line carries counts only, not the spec path or update time', async ({ page }) => {
+  test('stats line carries counts only, not the update time', async ({ page }) => {
     const meta = page.locator('#session-meta');
-    await expect(meta).not.toContainText(fixture.session.specPath);
     await expect(meta).not.toContainText('updated');
   });
 

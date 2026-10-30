@@ -1,8 +1,9 @@
 // Per-user spec store location. Nothing here is inside the repo.
-import { createHash } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
+
+const LEGACY_PROJECT_KEY = /-[0-9a-f]{12}$/;
 
 export function clewDataDir(env: NodeJS.ProcessEnv, platform: string, home: string): string {
   const override = env.CLEW_DATA_DIR;
@@ -19,27 +20,70 @@ export function clewDataDir(env: NodeJS.ProcessEnv, platform: string, home: stri
   return join(base, 'clew');
 }
 
-export function findProjectRoot(start: string): string {
-  let dir = resolve(start);
-  for (;;) {
-    if (existsSync(join(dir, '.git'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return resolve(start);
-    dir = parent;
+export function specRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const dataDir = clewDataDir(env, process.platform, homedir());
+  const root = join(dataDir, 'spec');
+  migrateProjectSessions(dataDir, root);
+  return root;
+}
+
+export function specSessionDir(id: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(specRoot(env), id);
+}
+
+/**
+ * Moves sessions from the old per-project `<data dir>/<project-key>/spec/<id>` layout into `root`,
+ * dropping the origin path they recorded. When two projects share an id, the first one read wins.
+ */
+export function migrateProjectSessions(dataDir: string, root: string): void {
+  let projects;
+  try {
+    projects = readdirSync(dataDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const project of projects) {
+    if (!project.isDirectory() || !LEGACY_PROJECT_KEY.test(project.name)) continue;
+    const legacy = join(dataDir, project.name, 'spec');
+    if (!existsSync(legacy)) continue;
+    let stranded = false;
+    for (const session of readdirSync(legacy, { withFileTypes: true })) {
+      if (!session.isDirectory()) continue;
+      const from = join(legacy, session.name);
+      const to = join(root, session.name);
+      if (existsSync(to)) continue;
+      forgetOrigin(from);
+      try {
+        mkdirSync(root, { recursive: true });
+        renameSync(from, to);
+      } catch {
+        stranded = true;
+      }
+    }
+    if (!stranded) rmSync(join(dataDir, project.name), { recursive: true, force: true });
   }
 }
 
-export function projectKey(root: string): string {
-  const real = realpathSync(root);
-  const name = basename(real).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'repo';
-  const hash = createHash('sha256').update(real).digest('hex').slice(0, 12);
-  return `${name}-${hash}`;
-}
-
-export function specRoot(env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): string {
-  return join(clewDataDir(env, process.platform, homedir()), projectKey(findProjectRoot(cwd)), 'spec');
-}
-
-export function specSessionDir(id: string, env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): string {
-  return join(specRoot(env, cwd), id);
+function forgetOrigin(dir: string): void {
+  try {
+    const sessionFile = join(dir, 'session.json');
+    const session = JSON.parse(readFileSync(sessionFile, 'utf8')) as Record<string, unknown>;
+    delete session.specPath;
+    writeFileSync(sessionFile, `${JSON.stringify(session, null, 2)}\n`);
+  } catch {
+    // An unreadable session moves as-is and reports its own fault on load.
+  }
+  try {
+    const historyFile = join(dir, 'history.jsonl');
+    const lines: string[] = [];
+    for (const line of readFileSync(historyFile, 'utf8').split('\n')) {
+      if (line.trim() === '') continue;
+      const entry = JSON.parse(line) as { args?: Record<string, unknown> };
+      if (entry.args !== undefined) delete entry.args.spec;
+      lines.push(`${JSON.stringify(entry)}\n`);
+    }
+    writeFileSync(historyFile, lines.join(''));
+  } catch {
+    // No history, or history Clew never parses back.
+  }
 }
