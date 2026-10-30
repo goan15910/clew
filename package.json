@@ -18,7 +18,7 @@
     "check": "tsc --noEmit && npm run check:dependencies && npm run check:imports && npm run test:architecture && npm run test:spec",
     "test:spec": "tsx --test tests/spec/*.test.ts",
     "test:e2e": "playwright test",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-interactive-graph-assets.mjs",
     "prepack": "npm run build",
     "test": "node dist/cli.js verify examples/todo/b-full.yaml examples/todo/workflows.yaml"
   },
