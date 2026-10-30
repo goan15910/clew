@@ -381,6 +381,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     <label>Fact type<select id="filter-type"><option value="">any</option></select></label>
     <label>Fact status<select id="filter-status"><option value="">any</option><option>current</option><option>stale</option></select></label>
     <label>Span<select id="filter-span"><option value="">any</option></select></label>
+    <label><input type="checkbox" id="filter-rejected">Show rejected entities</label>
     <button type="button" id="filter-clear">Clear filters</button>
   </div>
 </div>
@@ -429,6 +430,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     type: document.getElementById("filter-type"),
     status: document.getElementById("filter-status"),
     span: document.getElementById("filter-span"),
+    rejected: document.getElementById("filter-rejected"),
     clear: document.getElementById("filter-clear"),
     facts: document.getElementById("panel-facts"),
     entities: document.getElementById("panel-entities"),
@@ -484,6 +486,10 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const map = new Map();
     for (const row of state.tagged) map.set(row.id, row);
     return map;
+  }
+
+  function entityShown(entity) {
+    return els.rejected.checked || entity.status !== "rejected";
   }
 
   function indexEntities() {
@@ -764,6 +770,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const id = fact[field];
       if (!id) continue;
       const entity = entities.get(id);
+      if (entity && !entityShown(entity)) continue;
       const label = entity ? (entity.name || entity.text || id) : id;
       rows.push({
         layer: "entity",
@@ -860,7 +867,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 
   function sentenceLineage(sentence) {
     const rows = [];
-    for (const entity of state.entities) {
+    for (const entity of state.entities.filter(entityShown)) {
       for (const source of entity.sources || []) {
         if (source === sentence.id || source.indexOf(sentence.id + ".") === 0) {
           rows.push({
@@ -958,6 +965,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   function renderEntities() {
     const kind = els.kind.value;
     const visible = state.entities.filter(function (entity) {
+      if (!entityShown(entity)) return false;
       if (kind && entity.kind !== kind) return false;
       return matchesText([entity.id, entity.kind, entity.name, entity.text, entity.note, ...(entity.sources || [])]);
     });
@@ -1190,7 +1198,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     render();
   }
 
-  for (const input of [els.text, els.kind, els.type, els.status, els.span]) {
+  for (const input of [els.text, els.kind, els.type, els.status, els.span, els.rejected]) {
     input.addEventListener("input", filtersChanged);
     input.addEventListener("change", filtersChanged);
   }
@@ -1201,6 +1209,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     els.type.value = "";
     els.status.value = "";
     els.span.value = "";
+    els.rejected.checked = false;
     render();
   });
 

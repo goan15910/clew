@@ -270,9 +270,14 @@ export function expectedFactIds(filters: FixtureFilters): string[] {
     .map((fact) => fact.id);
 }
 
-export function expectedEntityIds(filters: FixtureFilters): string[] {
+function entityShown(entity: { status?: string }, showRejected = false): boolean {
+  return showRejected || entity.status !== 'rejected';
+}
+
+export function expectedEntityIds(filters: FixtureFilters, showRejected = false): string[] {
   return fixture.entities
     .filter((entity) => {
+      if (!entityShown(entity, showRejected)) return false;
       if (filters.kind && entity.kind !== filters.kind) return false;
       return matchesText(
         [entity.id, entity.kind, entity.name, entity.text, entity.note, ...(entity.sources ?? [])],
@@ -311,6 +316,7 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
     const id = fact[field];
     if (!id) continue;
     const entity = entities.get(id);
+    if (entity && !entityShown(entity)) continue;
     const label = entity ? (entity.name || entity.text || id) : id;
     rows.push({ layer: 'entity', text: `${field} → ${id} (${label})` });
     if (entity) appendSpanSources(rows, entity.sources ?? []);
@@ -364,7 +370,7 @@ export function expectedSentenceLineage(sentenceId: string): Array<{ layer: stri
   const sentence = sentenceById(sentenceId);
   if (!sentence) return [];
   const rows: Array<{ layer: string; text: string }> = [];
-  for (const entity of fixture.entities) {
+  for (const entity of fixture.entities.filter((row) => entityShown(row))) {
     for (const source of entity.sources ?? []) {
       if (source === sentence.id || source.startsWith(`${sentence.id}.`)) {
         rows.push({ layer: 'entity', text: `${entity.id} via ${source}` });
