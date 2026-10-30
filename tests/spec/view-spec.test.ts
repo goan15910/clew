@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
+import { jsonSpecStore } from '../../src/adapters/spec-store/json-file-store.js';
 import { jsonSpecSessionViewer, serveSessionViewer } from '../../src/adapters/spec-store/session-viewer.js';
 import { VIEWER_FILE, VIEWER_HTML } from '../../src/adapters/spec-store/viewer-page.js';
-import type { SpecViewDocument } from '../../src/application/documents.js';
+import type { DraftGraphImageDocument, SpecViewDocument } from '../../src/application/documents.js';
+import type { GraphImageRenderer } from '../../src/application/ports.js';
+import { NO_GRAPH_MESSAGE, viewSpecGraph } from '../../src/application/view-spec-graph.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -162,6 +165,60 @@ describe('spec view', { concurrency: false }, () => {
     }
   });
 
+  test('draft-graph.json draws a session that has a graph and names a session that does not', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clew-view-graph-'));
+    const previous = process.env.CLEW_DATA_DIR;
+    process.env.CLEW_DATA_DIR = dir;
+    try {
+      const withGraph = plantMatrix(dir, 'viewer-matrix', true);
+      const withoutGraph = plantMatrix(dir, 'no-graph', false);
+      const before = snapshotBytes(withGraph);
+      const server = await serveSessionViewer(withGraph);
+      try {
+        const origin = new URL(server.url).origin;
+        const drawn = await (await fetch(`${origin}/draft-graph.json`)).json() as DraftGraphImageDocument;
+        assert.equal(drawn.session, 'viewer-matrix');
+        assert.equal(drawn.message, undefined);
+        assert.equal(drawn.error, undefined);
+        const order = drawn.charts.find((chart) => chart.object === 'order');
+        const happy = drawn.workflows.find((flow) => flow.id === 'HappyPath');
+        assert.ok(order);
+        assert.match(order.svg, /<svg/);
+        assert.ok(happy);
+        assert.equal(happy.expect, 'accepted');
+        assert.match(happy.svg, /<svg/);
+        assert.equal(drawn.workflows.some((flow) => flow.id === 'ForbidCancel'), false);
+        assert.ok(drawn.findings.some((finding) => finding.refs.includes('ForbidCancel')));
+        const missing = await (await fetch(`${origin}/sessions/no-graph/draft-graph.json`)).json() as DraftGraphImageDocument;
+        assert.equal(missing.session, 'no-graph');
+        assert.equal(missing.message, NO_GRAPH_MESSAGE);
+        assert.deepEqual(missing.charts, []);
+        assert.deepEqual(missing.workflows, []);
+        assert.equal((await fetch(`${origin}/sessions/..%2f..%2fx/draft-graph.json`)).status, 400);
+        assert.equal(existsSync(join(withGraph, 'draft-graph.json')), false);
+        assert.equal(existsSync(join(withoutGraph, 'draft-graph.json')), false);
+        assert.deepEqual(snapshotBytes(withGraph), before);
+      } finally {
+        await server.close();
+      }
+      const failed = viewSpecGraph({ id: 'viewer-matrix' }, jsonSpecStore, {
+        chartSvg() {
+          throw new Error('Graphviz `dot` is not runnable (spawn dot ENOENT). Install Graphviz 16.1.0.');
+        },
+        chainSvg() {
+          return '<svg></svg>';
+        },
+      } satisfies GraphImageRenderer);
+      assert.match(failed.error ?? '', /not runnable/);
+      assert.deepEqual(failed.charts, []);
+      assert.ok(failed.findings.some((finding) => finding.refs.includes('ForbidCancel')));
+    } finally {
+      if (previous === undefined) delete process.env.CLEW_DATA_DIR;
+      else process.env.CLEW_DATA_DIR = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('help lists spec view', () => {
     const help = clew(['help'], tmpdir());
     assert.equal(help.status, 0);
@@ -180,6 +237,30 @@ describe('spec view', { concurrency: false }, () => {
     assert.doesNotThrow(() => new Function(script));
   });
 });
+
+const matrix = join(root, 'tests', 'fixtures', 'sessions', 'viewer-matrix');
+
+function plantMatrix(dataDir: string, id: string, withGraph: boolean): string {
+  const dir = specSessionDir(id, { CLEW_DATA_DIR: dataDir });
+  mkdirSync(dirname(dir), { recursive: true });
+  cpSync(matrix, dir, { recursive: true });
+  rmSync(join(dir, 'spec.md'), { force: true });
+  if (!withGraph) rmSync(join(dir, 'graph.json'), { force: true });
+  const session = JSON.parse(readFileSync(join(dir, 'session.json'), 'utf8')) as { id: string };
+  session.id = id;
+  writeFileSync(join(dir, 'session.json'), `${JSON.stringify(session, null, 2)}\n`);
+  return dir;
+}
+
+function snapshotBytes(dir: string): Record<string, string> {
+  const names = ['session.json', 'sentences.json', 'tokens.json', 'entities.json', 'facts.json', 'graph.json', 'history.jsonl'];
+  const bytes: Record<string, string> = {};
+  for (const name of names) {
+    const path = join(dir, name);
+    bytes[name] = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  }
+  return bytes;
+}
 
 function json<T>(result: { stdout: string }): T {
   return JSON.parse(result.stdout) as T;

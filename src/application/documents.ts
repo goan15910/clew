@@ -442,6 +442,30 @@ export interface SpecSessionRemoveDocument {
   issues: OutputIssue[];
 }
 
+export interface DraftGraphChartImage {
+  object: string;
+  svg: string;
+}
+
+export interface DraftGraphWorkflowImage {
+  id: string;
+  title: string;
+  expect: 'accepted' | 'rejected';
+  svg: string;
+}
+
+/** JSON for the spec inspector Graph tab. Not a CLI command document. */
+export interface DraftGraphImageDocument {
+  session: string;
+  charts: DraftGraphChartImage[];
+  workflows: DraftGraphWorkflowImage[];
+  findings: Finding[];
+  /** Set when the session has no graph layer. */
+  message?: string;
+  /** Set when the session cannot be read or Graphviz cannot draw. */
+  error?: string;
+}
+
 export interface SpecViewDocument {
   command: 'spec.view';
   ok: boolean;

@@ -3,10 +3,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { spawn } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, writeFileSync, type Stats } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
+import { viewSpecGraph } from '../../application/view-spec-graph.js';
 import type { SpecSessionViewer, SpecViewerInstallResult } from '../../application/ports.js';
 import { SPEC_SESSION_ID_PATTERN } from '../../domain/spec.js';
+import { graphvizGraphImages } from '../diagram/graphviz-renderer.js';
 import { packageVersion } from '../package/package-version.js';
 import { specRoot } from './data-dir.js';
+import { jsonSpecStore } from './json-file-store.js';
 import { VIEWER_FILE, viewerHtml } from './viewer-page.js';
 
 function isSessionId(id: string): boolean {
@@ -121,6 +124,16 @@ function sendJson(response: ServerResponse, method: string | undefined, value: u
   response.end(method === 'HEAD' ? undefined : body);
 }
 
+function draftGraphSession(root: string, specDir: string, requestPath: string): string | 'bad' | undefined {
+  if (requestPath === '/draft-graph.json') return basename(root);
+  const match = /^\/sessions\/([^/]+)\/draft-graph\.json$/.exec(requestPath);
+  if (match === null) return undefined;
+  const id = decodeURIComponent(match[1] ?? '');
+  const dir = join(specDir, id);
+  if (!isSessionId(id) || !confinedToSession(specDir, dir, id)) return 'bad';
+  return id;
+}
+
 function resolveTarget(root: string, specDir: string, requestPath: string): string | undefined {
   const match = /^\/sessions\/([^/]+)(\/.*)$/.exec(requestPath.split('?')[0] ?? '');
   if (match === null) return safeFile(root, requestPath);
@@ -140,8 +153,19 @@ export function serveSessionViewer(sessionDir: string): Promise<SessionViewerSer
       response.end('method not allowed');
       return;
     }
-    if ((request.url ?? '/').split('?')[0] === '/sessions.json') {
+    const requestPath = (request.url ?? '/').split('?')[0] ?? '/';
+    if (requestPath === '/sessions.json') {
       sendJson(response, request.method, { current, sessions: listSessionIds(specDir) });
+      return;
+    }
+    const draftSession = draftGraphSession(root, specDir, requestPath);
+    if (draftSession === 'bad') {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('bad path');
+      return;
+    }
+    if (draftSession !== undefined) {
+      sendJson(response, request.method, viewSpecGraph({ id: draftSession }, jsonSpecStore, graphvizGraphImages));
       return;
     }
     const target = resolveTarget(root, specDir, request.url ?? '/');

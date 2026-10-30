@@ -2,7 +2,7 @@
 // The coverage heatmap is SVG. Replay frames are positioned DOT, drawn by `neato`, and packed into a GIF.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import type { DiagramRenderer, ReplayFile } from '../../application/ports.js';
+import type { DiagramRenderer, GraphImageRenderer, ReplayFile } from '../../application/ports.js';
 import type { Model } from '../../domain/model.js';
 import type { TransitionCoverage, WorkflowResult } from '../../domain/verification.js';
 import { chainMermaid, chartMermaid, chainsDot, chartDot, proofColumnDots } from './diagrams.js';
@@ -10,14 +10,36 @@ import { decodePng, encodeAnimatedGif } from './gif.js';
 import { coverageHeatmapSvg } from './heatmap.js';
 import { replayFrameDot } from './replay-frames.js';
 
+function graphvizMessage(bin: string, error: unknown, hint: string): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Graphviz \`${bin}\` is not runnable (${detail}). ${hint}`;
+}
+
 function requireGraphviz(bin: string, args: readonly string[]): void {
   try {
     execFileSync(bin, [...args], { stdio: 'ignore' });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Graphviz \`${bin}\` is not runnable (${detail}). Install Graphviz 16.1.0, or omit --out.`);
+    throw new Error(graphvizMessage(bin, error, 'Install Graphviz 16.1.0, or omit --out.'));
   }
 }
+
+function dotSvg(source: string): string {
+  try {
+    execFileSync('dot', ['-V'], { stdio: 'ignore' });
+  } catch (error) {
+    throw new Error(graphvizMessage('dot', error, 'Install Graphviz 16.1.0.'));
+  }
+  return execFileSync('dot', ['-Tsvg'], { input: source, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+}
+
+export const graphvizGraphImages: GraphImageRenderer = {
+  chartSvg(model, title) {
+    return dotSvg(chartDot(model, title));
+  },
+  chainSvg(model, title, result) {
+    return dotSvg(chainsDot(model, title, [result], '', 'expect'));
+  },
+};
 
 function renderDot(dot: string, base: string) {
   writeFileSync(`${base}.dot`, dot);
