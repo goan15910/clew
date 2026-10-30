@@ -46,7 +46,8 @@ describe('spec view', { concurrency: false }, () => {
       assert.match(html, /data-tab="facts"/);
       assert.match(html, /data-tab="entities"/);
       assert.match(html, /data-tab="sentences"/);
-      assert.match(html, /fetch\("\.\/"/);
+      assert.match(html, /fetch\(sessionBase\(\) \+ name/);
+      assert.match(html, /: "\.\/";/);
       assert.equal(readFileSync(join(session, 'session.json'), 'utf8'), beforeSession);
       assert.equal(readFileSync(join(session, 'facts.json'), 'utf8'), beforeFacts);
       assert.equal(
@@ -143,6 +144,16 @@ describe('spec view', { concurrency: false }, () => {
         const encoded = await fetch(`http://127.0.0.1:${port}/..%2fleak.txt`);
         assert.equal(encoded.status, 400);
         assert.notEqual(await encoded.text(), 'leak');
+        const other = join(session, '..', 'other-session');
+        mkdirSync(other);
+        writeFileSync(join(other, 'session.json'), JSON.stringify({ id: 'other-session' }));
+        mkdirSync(join(session, '..', 'no-session-json'));
+        const list = await (await fetch(`http://127.0.0.1:${port}/sessions.json`)).json() as { current: string; sessions: string[] };
+        assert.deepEqual(list, { current: 'order-sentence', sessions: ['order-sentence', 'other-session'] });
+        const switched = await (await fetch(`http://127.0.0.1:${port}/sessions/other-session/session.json`)).json() as { id: string };
+        assert.equal(switched.id, 'other-session');
+        assert.equal((await fetch(`http://127.0.0.1:${port}/sessions/..%2f..%2fx/session.json`)).status, 400);
+        assert.equal((await fetch(`http://127.0.0.1:${port}/sessions/other-session/..%2f..%2fleak.txt`)).status, 400);
       } finally {
         await server.close();
       }
