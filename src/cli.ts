@@ -1017,6 +1017,14 @@ const showExits = [
 ];
 
 const SHOW_HELP: Record<SpecShowLayer, { description: string; example: string }> = {
+  sentences: {
+    description: 'Print every sentence with its section and the workflows that cite it.',
+    example: 'clew spec show sentences --json',
+  },
+  spans: {
+    description: 'Print the live spans with their tags and sentence id.',
+    example: 'clew spec show spans --json',
+  },
   tagged: {
     description: 'Print the tagged sentences.',
     example: 'clew spec show tagged --json',
