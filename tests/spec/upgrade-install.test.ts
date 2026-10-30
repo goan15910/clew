@@ -102,10 +102,10 @@ before(async () => {
   const { stdout } = await run('npm', ['pack', '--silent', '--pack-destination', packed], { cwd: root });
   const tarball = join(packed, stdout.trim().split('\n').at(-1)!);
 
-  const v3 = await restamp(tarball, 'clew-0.1.0-alpha3.tgz', { version: '0.1.0-alpha3', channel: 'release' });
+  const v3 = await restamp(tarball, 'clew-0.1.0-alpha.3.tgz', { version: '0.1.0-alpha.3', channel: 'release' });
   const v4 = await restamp(tarball, 'clew-0.1.0-alpha4.tgz', { version: '0.1.0-alpha4', channel: 'release' });
   const edge = await restamp(tarball, 'clew-edge.tgz', { version: '0.1.0-alpha4.dev.9+geeeeeee', channel: 'head', commit: EDGE_COMMIT });
-  publish(v3, 'clew-0.1.0-alpha3.tgz');
+  publish(v3, 'clew-0.1.0-alpha.3.tgz');
   releases = [
     releaseJson('v0.1.0-alpha4', true, publish(v4, 'clew-0.1.0-alpha4.tgz'), 'clew-0.1.0-alpha4.tgz', v4.sha),
     releaseJson('edge', true, publish(edge, 'clew-edge.tgz'), 'clew-edge.tgz', edge.sha),
@@ -137,12 +137,12 @@ async function installedVersion(): Promise<string> {
 }
 
 test('release channel: check, upgrade, then current', async () => {
-  assert.equal(await installedVersion(), '0.1.0-alpha3');
+  assert.equal(await installedVersion(), '0.1.0-alpha.3');
 
   const check = await clew(['upgrade', '--check', '--json']);
   assert.equal(check.status, 0);
-  assert.deepEqual(JSON.parse(check.stdout), { command: 'upgrade', ok: true, action: 'would-install', channel: 'release', from: '0.1.0-alpha3', to: '0.1.0-alpha4', issues: [] });
-  assert.equal(await installedVersion(), '0.1.0-alpha3');
+  assert.deepEqual(JSON.parse(check.stdout), { command: 'upgrade', ok: true, action: 'would-install', channel: 'release', from: '0.1.0-alpha.3', to: '0.1.0-alpha4', issues: [] });
+  assert.equal(await installedVersion(), '0.1.0-alpha.3');
 
   const upgrade = await clew(['upgrade', '--json']);
   assert.equal(upgrade.status, 0, upgrade.stderr);
@@ -166,14 +166,14 @@ test('a tarball that fails SHA256SUMS installs nothing', async () => {
 
 test('--version downgrades with no API call and --checksum pins the hash', async () => {
   const deadApi = 'http://127.0.0.1:9';
-  const wrongPin = await clew(['upgrade', '--version', '0.1.0-alpha3', '--checksum', '1'.repeat(64)], deadApi);
+  const wrongPin = await clew(['upgrade', '--version', '0.1.0-alpha.3', '--checksum', '1'.repeat(64)], deadApi);
   assert.equal(wrongPin.status, 1);
   assert.match(wrongPin.stderr, /--checksum/);
   assert.equal(await installedVersion(), '0.1.0-alpha4');
 
-  const down = await clew(['upgrade', '--version', 'v0.1.0-alpha3', '--json'], deadApi);
+  const down = await clew(['upgrade', '--version', 'v0.1.0-alpha.3', '--json'], deadApi);
   assert.equal(down.status, 0, down.stderr);
-  assert.equal(await installedVersion(), '0.1.0-alpha3');
+  assert.equal(await installedVersion(), '0.1.0-alpha.3');
   assert.equal((await clew(['upgrade'])).status, 0);
   assert.equal(await installedVersion(), '0.1.0-alpha4');
 });
