@@ -484,12 +484,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
     graphView: null,
     graphStatus: "loading",
     tab: "facts",
-<<<<<<< HEAD
     page: { facts: 0, entities: 0, sentences: 0, spans: 0 },
-=======
-    page: { facts: 0, entities: 0, sentences: 0 },
     graphMounts: [],
->>>>>>> 0fafaeb (feat(spec): interactive Cytoscape Graph tab with hover lineage)
   };
   const PAGE_SIZE = 30;
 
