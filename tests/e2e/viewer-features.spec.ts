@@ -3,6 +3,7 @@ import {
   expectedSpanCount,
   expectedSpanFilterGroups,
   expectedSpanFilterMatches,
+  expectedSpanTabEntries,
   expectedVisibleIds,
   fixture,
   PACKAGE_VERSION,
@@ -129,20 +130,20 @@ test.describe('toolbar and tab block', () => {
     }
     await expect(toolbar.locator('#filter-token')).toHaveCount(0);
     await expect(toolbar.locator('.tabs')).toHaveCount(0);
-    await expect(page.locator('main .tabset > .tabs [role="tab"]')).toHaveCount(4);
+    await expect(page.locator('main .tabset > .tabs [role="tab"]')).toHaveCount(5);
     const toolbarBox = await box(page, '.toolbar');
     const tabsetBox = await box(page, '.tabset');
     expect(tabsetBox.y).toBeGreaterThan(toolbarBox.y + toolbarBox.height - 1);
   });
 
   test('every panel renders inside the shared tab body', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences', 'graph']) {
+    for (const view of ['facts', 'entities', 'sentences', 'spans', 'graph']) {
       await expect(page.locator(`.tabset > .tab-body > #panel-${view}`)).toHaveCount(1);
     }
   });
 
   test('selected tab merges with the tab body; others stay distinct', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences', 'graph'] as const) {
+    for (const view of ['facts', 'entities', 'sentences', 'spans', 'graph'] as const) {
       await selectView(page, view);
       const styles = await page.evaluate(() => {
         const body = getComputedStyle(document.querySelector('.tab-body')!).backgroundColor;
@@ -185,6 +186,97 @@ test.describe('graph tab', () => {
     await expect(order).toBeVisible();
     await expect(happy).toBeVisible();
     await expect(panel.locator('details.lineage')).toHaveCount(0);
+  });
+});
+
+test.describe('span tab', () => {
+  test('lists unique (surface, tags) entries grouped by main POS', async ({ page }) => {
+    await selectView(page, 'spans');
+    const expected = expectedSpanTabEntries();
+    expect(expected.length).toBeGreaterThan(0);
+    const panel = page.locator('#panel-spans');
+    const keys = await panel.locator('article.card').evaluateAll((els) =>
+      els.map((el) => (el as HTMLElement).dataset.entryKey),
+    );
+    expect(keys).toEqual(expected.map((entry) => entry.key));
+    const groups = await panel.locator('h2.span-group').allTextContents();
+    expect(groups).toEqual([...new Set(expected.map((entry) => entry.pos))]);
+    const order = expected.find((entry) => entry.surface === 'order');
+    expect(order?.count).toBeGreaterThan(1);
+    await expect(panel.locator(`article.card[data-entry-key="${order!.key}"] .blurb`)).toHaveText(
+      `${order!.count} occurrences`,
+    );
+  });
+
+  test('hides insignificant spans by default and shows them when toggled', async ({ page }) => {
+    const hidden = expectedSpanTabEntries();
+    const shown = expectedSpanTabEntries({ showInsignificant: true });
+    expect(shown.length).toBeGreaterThan(hidden.length);
+    await selectView(page, 'spans');
+    const toggle = page.locator('#filter-insignificant');
+    await expect(toggle).not.toBeChecked();
+    expect(
+      await page.locator('#panel-spans article.card').evaluateAll((els) =>
+        els.map((el) => (el as HTMLElement).dataset.entryKey),
+      ),
+    ).toEqual(hidden.map((entry) => entry.key));
+
+    await toggle.check();
+    expect(
+      await page.locator('#panel-spans article.card').evaluateAll((els) =>
+        els.map((el) => (el as HTMLElement).dataset.entryKey),
+      ),
+    ).toEqual(shown.map((entry) => entry.key));
+    await expect(page.locator('#panel-spans article.card.skipped')).toHaveCount(
+      shown.filter((entry) => entry.insignificant).length,
+    );
+
+    await clearFilters(page);
+    await expect(toggle).not.toBeChecked();
+    expect(
+      await page.locator('#panel-spans article.card').evaluateAll((els) =>
+        els.map((el) => (el as HTMLElement).dataset.entryKey),
+      ),
+    ).toEqual(hidden.map((entry) => entry.key));
+  });
+
+  test('paginates at 30 entries', async ({ page, viewer }) => {
+    const other = join(dirname(viewer.sessionDir), 'zz-span-page');
+    cpSync(viewer.sessionDir, other, { recursive: true });
+    const session = JSON.parse(readFileSync(join(other, 'session.json'), 'utf8')) as { id: string };
+    writeFileSync(join(other, 'session.json'), JSON.stringify({ ...session, id: 'zz-span-page' }));
+    const spansDoc = JSON.parse(readFileSync(join(other, 'spans.json'), 'utf8')) as {
+      schemaVersion: number;
+      spans: Array<Record<string, unknown>>;
+    };
+    const extras = Array.from({ length: 40 }, (_, index) => ({
+      id: `sp:s1.tpage${index}..s1.tpage${index}`,
+      firstTokenId: `s1.t1`,
+      lastTokenId: `s1.t1`,
+      surface: `word${String(index).padStart(2, '0')}`,
+      tags: ['Noun', 'Singular'],
+      origin: 'promote',
+      explicitlySet: false,
+      entityLinkExplicitlySet: false,
+    }));
+    spansDoc.spans = [...spansDoc.spans, ...extras];
+    writeFileSync(join(other, 'spans.json'), JSON.stringify(spansDoc, null, 2));
+    try {
+      await page.locator('#session-id').hover();
+      await page.locator('#session-id').selectOption('zz-span-page');
+      await expect(page).toHaveURL(/[?&]session=zz-span-page/);
+      await selectView(page, 'spans');
+      const panel = page.locator('#panel-spans');
+      await expect(panel.locator('nav.pager').first()).toContainText('1–30 of');
+      await expect(panel.locator('article.card')).toHaveCount(30);
+      await panel.locator('nav.pager button[data-page="next"]').first().click();
+      await expect(panel.locator('nav.pager').first()).toContainText('31–');
+      const rest = await panel.locator('article.card').count();
+      expect(rest).toBeGreaterThan(0);
+      expect(rest).toBeLessThanOrEqual(30);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });
 

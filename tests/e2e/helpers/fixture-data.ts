@@ -517,3 +517,76 @@ export function significantSpansForSentence(sentenceId: string): Span[] {
 export function spanForSource(source: string): Span | undefined {
   return resolveSourceSpan(source)?.span;
 }
+
+export interface SpanTabEntry {
+  key: string;
+  surface: string;
+  tags: string[];
+  insignificant: boolean;
+  count: number;
+  pos: string;
+}
+
+function spanEntryKey(span: Span): string {
+  return `${span.surface}\0${(span.tags ?? []).join('|')}`;
+}
+
+/** Mirrors viewer-page.ts uniqueSpanEntries + filters for the Span tab. */
+export function expectedSpanTabEntries(options: {
+  showInsignificant?: boolean;
+  text?: string;
+  spanFilter?: string;
+} = {}): SpanTabEntry[] {
+  const showInsignificant = options.showInsignificant === true;
+  const text = options.text ?? '';
+  const spanFilter = options.spanFilter ?? '';
+  const map = new Map<string, { surface: string; tags: string[]; insignificant: boolean; spans: Span[] }>();
+  for (const span of fixture.spans) {
+    const key = spanEntryKey(span);
+    let entry = map.get(key);
+    if (!entry) {
+      entry = {
+        surface: span.surface,
+        tags: [...(span.tags ?? [])],
+        insignificant: span.insignificant === true,
+        spans: [],
+      };
+      map.set(key, entry);
+    }
+    entry.spans.push(span);
+    if (span.insignificant !== true) entry.insignificant = false;
+  }
+  const needle = text.trim().toLowerCase();
+  return [...map.values()]
+    .map((entry) => ({
+      key: `${entry.surface}|${entry.tags.join('|')}`,
+      surface: entry.surface,
+      tags: entry.tags,
+      insignificant: entry.insignificant,
+      count: entry.spans.length,
+      pos: coarsePos(entry.tags) || 'Untagged',
+      mainPos: coarsePos(entry.tags),
+      ids: entry.spans.map((span) => span.id),
+    }))
+    .filter((entry) => {
+      if (!showInsignificant && entry.insignificant) return false;
+      if (spanFilter && !spanMatchesFilter(entry.tags, spanFilter)) return false;
+      if (needle === '') return true;
+      const haystacks = [entry.surface, posLabel(entry.tags), ...entry.tags, ...entry.ids];
+      return haystacks.some((item) => item.toLowerCase().includes(needle));
+    })
+    .sort((left, right) => {
+      const leftIndex = POS_ORDER.indexOf(left.mainPos);
+      const rightIndex = POS_ORDER.indexOf(right.mainPos);
+      const leftOrder = leftIndex === -1 ? POS_ORDER.length : leftIndex;
+      const rightOrder = rightIndex === -1 ? POS_ORDER.length : rightIndex;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      if (left.mainPos !== right.mainPos) return left.mainPos < right.mainPos ? -1 : 1;
+      if (left.surface !== right.surface) return left.surface < right.surface ? -1 : 1;
+      const leftLabel = posLabel(left.tags);
+      const rightLabel = posLabel(right.tags);
+      if (leftLabel !== rightLabel) return leftLabel < rightLabel ? -1 : 1;
+      return 0;
+    })
+    .map(({ mainPos: _m, ids: _i, ...entry }) => entry);
+}
