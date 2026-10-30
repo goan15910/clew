@@ -3,7 +3,7 @@ import type { FixtureFilters, View } from './fixture-data.js';
 
 export async function waitForViewerReady(page: Page): Promise<void> {
   await page.goto('/viewer.html', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#session-id')).not.toHaveText('…');
+  await expect(page.locator('#session-id')).not.toHaveValue('…');
   const banner = page.locator('#banner');
   await expect(banner).not.toHaveClass(/error/);
 }

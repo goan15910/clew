@@ -1,8 +1,8 @@
 // Writes the stable session viewer and (optionally) serves it on localhost.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { spawn } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync, type Stats } from 'node:fs';
-import { extname, join, relative, resolve, sep } from 'node:path';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, writeFileSync, type Stats } from 'node:fs';
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import type { SpecSessionViewer, SpecViewerInstallResult } from '../../application/ports.js';
 import { SPEC_SESSION_ID_PATTERN } from '../../domain/spec.js';
 import { packageVersion } from '../package/package-version.js';
@@ -98,15 +98,53 @@ function safeFile(sessionDir: string, requestPath: string): string | undefined {
   return absolute;
 }
 
+function listSessionIds(specDir: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(specDir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => isSessionId(name) && confinedToSession(specDir, join(specDir, name), name))
+    .filter((name) => existsSync(join(specDir, name, 'session.json')))
+    .sort();
+}
+
+function sendJson(response: ServerResponse, method: string | undefined, value: unknown): void {
+  const body = Buffer.from(JSON.stringify(value), 'utf8');
+  response.writeHead(200, {
+    'Content-Type': CONTENT_TYPES['.json'] ?? 'application/json',
+    'Cache-Control': 'no-store',
+    'Content-Length': body.length,
+  });
+  response.end(method === 'HEAD' ? undefined : body);
+}
+
+function resolveTarget(root: string, specDir: string, requestPath: string): string | undefined {
+  const match = /^\/sessions\/([^/]+)(\/.*)$/.exec(requestPath.split('?')[0] ?? '');
+  if (match === null) return safeFile(root, requestPath);
+  const id = decodeURIComponent(match[1] ?? '');
+  const dir = join(specDir, id);
+  if (!isSessionId(id) || !confinedToSession(specDir, dir, id)) return undefined;
+  return safeFile(dir, match[2] ?? '/');
+}
+
 export function serveSessionViewer(sessionDir: string): Promise<SessionViewerServer> {
   const root = realpathSync(sessionDir);
+  const specDir = dirname(root);
+  const current = basename(root);
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.writeHead(405, { Allow: 'GET, HEAD' });
       response.end('method not allowed');
       return;
     }
-    const target = safeFile(root, request.url ?? '/');
+    if ((request.url ?? '/').split('?')[0] === '/sessions.json') {
+      sendJson(response, request.method, { current, sessions: listSessionIds(specDir) });
+      return;
+    }
+    const target = resolveTarget(root, specDir, request.url ?? '/');
     if (target === undefined) {
       response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('bad path');

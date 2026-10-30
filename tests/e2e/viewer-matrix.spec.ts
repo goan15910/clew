@@ -31,7 +31,7 @@ test.describe('spec view matrix', () => {
   test.beforeEach(async ({ page }) => {
     await waitForViewerReady(page);
     const meta = expectedMeta();
-    await expect(page.locator('#session-id')).toHaveText(meta.id);
+    await expect(page.locator('#session-id')).toHaveValue(meta.id);
     await expect(page.locator('#session-meta')).toContainText(`${meta.sentences} sentences`);
     await expect(page.locator('#session-meta')).toContainText(`${meta.entities} entities`);
     await expect(page.locator('#session-meta')).toContainText(`${meta.facts} facts`);

@@ -15,6 +15,8 @@ import {
 import { expect, test } from './helpers/fixtures.js';
 import { cardById, clearFilters, openLineage, selectView, visibleCardIds, waitForViewerReady } from './helpers/viewer-page.js';
 import type { Page } from '@playwright/test';
+import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const emptyFilters = { text: '', kind: '', type: '', status: '' };
 
@@ -62,6 +64,41 @@ test.describe('header and banner', () => {
     await expect(banner).not.toContainText('Reload this page');
     const loaded = ((await banner.textContent()) ?? '').split(' · loaded ')[1] ?? '';
     expect(Number.isNaN(Date.parse(loaded))).toBe(false);
+  });
+});
+
+test.describe('session switcher and refresh', () => {
+  test('refresh button sits left of the banner and reloads the load time', async ({ page }) => {
+    const button = await box(page, '#refresh');
+    const banner = await box(page, '#banner');
+    expect(button.x + button.width).toBeLessThanOrEqual(banner.x);
+    await expect(page.locator('#refresh')).toHaveText('🔄');
+    const before = await page.locator('#banner').textContent();
+    await page.waitForTimeout(1100);
+    await page.locator('#refresh').click();
+    await expect(page.locator('#banner')).not.toHaveText(before ?? '');
+    await expect(page.locator('#banner')).toContainText('Session updated ');
+  });
+
+  test('dropdown lists store sessions on open and selection loads that session', async ({ page, viewer }) => {
+    const other = join(dirname(viewer.sessionDir), 'zz-other');
+    cpSync(viewer.sessionDir, other, { recursive: true });
+    const session = JSON.parse(readFileSync(join(other, 'session.json'), 'utf8')) as { id: string };
+    writeFileSync(join(other, 'session.json'), JSON.stringify({ ...session, id: 'zz-other' }));
+    try {
+      const select = page.locator('#session-id');
+      await select.hover();
+      await expect(select.locator('option')).toHaveText([viewer.sessionId, 'zz-other']);
+      const before = await page.locator('#banner').textContent();
+      await page.waitForTimeout(1100);
+      await select.selectOption('zz-other');
+      await expect(page).toHaveURL(/[?&]session=zz-other/);
+      await expect(select).toHaveValue('zz-other');
+      await expect(page).toHaveTitle('Clew · zz-other');
+      await expect(page.locator('#banner')).not.toHaveText(before ?? '');
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });
 

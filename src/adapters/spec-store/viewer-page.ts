@@ -147,6 +147,24 @@ main { padding: 1rem 1.5rem 2.5rem; max-width: 1100px; }
   font-size: 0.9rem;
 }
 .status.error { background: #fee2e2; color: var(--bad); }
+.status-row { display: flex; gap: 0.5rem; align-items: stretch; margin: 0 0 1rem; }
+.status-row .status { margin: 0; flex: 1; }
+#refresh {
+  font-size: 1.1rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 0.4rem;
+  padding: 0 0.7rem;
+  cursor: pointer;
+}
+#refresh:disabled { cursor: progress; opacity: 0.6; }
+#session-id {
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.3rem;
+  background: var(--panel);
+}
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -337,7 +355,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 <header>
   <div class="brand">Clew<span class="version">v__CLEW_VERSION__</span></div>
   <div class="session-line">
-    <h1>Session <span class="meta" id="session-id">…</span></h1>
+    <h1>Session <select class="meta" id="session-id" aria-label="Session"><option>…</option></select></h1>
     <p id="session-meta">Loading session JSON…</p>
   </div>
 </header>
@@ -352,7 +370,10 @@ details.lineage[open] > summary::before { content: "▾ "; }
   </div>
 </div>
 <main>
-  <p class="status" id="banner">Fetching session files…</p>
+  <div class="status-row">
+    <button type="button" id="refresh" title="Reload session" aria-label="Reload session">🔄</button>
+    <p class="status" id="banner">Fetching session files…</p>
+  </div>
   <div class="tabset">
     <div class="tabs" role="tablist" aria-label="Views">
       <button type="button" role="tab" id="tab-facts" aria-selected="true" data-tab="facts">Facts</button>
@@ -385,6 +406,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     sessionId: document.getElementById("session-id"),
     meta: document.getElementById("session-meta"),
     banner: document.getElementById("banner"),
+    refresh: document.getElementById("refresh"),
     text: document.getElementById("filter-text"),
     kind: document.getElementById("filter-kind"),
     type: document.getElementById("filter-type"),
@@ -428,8 +450,14 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return "";
   }
 
+  let selected = new URLSearchParams(location.search).get("session");
+
+  function sessionBase() {
+    return selected ? "./sessions/" + encodeURIComponent(selected) + "/" : "./";
+  }
+
   async function loadJson(name) {
-    const response = await fetch("./" + name, { cache: "no-store" });
+    const response = await fetch(sessionBase() + name, { cache: "no-store" });
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(name + " HTTP " + response.status);
     return response.json();
@@ -1124,7 +1152,51 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return isNaN(date.getTime()) ? String(value) : date.toLocaleString();
   }
 
-  async function boot() {
+  function setSessionOptions(ids, current) {
+    const list = ids.indexOf(current) === -1 ? ids.concat([current]).sort() : ids;
+    els.sessionId.replaceChildren.apply(els.sessionId, list.map(function (id) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = id;
+      return opt;
+    }));
+    els.sessionId.value = current;
+  }
+
+  async function refreshSessionList() {
+    try {
+      const response = await fetch("./sessions.json", { cache: "no-store" });
+      if (!response.ok) return;
+      const doc = await response.json();
+      const current = els.sessionId.value && els.sessionId.value !== "…" ? els.sessionId.value : doc.current;
+      setSessionOptions(doc.sessions || [], current);
+    } catch (error) {
+      // file:// pages cannot list the store; the select keeps the loaded session.
+    }
+  }
+
+  for (const name of ["pointerenter", "pointerdown", "focus"]) {
+    els.sessionId.addEventListener(name, refreshSessionList);
+  }
+  els.sessionId.addEventListener("change", function () {
+    selected = els.sessionId.value;
+    const url = new URL(location.href);
+    url.searchParams.set("session", selected);
+    history.replaceState(null, "", url);
+    load();
+  });
+  els.refresh.addEventListener("click", load);
+
+  async function load() {
+    els.refresh.disabled = true;
+    try {
+      await loadSession();
+    } finally {
+      els.refresh.disabled = false;
+    }
+  }
+
+  async function loadSession() {
     try {
       const session = await loadJson("session.json");
       if (!session) throw new Error("session.json is missing");
@@ -1140,7 +1212,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const factsFile = await loadJson("facts.json");
       state.facts = (factsFile && factsFile.facts) || [];
       state.graph = await loadJson("graph.json");
-      els.sessionId.textContent = session.id;
+      setSessionOptions(Array.from(els.sessionId.options, function (opt) { return opt.value; })
+        .filter(function (id) { return id !== "…"; }), session.id);
       els.meta.textContent = state.sentences.length + " sentences · " +
         state.spans.length + " spans · " +
         state.entities.length + " entities · " +
@@ -1157,7 +1230,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     }
   }
 
-  boot();
+  load();
 })();
 </script>
 </body>
