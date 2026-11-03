@@ -93,7 +93,9 @@ testcases:
     - result.systemoutjson.facts.facts0.origin ShouldEqual agent
     - result.systemoutjson.facts.facts0.confidence ShouldEqual 1
   - type: exec
-    script: "printf '%s\n' '{\\"kind\\":\\"init\\",\\"assign\\":{\\"order\\":\\"draft\\"}}' > '{{.dir}}/initial.json' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --from '{{.dir}}/initial.json' --json"
+    script: |
+      printf '%s\n' '{"kind":"init","assign":{"order":"draft"}}' > '{{.dir}}/initial.json'
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --from '{{.dir}}/initial.json' --json
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty

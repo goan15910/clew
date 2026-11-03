@@ -10,7 +10,7 @@
       "object": "order",
       "initial": true,
       "facts": [
-        "f6"
+        "f3"
       ]
     },
     {
@@ -25,7 +25,7 @@
       "object": "order",
       "facts": [
         "f4",
-        "f7"
+        "f10"
       ],
       "final": true
     }
@@ -37,7 +37,7 @@
       "event": "SUBMIT",
       "to": "submit",
       "object": "order",
-      "fact": "f3",
+      "fact": "f1",
       "facts": [
         "f1",
         "f3"
@@ -53,8 +53,7 @@
       "fact": "f4",
       "facts": [
         "f2",
-        "f4",
-        "f5"
+        "f4"
       ],
       "actor": "manager",
       "guard": "condition:c1"
@@ -77,7 +76,7 @@
       "expect": "rejected",
       "rejectAt": 1,
       "transitions": [],
-      "forbidden": "f5",
+      "forbidden": "f8",
       "origin": "rule"
     }
   ]

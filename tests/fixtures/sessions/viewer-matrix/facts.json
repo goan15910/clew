@@ -51,7 +51,7 @@
       "status": "stale"
     },
     {
-      "id": "f5",
+      "id": "f8",
       "kind": "forbidden",
       "actor": "actor:clerk",
       "when": { "op": "eq", "var": "package", "value": null },
@@ -62,7 +62,7 @@
       "status": "current"
     },
     {
-      "id": "f6",
+      "id": "f9",
       "kind": "action",
       "event": "CANCEL",
       "actor": "actor:clerk",
@@ -74,7 +74,7 @@
       "status": "stale"
     },
     {
-      "id": "f7",
+      "id": "f10",
       "kind": "action",
       "event": "APPROVE",
       "actor": "actor:manager",
