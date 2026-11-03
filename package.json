@@ -16,7 +16,7 @@
     "check:imports": "bash scripts/check-imports.sh",
     "test:architecture": "tsx --test tests/architecture/rules.test.ts",
     "check": "tsc --noEmit && npm run check:dependencies && npm run check:imports && npm run test:architecture && npm run test:spec",
-    "test:spec": "tsx --test tests/spec/*.test.ts",
+    "test:spec": "tsx --test tests/spec/*.test.ts tests/spec/*.harness.ts",
     "test:e2e": "playwright test",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-interactive-graph-assets.mjs",
     "prepack": "npm run build",
