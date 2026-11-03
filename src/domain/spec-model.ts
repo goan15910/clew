@@ -201,6 +201,134 @@ export function reachableFromInitial(spec: Spec, bound: number): ReachGraph {
   return explore([spec.initial], (state) => nextStates(spec, state), bound);
 }
 
+export interface SpecComponent {
+  readonly key: string;
+  readonly vars: readonly VarId[];
+  readonly actions: readonly Action[];
+}
+
+export interface ComponentReach {
+  readonly key: string;
+  readonly vars: readonly VarId[];
+  readonly reach: ReachGraph;
+}
+
+export interface ComponentExplore {
+  readonly components: readonly ComponentReach[];
+  readonly visited: number;
+  readonly globalCapHit: boolean;
+}
+
+/** Per-object (or joint multi-object) unfold. `bound` is each component's bound and the global cap. */
+export function exploreSpecComponents(spec: Spec, bound: number): ComponentExplore {
+  const parts = partitionSpec(spec);
+  const components: ComponentReach[] = [];
+  let visited = 0;
+  let globalCapHit = false;
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (part === undefined) continue;
+    if (visited >= bound) {
+      globalCapHit = true;
+      components.push({
+        key: part.key,
+        vars: part.vars,
+        reach: { nodes: [], edges: [], truncated: true },
+      });
+      continue;
+    }
+    const projected = projectSpec(spec, part);
+    if (projected === undefined) {
+      components.push({
+        key: part.key,
+        vars: part.vars,
+        reach: { nodes: [], edges: [], truncated: true },
+      });
+      continue;
+    }
+    const reach = reachableFromInitial(projected, bound);
+    visited += reach.nodes.length;
+    if (visited >= bound && index < parts.length - 1) globalCapHit = true;
+    components.push({ key: part.key, vars: part.vars, reach });
+  }
+  return { components, visited, globalCapHit };
+}
+
+function partitionSpec(spec: Spec): SpecComponent[] {
+  const groups = new Map<string, { vars: Set<string>; actions: Action[] }>();
+  for (const action of spec.actions) {
+    const objects = objectAssignKeys(spec, action);
+    const mentioned = actionVars(action);
+    const key = objects.length === 0
+      ? mentioned.slice().sort().join('+') || 'misc'
+      : objects.join('+');
+    const group = groups.get(key) ?? { vars: new Set<string>(), actions: [] };
+    for (const name of mentioned) group.vars.add(name);
+    for (const name of objects) group.vars.add(name);
+    group.actions.push(action);
+    groups.set(key, group);
+  }
+  const components: SpecComponent[] = [];
+  for (const [key, group] of groups) {
+    const vars: VarId[] = [];
+    for (const name of [...group.vars].sort()) vars.push(name as VarId);
+    components.push({ key, vars, actions: group.actions });
+  }
+  components.sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
+  return components;
+}
+
+function objectAssignKeys(spec: Spec, action: Action): string[] {
+  const keys: string[] = [];
+  for (const key of Object.keys(action.assign)) {
+    const decl = spec.vars.find((item) => item.id === key);
+    if (decl === undefined || decl.type === 'boolean') continue;
+    keys.push(key);
+  }
+  keys.sort();
+  return keys;
+}
+
+function actionVars(action: Action): string[] {
+  const names = new Set<string>();
+  collectPredicateVars(action.when, names);
+  for (const key of Object.keys(action.assign)) names.add(key);
+  return [...names];
+}
+
+function collectPredicateVars(predicate: Predicate, into: Set<string>): void {
+  if (predicate.op === 'true') return;
+  if (predicate.op === 'eq' || predicate.op === 'neq') {
+    into.add(predicate.var);
+    return;
+  }
+  if (predicate.op === 'not') {
+    collectPredicateVars(predicate.of, into);
+    return;
+  }
+  for (const child of predicate.of) collectPredicateVars(child, into);
+}
+
+function projectSpec(spec: Spec, part: SpecComponent): Spec | undefined {
+  const allowed = new Set<string>();
+  for (const id of part.vars) allowed.add(id);
+  const vars = spec.vars.filter((decl) => allowed.has(decl.id));
+  if (vars.length === 0) return undefined;
+  const initial: Record<string, Value> = {};
+  for (const decl of vars) initial[decl.id] = spec.initial.get(decl.id);
+  try {
+    return assembleSpec({
+      id: spec.id,
+      vars,
+      initial,
+      actions: part.actions,
+      labels: [],
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 export function valuationFromAssign(
   spec: Spec,
   assign: Patch,
