@@ -188,11 +188,13 @@ flowchart LR
 | **5** | Unfold, emit workflows + `--chart`, drop `graph.json`, delete `stale-graph` | emit → verify without hand location chart |
 | **6** | Synthetic always-on CI harness | init→emit on synthetic fixture; no private corpus |
 
-## Open questions for Jeff
+## Results
 
-1. Default reach bound 5000 vs 10000 once condition booleans expand the space?
-2. Should `spec emit --chart` become the only chart source for offline, or keep hand-authored `clew.spec.v1` as first-class forever?
-3. Atom domains: closed enums in YAML vs open strings with propose-time discovery?
+Public-safe pipeline summary only. Measured private offline figures stay in the Agent Store and are omitted from this public doc.
+
+## Results and reviewer guide
+
+Jeff reviews this stack open. Do not merge.
 
 ## Arena note
 
