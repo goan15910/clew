@@ -244,16 +244,17 @@ export function workflowSetId(objects: readonly string[]): string {
 function assembleGraph(entities: readonly Entity[], facts: readonly Fact[]): Assembled {
   const live = currentFacts(facts);
   const findings: Finding[] = [];
+  const initial = specFromFacts(entities, facts).initial;
   const actionFacts: Fact[] = [];
   for (const fact of live) {
     if (!isActionFact(fact)) continue;
-    if (!readyAction(fact, entities, findings)) continue;
+    if (!readyAction(fact, entities, initial, findings)) continue;
     actionFacts.push(fact);
   }
   const transitions: GraphTransition[] = [];
   for (const fact of actionFacts) {
     if (!isActionFact(fact)) continue;
-    const built = makeTransition(fact, live, entities, fact.id);
+    const built = makeTransition(fact, live, entities, initial, fact.id);
     if (built === undefined) continue;
     transitions.push(built.transition);
     for (const finding of built.findings) findings.push(finding);
@@ -727,9 +728,9 @@ function cleanClause(text: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function readyAction(fact: Fact, entities: readonly Entity[], findings: Finding[]): boolean {
+function readyAction(fact: Fact, entities: readonly Entity[], initial: Patch, findings: Finding[]): boolean {
   if (!isActionFact(fact)) return false;
-  const overlay = overlayOf(fact, entities);
+  const overlay = overlayOf(fact, entities, initial);
   if (overlay === undefined || overlay.to === '') {
     findings.push(blocked('type-mismatch', `${fact.id} has no target assign`, [fact.id]));
     return false;
@@ -752,9 +753,9 @@ function readyAction(fact: Fact, entities: readonly Entity[], findings: Finding[
   return true;
 }
 
-function makeTransition(fact: Fact, _live: readonly Fact[], entities: readonly Entity[], id: string): { transition: GraphTransition; findings: Finding[] } | undefined {
+function makeTransition(fact: Fact, _live: readonly Fact[], entities: readonly Entity[], initial: Patch, id: string): { transition: GraphTransition; findings: Finding[] } | undefined {
   if (!isActionFact(fact)) return undefined;
-  const overlay = overlayOf(fact, entities);
+  const overlay = overlayOf(fact, entities, initial);
   if (overlay === undefined || overlay.from === undefined) return undefined;
   const findings: Finding[] = [];
   if (overlay.actor === undefined) {
@@ -1001,7 +1002,7 @@ function splitIndex(flow: SpecFlow, transitions: readonly GraphTransition[], at:
 }
 
 function objectLabel(fact: Fact, entities: readonly Entity[]): string | undefined {
-  if (isActionFact(fact)) return overlayOf(fact, entities)?.object;
+  if (isActionFact(fact)) return overlayOf(fact, entities, {})?.object;
   if (fact.assign === undefined) return undefined;
   for (const key of Object.keys(fact.assign)) {
     const entity = objectEntityNamed(key, entities);
@@ -1283,7 +1284,7 @@ function labelsFromFacts(entities: readonly Entity[], facts: readonly Fact[], dr
   }
   for (const fact of currentFacts(facts)) {
     if (!isActionFact(fact)) continue;
-    const overlay = overlayOf(fact, entities);
+    const overlay = overlayOf(fact, entities, draft.initial);
     if (overlay === undefined) continue;
     const objectEntity = findEntityByName(entities, 'object', overlay.object);
     const name = objectEntity === undefined ? overlay.object.replace(/-/g, '_') : (varNameForEntity(objectEntity) ?? overlay.object.replace(/-/g, '_'));

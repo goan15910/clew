@@ -290,6 +290,9 @@ describe('spec entities and facts', { concurrency: false }, () => {
       run(dir, ['spec', 'entities', 'list', '--json']);
       const before = json<SpecFactsDocument>(run(dir, ['spec', 'facts', 'propose', '--json']));
       assert.equal(before.facts?.some((fact) => fact.actor === 'actor:warehouse'), false);
+      const actorless = before.facts?.find((fact) => fact.kind === 'action' && fact.event === 'SHIP');
+      assert.equal(actorless?.actor, 'actor:unspecified');
+      assert.equal(before.findings?.some((finding) => finding.code === 'action-without-actor'), true);
       const promoted = run(dir, ['spec', 'entities', 'promote', '--id', 'object:warehouse', '--kind', 'actor', '--json']);
       assert.equal(promoted.status, 0, promoted.stderr);
       const doc = json<SpecEntitiesDocument>(promoted);

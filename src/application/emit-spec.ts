@@ -54,7 +54,7 @@ export function emitSpec(
     }
   }
   const chartDraft = chartDraftFromFacts(snapshot.entities ?? [], snapshot.facts ?? []);
-  const chartYaml = chartDraft.vars.length > 0 ? charts.render(chartDraft) : undefined;
+  const chartYaml = charts.render(chartDraft);
   const blocking = hasBlocking(findings);
   const document: SpecEmitDocument = {
     command: 'spec.emit',
@@ -66,25 +66,25 @@ export function emitSpec(
   };
   if (rendered.draft !== undefined) document.id = rendered.draft.id;
   if (yaml !== undefined) document.yaml = yaml;
-  if (chartYaml !== undefined) document.chartYaml = chartYaml;
+  document.chartYaml = chartYaml;
   if (views !== undefined && rendered.draft !== undefined) document.workflowSet = { id: rendered.draft.id, workflows: views };
   if (command.dryRun) {
     document.dryRun = true;
     return { exit: blocking ? 'fail' : 'pass', document };
   }
+  if (command.chart !== undefined) {
+    const chartWrote = charts.write(command.chart, chartYaml);
+    if (!chartWrote.ok) return invalid('unreadable', chartWrote.message);
+    document.chartWritten = command.chart;
+  }
   if (yaml === undefined || command.out === undefined) {
+    if (command.force && document.chartWritten !== undefined) document.forced = true;
     return { exit: 'fail', document };
   }
   if (blocking && !command.force) return { exit: 'fail', document };
   const wrote = writer.write(command.out, yaml);
   if (!wrote.ok) return invalid('unreadable', wrote.message);
   document.written = command.out;
-  if (command.chart !== undefined) {
-    if (chartYaml === undefined) return invalid('session', 'no spec to write; facts need at least one variable');
-    const chartWrote = charts.write(command.chart, chartYaml);
-    if (!chartWrote.ok) return invalid('unreadable', chartWrote.message);
-    document.chartWritten = command.chart;
-  }
   if (command.force) document.forced = true;
   return { exit: blocking ? 'fail' : 'pass', document };
 }

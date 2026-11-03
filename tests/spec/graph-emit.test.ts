@@ -376,6 +376,68 @@ describe('spec graph and emit', { concurrency: false }, () => {
     assert.match(emitHelp.stdout, /clew spec emit --out flows.yaml --chart spec.yaml --json/);
   });
 
+  test('when null is the initial overlay from, not a missing source', () => {
+    const entities = [
+      { id: 'object:order', kind: 'object' as const, name: 'order', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'actor:customer', kind: 'actor' as const, name: 'customer', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'action:submit', kind: 'action' as const, name: 'submit', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+    ];
+    const action = {
+      id: 'f1',
+      kind: 'action' as const,
+      event: 'SUBMIT',
+      actor: 'actor:customer',
+      when: { op: 'eq' as const, var: varId('order'), value: { t: 'null' as const } },
+      assign: { order: valueOf('atom', 'submit') },
+      origin: 'rule' as const,
+      confidence: 1,
+      sources: ['s1'],
+      status: 'current' as const,
+    };
+    const open = buildGraph(entities, [action], undefined, 5000);
+    assert.equal(open.findings.some((finding) => finding.code === 'transition-without-from'), false);
+    assert.equal(open.graph.transitions[0]?.from, 'null');
+    assert.equal(open.graph.transitions[0]?.to, 'submit');
+    const withInit = buildGraph(entities, [
+      action,
+      {
+        id: 'f2',
+        kind: 'init' as const,
+        assign: { order: valueOf('atom', 'draft') },
+        origin: 'agent' as const,
+        confidence: 1,
+        sources: [],
+        status: 'current' as const,
+      },
+    ], undefined, 5000);
+    assert.equal(withInit.findings.some((finding) => finding.code === 'transition-without-from'), false);
+    assert.equal(withInit.graph.transitions[0]?.from, 'draft');
+  });
+
+  test('emit --chart writes a spec when the workflow set is empty', () => {
+    withData((dir) => {
+      const file = writeSpec(dir, 'empty.md', 'The customer is ready.\n');
+      prepare(dir, file);
+      assert.equal(run(dir, ['spec', 'entities', 'list', '--json']).status, 0);
+      const built = run(dir, ['spec', 'graph', 'build', '--json']);
+      assert.equal(built.status === 0 || built.status === 1, true, `${built.stderr}\n${built.stdout}`);
+      const out = join(dir, 'flows.yaml');
+      const chart = join(dir, 'spec.yaml');
+      const preview = run(dir, ['spec', 'emit', '--dry-run', '--chart', chart, '--json']);
+      assert.equal(preview.status === 0 || preview.status === 1, true, `${preview.stderr}\n${preview.stdout}`);
+      assert.equal(existsSync(chart), false);
+      assert.match(json<SpecEmitDocument>(preview).chartYaml ?? '', /kind: clew.spec.v1/);
+      const emitted = run(dir, ['spec', 'emit', '--out', out, '--chart', chart, '--force', '--json']);
+      assert.equal(emitted.status === 0 || emitted.status === 1, true, `${emitted.stderr}\n${emitted.stdout}`);
+      const document = json<SpecEmitDocument>(emitted);
+      assert.equal(document.chartWritten, chart);
+      assert.equal(existsSync(chart), true);
+      assert.match(readFileSync(chart, 'utf8'), /kind: clew.spec.v1/);
+      assert.equal(document.written, undefined);
+      assert.equal(existsSync(out), false);
+    });
+  });
+
   test('reach bound truncation is blocking', () => {
     const entities = [
       { id: 'object:order', kind: 'object' as const, name: 'order', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
