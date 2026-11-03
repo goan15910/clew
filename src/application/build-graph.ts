@@ -1,4 +1,5 @@
 // Use case: assemble the draft graph and a deterministic path cover.
+import { specFromFacts } from '../domain/spec-facts.js';
 import { buildGraph, sameGraph } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import type { Outcome, SpecGraphDocument } from './documents.js';
@@ -23,9 +24,10 @@ export function buildSpecGraph(command: BuildGraphCommand, store: SpecStore): Ou
       return undefined;
     }
     if (current.facts === undefined) {
-      problem = 'no facts; run clew spec facts propose first';
+      problem = 'no facts; run clew spec entities list first';
       return undefined;
     }
+    specFromFacts(current.entities, current.facts);
     const built = buildGraph(current.entities, current.facts, current.graph);
     findings = built.findings;
     if (sameGraph(current.graph, built.graph)) return undefined;
@@ -73,6 +75,7 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
     tagged: current.tagged,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
+  if (current.spans !== undefined) snapshot.spans = current.spans;
   if (current.entities !== undefined) snapshot.entities = current.entities;
   if (current.facts !== undefined) snapshot.facts = current.facts;
   if (current.graph !== undefined) snapshot.graph = current.graph;

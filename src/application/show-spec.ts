@@ -26,7 +26,7 @@ const PRODUCER: Record<Need, string> = {
   tag: 'no tokens; run clew spec tag first',
   spans: 'no spans; run clew spec tag again to promote tokens into spans',
   entities: 'no entities; run clew spec entities list first',
-  facts: 'no facts; run clew spec facts propose first',
+  facts: 'no facts; run clew spec entities list first',
 };
 
 export function showSpec(command: ShowSpecCommand, store: SpecStore): Outcome<SpecShowDocument> {

@@ -17,8 +17,8 @@ import type {
   TaggedSentence,
   Token,
 } from './spec.js';
-import { pastParticiple } from './spec-entities.js';
-import { visibleFacts } from './spec-facts.js';
+import { eventFromAction, isActionFact, overlayOf, varNameForEntity, visibleFacts } from './spec-facts.js';
+import { scalarFromValue } from './valuation.js';
 import type { Patch } from './valuation.js';
 import {
   assignDisplay,
@@ -191,16 +191,18 @@ export function workflowSetId(objects: readonly string[]): string {
 function assembleGraph(entities: readonly Entity[], facts: readonly Fact[], existing: DraftGraph | undefined): Assembled {
   const live = currentFacts(facts);
   const findings: Finding[] = [];
-  const transitionFacts: Fact[] = [];
+  const actionFacts: Fact[] = [];
   for (const fact of live) {
-    if (fact.type !== 'transition') continue;
-    if (!readyTransition(fact, entities, findings)) continue;
-    transitionFacts.push(fact);
+    if (!isActionFact(fact)) continue;
+    if (!readyAction(fact, entities, findings)) continue;
+    actionFacts.push(fact);
   }
-  const ids = assignTransitionIds(transitionFacts, existing);
+  const ids = assignTransitionIds(actionFacts, existing);
   const transitions: GraphTransition[] = [];
-  for (const fact of transitionFacts) {
+  for (const fact of actionFacts) {
+    if (!isActionFact(fact)) continue;
     const built = makeTransition(fact, live, entities, ids.get(fact.id) ?? 'tr1');
+    if (built === undefined) continue;
     transitions.push(built.transition);
     for (const finding of built.findings) findings.push(finding);
   }
@@ -212,12 +214,12 @@ function assembleGraph(entities: readonly Entity[], facts: readonly Fact[], exis
     ensureState(states, transition.object, transition.to);
   }
   for (const fact of live) {
-    if (fact.type !== 'initial' && fact.type !== 'final') continue;
+    if (fact.kind !== 'init' && fact.kind !== 'terminal') continue;
     const named = namedState(fact, entities, findings);
     if (named === undefined) continue;
     rememberObject(objects, named.object);
     const state = ensureState(states, named.object, named.state);
-    if (fact.type === 'initial') state.initial = true;
+    if (fact.kind === 'init') state.initial = true;
     else state.final = true;
   }
   for (const state of states) state.facts = factsForState(state, live, entities, transitions);
@@ -278,7 +280,7 @@ function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: 
     covered.add(transition.id);
   }
   for (const fact of live) {
-    if (fact.type !== 'forbidden' || keptForbidden.has(fact.id)) continue;
+    if (fact.kind !== 'forbidden' || keptForbidden.has(fact.id)) continue;
     const rejected = rejectedFlow(fact, assembled, entities, used);
     if (rejected !== undefined) flows.push(rejected);
   }
@@ -311,7 +313,7 @@ function keepRuleFlow(
 }
 
 function rejectedFlowHolds(flow: SpecFlow, transitions: readonly GraphTransition[], live: readonly Fact[]): boolean {
-  if (flow.forbidden === undefined || findFact(live, flow.forbidden)?.type !== 'forbidden') return false;
+  if (flow.forbidden === undefined || findFact(live, flow.forbidden)?.kind !== 'forbidden') return false;
   for (const id of flow.transitions) {
     if (findTransition(transitions, id) === undefined) return false;
   }
@@ -355,7 +357,7 @@ function flowCoverage(graph: DraftGraph, facts: readonly Fact[], entities: reado
     }
   }
   for (const fact of currentFacts(facts)) {
-    if (fact.type !== 'forbidden') continue;
+    if (fact.kind !== 'forbidden') continue;
     let covered = false;
     for (const flow of graph.flows) {
       if (flow.expect === 'rejected' && flow.forbidden === fact.id) covered = true;
@@ -471,7 +473,7 @@ function rejectedFlow(fact: Fact, assembled: Assembled, entities: readonly Entit
   if (matched !== undefined) {
     return {
       id,
-      title: `Cannot ${event} ${object}`,
+      title: `Cannot ${eventWords(event)} ${object}`,
       expect: 'rejected',
       rejectAt: 1,
       transitions: [matched.id],
@@ -483,7 +485,7 @@ function rejectedFlow(fact: Fact, assembled: Assembled, entities: readonly Entit
   if (initial === undefined) return undefined;
   return {
     id,
-    title: `Cannot ${event} ${object}`,
+    title: `Cannot ${eventWords(event)} ${object}`,
     expect: 'rejected',
     rejectAt: 1,
     transitions: [],
@@ -549,13 +551,13 @@ function syntheticRejected(
   tagged: readonly TaggedSentence[],
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
   const fact = flow.forbidden === undefined ? undefined : findFact(facts, flow.forbidden);
-  if (fact === undefined || fact.type !== 'forbidden') return { problem: `${flow.id} has no forbidden fact` };
+  if (fact === undefined || fact.kind !== 'forbidden') return { problem: `${flow.id} has no forbidden fact` };
   const object = objectLabel(fact, entities);
   const event = actionLabel(fact, entities);
   if (object === undefined || event === undefined) return { problem: `${flow.id} has no object or action` };
   const initial = graph.states.find((state) => state.object === object && state.initial === true);
   if (initial === undefined) return { problem: `${flow.id} has no initial state on ${object}` };
-  let to = pastParticiple(event, event);
+  let to = attemptedAtom(fact) ?? event.toLowerCase().replace(/_/g, '-');
   if (!WORKFLOW_WORD_PATTERN.test(to)) return { problem: `${flow.id} has no workflow name for ${event}` };
   if (to === initial.id) to = `${to}-refused`;
   const actor = fact.actor === undefined ? undefined : findEntity(entities, fact.actor);
@@ -658,45 +660,37 @@ function cleanClause(text: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function readyTransition(fact: Fact, entities: readonly Entity[], findings: Finding[]): boolean {
-  const object = resolveEntity(fact.object, 'object', entities, findings, fact.id);
-  const action = resolveEntity(fact.action, 'action', entities, findings, fact.id);
-  if (object === undefined || action === undefined || fact.to === undefined || fact.to === '') {
-    if (fact.to === undefined || fact.to === '') {
-      findings.push(blocked('type-mismatch', `${fact.id} has no target state`, [fact.id]));
-    }
+function readyAction(fact: Fact, entities: readonly Entity[], findings: Finding[]): boolean {
+  if (!isActionFact(fact)) return false;
+  const overlay = overlayOf(fact, entities);
+  if (overlay === undefined || overlay.to === '') {
+    findings.push(blocked('type-mismatch', `${fact.id} has no target assign`, [fact.id]));
     return false;
   }
-  if (fact.from === null || fact.from === undefined || fact.from === '') {
+  if (overlay.from === undefined || overlay.from === '') {
     findings.push({
       id: `transition-without-from:${fact.id}`,
       kind: 'gap',
       code: 'transition-without-from',
       severity: 'blocking',
-      message: `${fact.id} has no source state`,
+      message: `${fact.id} has no source valuation for ${overlay.object}`,
       refs: [fact.id, ...fact.sources],
     });
     return false;
   }
-  if (!WORKFLOW_WORD_PATTERN.test(fact.from) || !WORKFLOW_WORD_PATTERN.test(fact.to)) {
+  if (!WORKFLOW_WORD_PATTERN.test(overlay.from) || !WORKFLOW_WORD_PATTERN.test(overlay.to)) {
     findings.push(blocked('vocabulary', `${fact.id} uses a state name that is not workflow vocabulary`, [fact.id]));
     return false;
   }
-  if (object.name === undefined || action.name === undefined) return false;
   return true;
 }
 
-function makeTransition(fact: Fact, live: readonly Fact[], entities: readonly Entity[], id: string): { transition: GraphTransition; findings: Finding[] } {
+function makeTransition(fact: Fact, _live: readonly Fact[], entities: readonly Entity[], id: string): { transition: GraphTransition; findings: Finding[] } | undefined {
+  if (!isActionFact(fact)) return undefined;
+  const overlay = overlayOf(fact, entities);
+  if (overlay === undefined || overlay.from === undefined) return undefined;
   const findings: Finding[] = [];
-  const object = findEntity(entities, fact.object ?? '');
-  const action = findEntity(entities, fact.action ?? '');
-  const performs = live.filter((item) => item.type === 'performs' && item.action === fact.action && item.status === 'current');
-  const actorFact = performs[0];
-  const actor = actorFact?.actor === undefined ? undefined : findEntity(entities, actorFact.actor);
-  const guards = live.filter((item) => item.type === 'guard' && item.action === fact.action && item.status === 'current');
-  const guardFact = guards[0];
-  const guard = guardFact?.condition;
-  if (actor?.name === undefined) {
+  if (overlay.actor === undefined) {
     findings.push({
       id: `transition-without-actor:${id}`,
       kind: 'gap',
@@ -706,35 +700,54 @@ function makeTransition(fact: Fact, live: readonly Fact[], entities: readonly En
       refs: [id, fact.id],
     });
   }
-  if (fact.from === fact.to) {
-    findings.push(blocked('self-loop', `${id} links ${fact.from} to itself`, [id, fact.id]));
+  if (overlay.from === overlay.to) {
+    findings.push(blocked('self-loop', `${id} links ${overlay.from} to itself`, [id, fact.id]));
   }
-  const factIds: string[] = [];
-  for (const item of performs) factIds.push(item.id);
-  factIds.push(fact.id);
-  for (const item of guards) factIds.push(item.id);
   const transition: GraphTransition = {
     id,
-    from: fact.from ?? '',
-    event: action?.name ?? '',
-    to: fact.to ?? '',
-    object: object?.name ?? '',
+    from: overlay.from,
+    event: overlay.event,
+    to: overlay.to,
+    object: overlay.object,
     fact: fact.id,
-    facts: unique(sortIds(factIds)),
+    facts: [fact.id],
   };
-  if (actor?.name !== undefined) transition.actor = actor.name;
-  if (guard !== undefined) transition.guard = guard;
+  if (overlay.actor !== undefined) transition.actor = overlay.actor;
+  if (overlay.guard !== undefined) transition.guard = overlay.guard;
   return { transition, findings };
 }
 
 function namedState(fact: Fact, entities: readonly Entity[], findings: Finding[]): { object: string; state: string } | undefined {
-  const object = resolveEntity(fact.object, 'object', entities, findings, fact.id);
-  if (object?.name === undefined || fact.state === undefined) return undefined;
-  if (!WORKFLOW_WORD_PATTERN.test(fact.state)) {
-    findings.push(blocked('vocabulary', `${fact.id} uses a state name that is not workflow vocabulary`, [fact.id]));
-    return undefined;
+  if (fact.assign === undefined) return undefined;
+  for (const key of Object.keys(fact.assign)) {
+    const value = fact.assign[key];
+    if (value === undefined || value.t !== 'atom') continue;
+    const entity = objectEntityNamed(key, entities);
+    if (entity?.name === undefined) continue;
+    if (!WORKFLOW_WORD_PATTERN.test(value.v)) {
+      findings.push(blocked('vocabulary', `${fact.id} uses a state name that is not workflow vocabulary`, [fact.id]));
+      return undefined;
+    }
+    return { object: entity.name, state: value.v };
   }
-  return { object: object.name, state: fact.state };
+  return undefined;
+}
+
+function objectEntityNamed(varName: string, entities: readonly Entity[]): Entity | undefined {
+  for (const entity of entities) {
+    if (entity.kind !== 'object') continue;
+    if (varNameForEntity(entity) === varName) return entity;
+  }
+  return undefined;
+}
+
+function attemptedAtom(fact: Fact): string | undefined {
+  if (fact.assign === undefined) return undefined;
+  for (const key of Object.keys(fact.assign)) {
+    const value = fact.assign[key];
+    if (value !== undefined && value.t === 'atom') return value.v;
+  }
+  return undefined;
 }
 
 function reachability(states: readonly GraphState[], transitions: readonly GraphTransition[], objects: readonly string[]): Finding[] {
@@ -804,6 +817,8 @@ function guardFindings(transitions: readonly GraphTransition[], live: readonly F
   const findings: Finding[] = [];
   for (const transition of transitions) {
     if (transition.guard === undefined) continue;
+    // Condition entities are boolean vars, so false is the else value.
+    if (transition.guard.startsWith('condition:')) continue;
     if (hasElse(transition, transitions, live, entities)) continue;
     const condition = findEntity(entities, transition.guard);
     const short = transition.guard.includes(':') ? transition.guard.split(':')[1] ?? transition.guard : transition.guard;
@@ -818,7 +833,7 @@ function guardFindings(transitions: readonly GraphTransition[], live: readonly F
 }
 
 function provableTransition(transition: GraphTransition, transitions: readonly GraphTransition[], live: readonly Fact[], entities: readonly Entity[]): boolean {
-  if (transition.guard === undefined) return true;
+  if (transition.guard === undefined || transition.guard.startsWith('condition:')) return true;
   return hasElse(transition, transitions, live, entities);
 }
 
@@ -829,7 +844,7 @@ function hasElse(transition: GraphTransition, transitions: readonly GraphTransit
     if (other.guard !== transition.guard) return true;
   }
   for (const fact of live) {
-    if (fact.type !== 'forbidden') continue;
+    if (fact.kind !== 'forbidden') continue;
     if (objectLabel(fact, entities) === transition.object && actionLabel(fact, entities) === transition.event) return true;
   }
   return false;
@@ -860,8 +875,9 @@ function sameStateNames(states: readonly GraphState[]): Finding[] {
 function factsForState(state: GraphState, live: readonly Fact[], entities: readonly Entity[], transitions: readonly GraphTransition[]): string[] {
   const ids: string[] = [];
   for (const fact of live) {
-    if ((fact.type === 'initial' || fact.type === 'final') && fact.state === state.id && objectLabel(fact, entities) === state.object) {
-      ids.push(fact.id);
+    if ((fact.kind === 'init' || fact.kind === 'terminal') && objectLabel(fact, entities) === state.object) {
+      const named = namedState(fact, entities, []);
+      if (named?.state === state.id) ids.push(fact.id);
     }
   }
   for (const transition of transitions) {
@@ -879,7 +895,7 @@ function acceptedFlow(id: string, transitions: readonly string[], all: readonly 
   }
   return {
     id,
-    title: chosen.map((transition) => `${capitalize(transition.event)} ${transition.object}`).join(' and '),
+    title: chosen.map((transition) => `${capitalize(eventWords(transition.event))} ${transition.object}`).join(' and '),
     expect: 'accepted',
     transitions: transitions.slice(),
     origin,
@@ -963,13 +979,23 @@ function resolveEntity(id: string | undefined, kind: Entity['kind'], entities: r
 }
 
 function objectLabel(fact: Fact, entities: readonly Entity[]): string | undefined {
-  const entity = fact.object === undefined ? undefined : findEntity(entities, fact.object);
-  return entity?.status === 'rejected' || entity?.status === 'stale' ? undefined : entity?.name;
+  if (isActionFact(fact)) return overlayOf(fact, entities)?.object;
+  if (fact.assign === undefined) return undefined;
+  for (const key of Object.keys(fact.assign)) {
+    const entity = objectEntityNamed(key, entities);
+    if (entity?.name !== undefined) return entity.name;
+  }
+  return undefined;
 }
 
-function actionLabel(fact: Fact, entities: readonly Entity[]): string | undefined {
-  const entity = fact.action === undefined ? undefined : findEntity(entities, fact.action);
-  return entity?.status === 'rejected' || entity?.status === 'stale' ? undefined : entity?.name;
+function actionLabel(fact: Fact, _entities: readonly Entity[]): string | undefined {
+  if (isActionFact(fact)) return fact.event;
+  if (fact.assign === undefined) return undefined;
+  for (const key of Object.keys(fact.assign)) {
+    const value = fact.assign[key];
+    if (value !== undefined && value.t === 'atom') return value.v.replace(/-/g, '_').toUpperCase();
+  }
+  return undefined;
 }
 
 function sentenceFor(fact: Fact, sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): Sentence | undefined {
@@ -1246,9 +1272,15 @@ function findEntity(entities: readonly Entity[], id: string): Entity | undefined
 
 function findEntityByName(entities: readonly Entity[], kind: Entity['kind'], name: string): Entity | undefined {
   for (const entity of entities) {
-    if (entity.kind === kind && entity.name === name && entity.status !== 'rejected' && entity.status !== 'stale') return entity;
+    if (entity.kind !== kind || entity.status === 'rejected' || entity.status === 'stale') continue;
+    if (entity.name === name) return entity;
+    if (kind === 'action' && eventFromAction(entity) === name) return entity;
   }
   return undefined;
+}
+
+function eventWords(event: string): string {
+  return event.toLowerCase().replace(/_/g, ' ');
 }
 
 function findSentence(sentences: readonly Sentence[], id: string): Sentence | undefined {

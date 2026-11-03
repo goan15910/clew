@@ -1,7 +1,7 @@
 // Agent edits to entities. Facts that cite a changed id are retargeted or marked stale.
 import type { Entity, EntityKind, Fact, Finding } from './spec.js';
 import { copyEntity, normalizeWord } from './spec-entities.js';
-import { copyFact } from './spec-facts.js';
+import { copyFact, entityUsesFact, retargetFactRefs, varNameForEntity } from './spec-facts.js';
 
 export interface EntityChange {
   entities: Entity[];
@@ -66,14 +66,22 @@ export function mergeEntities(entities: readonly Entity[], facts: readonly Fact[
     if (removed.includes(entity.id)) continue;
     nextEntities.push(entity.id === into.id ? merged : copyEntity(entity));
   }
-  const replaced = retarget(facts, removed, into.id);
+  let nextFacts = cloneFacts(facts);
+  const affected: string[] = [];
+  for (const source of sources) {
+    const replaced = retargetFactRefs(nextFacts, [source.id], into.id, varNameForEntity(source), varNameForEntity(into));
+    nextFacts = replaced.facts;
+    for (const id of replaced.affected) {
+      if (!affected.includes(id)) affected.push(id);
+    }
+  }
   return {
     entities: nextEntities,
-    facts: replaced.facts,
+    facts: nextFacts,
     findings,
     changed: [into.id],
     removed,
-    affected: replaced.affected,
+    affected,
     blocked: false,
   };
 }
@@ -144,7 +152,7 @@ export function renameEntity(entities: readonly Entity[], facts: readonly Fact[]
   }
   const replaced = replaceEntity(entities, facts, next, nextId === id ? [] : [id], findings);
   if (nextId !== id) {
-    const retargeted = retarget(replaced.facts, [id], nextId);
+    const retargeted = retargetFactRefs(replaced.facts, [id], nextId, varNameForEntity(entity), varNameForEntity(next));
     replaced.facts = retargeted.facts;
     replaced.affected = retargeted.affected;
     replaced.removed = [id];
@@ -168,7 +176,7 @@ export function rejectEntity(entities: readonly Entity[], facts: readonly Fact[]
   const affected: string[] = [];
   const nextFacts: Fact[] = [];
   for (const fact of updated.facts) {
-    if (fact.removed === true || !factRefs(fact).includes(id)) {
+    if (fact.removed === true || !entityUsesFact(entity, fact)) {
       nextFacts.push(fact);
       continue;
     }
@@ -242,7 +250,7 @@ export function promoteEntity(entities: readonly Entity[], facts: readonly Fact[
   next.kind = kind;
   next.origin = 'agent';
   const replaced = replaceEntity(entities, facts, next, [id], []);
-  const retargeted = retarget(replaced.facts, [id], nextId);
+  const retargeted = retargetFactRefs(replaced.facts, [id], nextId, varNameForEntity(entity), varNameForEntity(next));
   replaced.facts = retargeted.facts;
   replaced.affected = retargeted.affected;
   replaced.removed = [id];
@@ -267,22 +275,6 @@ function replaceEntity(entities: readonly Entity[], facts: readonly Fact[], next
     affected: [],
     blocked: false,
   };
-}
-
-function retarget(facts: readonly Fact[], fromIds: readonly string[], toId: string): { facts: Fact[]; affected: string[] } {
-  const affected: string[] = [];
-  const next: Fact[] = [];
-  for (const fact of facts) {
-    const copy = copyFact(fact);
-    let changed = false;
-    if (copy.actor !== undefined && fromIds.includes(copy.actor)) { copy.actor = toId; changed = true; }
-    if (copy.action !== undefined && fromIds.includes(copy.action)) { copy.action = toId; changed = true; }
-    if (copy.object !== undefined && fromIds.includes(copy.object)) { copy.object = toId; changed = true; }
-    if (copy.condition !== undefined && fromIds.includes(copy.condition)) { copy.condition = toId; changed = true; }
-    if (changed) affected.push(copy.id);
-    next.push(copy);
-  }
-  return { facts: next, affected };
 }
 
 function missing(entities: readonly Entity[], facts: readonly Fact[], id: string): EntityChange {
@@ -320,11 +312,3 @@ function cloneFacts(facts: readonly Fact[]): Fact[] {
   return clone;
 }
 
-function factRefs(fact: Fact): string[] {
-  const refs: string[] = [];
-  if (fact.actor !== undefined) refs.push(fact.actor);
-  if (fact.action !== undefined) refs.push(fact.action);
-  if (fact.object !== undefined) refs.push(fact.object);
-  if (fact.condition !== undefined) refs.push(fact.condition);
-  return refs;
-}

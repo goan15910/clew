@@ -58,23 +58,19 @@ testcases:
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.facts.propose
     - result.systemoutjson.ok ShouldBeTrue
-    - result.systemoutjson.facts ShouldHaveLength 5
+    - result.systemoutjson.facts ShouldHaveLength 2
     - result.systemoutjson.facts.facts0.id ShouldEqual f1
-    - result.systemoutjson.facts.facts0.type ShouldEqual performs
+    - result.systemoutjson.facts.facts0.kind ShouldEqual action
+    - result.systemoutjson.facts.facts0.event ShouldEqual SUBMIT
     - result.systemoutjson.facts.facts0.actor ShouldEqual actor:customer
-    - result.systemoutjson.facts.facts0.confidence ShouldEqual 0.9
-    - result.systemoutjson.facts.facts2.id ShouldEqual f3
-    - result.systemoutjson.facts.facts2.type ShouldEqual transition
-    - result.systemoutjson.facts.facts2.to ShouldEqual submitted
-    - result.systemoutjson.facts.facts3.from ShouldEqual submitted
-    - result.systemoutjson.facts.facts3.to ShouldEqual approved
-    - result.systemoutjson.facts.facts4.id ShouldEqual f5
-    - result.systemoutjson.facts.facts4.type ShouldEqual guard
-    - result.systemoutjson.facts.facts4.condition ShouldEqual condition:c1
-    - result.systemoutjson.findings.findings0.code ShouldEqual transition-without-from
+    - result.systemoutjson.facts.facts0.confidence ShouldEqual 0.5
+    - result.systemoutjson.facts.facts1.id ShouldEqual f2
+    - result.systemoutjson.facts.facts1.kind ShouldEqual action
+    - result.systemoutjson.facts.facts1.event ShouldEqual APPROVE
+    - result.systemoutjson.findings.findings0.code ShouldEqual unused-entity
     - result.systemoutjson.issues ShouldHaveLength 0
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d);process.stdin.on(\"end\",()=>{const f=JSON.parse(s).facts.find(x=>x.id===\"f3\"); if(!f||f.from!==null) process.exit(1);})'"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d);process.stdin.on(\"end\",()=>{const f=JSON.parse(s).facts.find(x=>x.id===\"f1\"); if(!f||f.assign.order!==\"submit\"||f.assign.order===\"submitted\") process.exit(1);})'"
     assertions:
     - result.code ShouldEqual 0
   - type: exec
@@ -88,33 +84,31 @@ testcases:
     - result.systemoutjson.entities.entities3.origin ShouldEqual tagger
     - result.systemoutjson.entities.entities3.note ShouldContainSubstring "agent:"
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f3 --from-state draft --note 'agent supplied draft' --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f1 --when '{\"op\":\"eq\",\"var\":\"order\",\"value\":\"draft\"}' --note 'agent supplied draft' --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.facts.edit
-    - result.systemoutjson.facts.facts2.id ShouldEqual f3
-    - result.systemoutjson.facts.facts2.from ShouldEqual draft
-    - result.systemoutjson.facts.facts2.origin ShouldEqual agent
-    - result.systemoutjson.facts.facts2.confidence ShouldEqual 1
+    - result.systemoutjson.facts.facts0.id ShouldEqual f1
+    - result.systemoutjson.facts.facts0.origin ShouldEqual agent
+    - result.systemoutjson.facts.facts0.confidence ShouldEqual 1
   - type: exec
-    script: "printf '%s\n' '{\"type\":\"initial\",\"object\":\"object:order\",\"state\":\"draft\"}' > '{{.dir}}/initial.json' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --from '{{.dir}}/initial.json' --json"
+    script: "printf '%s\n' '{\\"kind\\":\\"init\\",\\"assign\\":{\\"order\\":\\"draft\\"}}' > '{{.dir}}/initial.json' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --from '{{.dir}}/initial.json' --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.facts.add
-    - result.systemoutjson.facts.facts5.id ShouldEqual f6
-    - result.systemoutjson.facts.facts5.type ShouldEqual initial
-    - result.systemoutjson.facts.facts5.state ShouldEqual draft
-    - result.systemoutjson.facts.facts5.origin ShouldEqual agent
+    - result.systemoutjson.facts.facts2.id ShouldEqual f3
+    - result.systemoutjson.facts.facts2.kind ShouldEqual init
+    - result.systemoutjson.facts.facts2.origin ShouldEqual agent
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace f6 --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace f3 --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.trace
     - result.systemoutjson.ok ShouldBeTrue
-    - result.systemoutjson.id ShouldEqual f6
+    - result.systemoutjson.id ShouldEqual f3
     - result.systemoutjson.chain.chain0.layer ShouldEqual fact
     - result.systemoutjson.findings.findings0.code ShouldEqual orphan
     - result.systemoutjson.issues ShouldHaveLength 0
@@ -125,17 +119,17 @@ testcases:
     - result.systemoutjson.chain.chain0.layer ShouldEqual entity
     - result.systemoutjson.chain.chain0.id ShouldEqual actor:customer
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts remove --id f5 --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts remove --id f2 --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.facts.remove
-    - result.systemoutjson.removed.removed0 ShouldEqual f5
+    - result.systemoutjson.removed.removed0 ShouldEqual f2
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json"
     assertions:
     - result.code ShouldEqual 0
-    - result.systemoutjson.facts ShouldHaveLength 5
+    - result.systemoutjson.facts ShouldHaveLength 2
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
     assertions:
@@ -187,7 +181,7 @@ testcases:
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
-    - 'result.systemout ShouldContainSubstring "session order-sentence: 5 facts"'
+    - 'result.systemout ShouldContainSubstring "session order-sentence: 2 facts"'
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status"
     assertions:

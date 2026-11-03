@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "objects": [
     "order",
     "package"
@@ -14,14 +14,14 @@
       ]
     },
     {
-      "id": "submitted",
+      "id": "submit",
       "object": "order",
       "facts": [
         "f4"
       ]
     },
     {
-      "id": "approved",
+      "id": "approve",
       "object": "order",
       "facts": [
         "f4",
@@ -34,8 +34,8 @@
     {
       "id": "tr2",
       "from": "draft",
-      "event": "submit",
-      "to": "submitted",
+      "event": "SUBMIT",
+      "to": "submit",
       "object": "order",
       "fact": "f3",
       "facts": [
@@ -46,9 +46,9 @@
     },
     {
       "id": "tr1",
-      "from": "submitted",
-      "event": "approve",
-      "to": "approved",
+      "from": "submit",
+      "event": "APPROVE",
+      "to": "approve",
       "object": "order",
       "fact": "f4",
       "facts": [
@@ -77,7 +77,7 @@
       "expect": "rejected",
       "rejectAt": 1,
       "transitions": [],
-      "forbidden": "f8",
+      "forbidden": "f5",
       "origin": "rule"
     }
   ]

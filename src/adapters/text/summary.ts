@@ -261,15 +261,12 @@ function readingText(reading: SpecTokenReadingView): string {
 }
 
 function factLine(fact: SpecFactView): string {
-  const fields: string[] = [];
+  const fields: string[] = [`kind=${fact.kind}`];
+  if (fact.event !== undefined) fields.push(`event=${fact.event}`);
   if (fact.actor !== undefined) fields.push(`actor=${fact.actor}`);
-  if (fact.action !== undefined) fields.push(`action=${fact.action}`);
-  if (fact.object !== undefined) fields.push(`object=${fact.object}`);
-  if (fact.from !== undefined) fields.push(`from=${fact.from === null ? 'null' : fact.from}`);
-  if (fact.to !== undefined) fields.push(`to=${fact.to}`);
-  if (fact.condition !== undefined) fields.push(`condition=${fact.condition}`);
-  if (fact.state !== undefined) fields.push(`state=${fact.state}`);
+  if (fact.when !== undefined) fields.push(`when=${JSON.stringify(fact.when)}`);
+  if (fact.assign !== undefined) fields.push(`assign=${JSON.stringify(fact.assign)}`);
   if (fact.note !== undefined) fields.push(`note=${fact.note}`);
-  const head = [fact.id, fact.type, ...fields, String(fact.confidence), fact.status].join(' ');
+  const head = [fact.id, ...fields, String(fact.confidence), fact.status].join(' ');
   return `  ${head} <- ${fact.sources.join(' ')}`;
 }

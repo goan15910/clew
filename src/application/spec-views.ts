@@ -1,7 +1,8 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
 import type { DraftGraph, Entity, Fact, LiveSpan, Sentence, SpecFlow, TaggedSentence, Token } from '../domain/spec.js';
-import { visibleFacts } from '../domain/spec-facts.js';
+import { predicateScalars, visibleFacts } from '../domain/spec-facts.js';
+import { scalarsFromPatch } from '../domain/valuation.js';
 import { sentenceIdOfToken } from '../domain/spec-spans.js';
 import type {
   SpecEntityView,
@@ -136,19 +137,22 @@ export function factView(fact: Fact): SpecFactView {
   for (const source of fact.sources) sources.push(source);
   const view: SpecFactView = {
     id: fact.id,
-    type: fact.type,
+    kind: fact.kind,
     origin: fact.origin,
     confidence: fact.confidence,
     sources,
     status: fact.status,
   };
-  if (fact.actor !== undefined) view.actor = fact.actor;
-  if (fact.action !== undefined) view.action = fact.action;
-  if (fact.object !== undefined) view.object = fact.object;
-  if (fact.from !== undefined) view.from = fact.from;
-  if (fact.to !== undefined) view.to = fact.to;
-  if (fact.condition !== undefined) view.condition = fact.condition;
-  if (fact.state !== undefined) view.state = fact.state;
+  if (fact.kind === 'action') {
+    view.event = fact.event;
+    view.actor = fact.actor;
+    view.when = predicateScalars(fact.when);
+    view.assign = scalarsFromPatch(fact.assign);
+  } else {
+    if (fact.actor !== undefined) view.actor = fact.actor;
+    if (fact.when !== undefined) view.when = predicateScalars(fact.when);
+    if (fact.assign !== undefined) view.assign = scalarsFromPatch(fact.assign);
+  }
   if (fact.note !== undefined) view.note = fact.note;
   return view;
 }

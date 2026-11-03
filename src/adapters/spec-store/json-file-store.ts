@@ -5,7 +5,6 @@ import { z } from 'zod';
 import type { SpecMutation, SpecRemovalResult, SpecSessionCounts, SpecSessionSummary, SpecStore, SpecStoreResult } from '../../application/ports.js';
 import {
   ENTITY_KINDS,
-  FACT_TYPES,
   SPEC_ENTITY_ID_PATTERN,
   SPEC_FACT_ID_PATTERN,
   SPEC_SCHEMA_VERSION,
@@ -25,6 +24,8 @@ import {
   type TaggedSentence,
   type Token,
 } from '../../domain/spec.js';
+import { predicateFromScalars, predicateScalars } from '../../domain/spec-facts.js';
+import { patchFromScalars, scalarsFromPatch } from '../../domain/valuation.js';
 import { WORKFLOW_ID_PATTERN, WORKFLOW_WORD_PATTERN } from '../../domain/workflow.js';
 import { locatedErrors } from '../yaml/issue-lines.js';
 import { specSessionDir, specRoot } from './data-dir.js';
@@ -125,16 +126,52 @@ const EntitySchema = z.strictObject({
   }
 });
 
-const FactSchema = z.strictObject({
+const ScalarSchema = z.union([z.boolean(), z.number(), z.string(), z.null()]);
+
+type StoredPredicate =
+  | { op: 'true' }
+  | { op: 'eq'; var: string; value: z.infer<typeof ScalarSchema> }
+  | { op: 'neq'; var: string; value: z.infer<typeof ScalarSchema> }
+  | { op: 'and'; of: StoredPredicate[] }
+  | { op: 'or'; of: StoredPredicate[] }
+  | { op: 'not'; of: StoredPredicate };
+
+const PredicateSchema: z.ZodType<StoredPredicate> = z.lazy(() =>
+  z.union([
+    z.strictObject({ op: z.literal('true') }),
+    z.strictObject({ op: z.literal('eq'), var: z.string().min(1), value: ScalarSchema }),
+    z.strictObject({ op: z.literal('neq'), var: z.string().min(1), value: ScalarSchema }),
+    z.strictObject({ op: z.literal('and'), of: z.array(PredicateSchema).min(1) }),
+    z.strictObject({ op: z.literal('or'), of: z.array(PredicateSchema).min(1) }),
+    z.strictObject({ op: z.literal('not'), of: PredicateSchema }),
+  ]),
+);
+
+const ActionFactSchema = z.strictObject({
   id: z.string().regex(SPEC_FACT_ID_PATTERN),
-  type: z.enum(FACT_TYPES),
-  actor: z.string().optional(),
-  action: z.string().optional(),
-  object: z.string().optional(),
-  from: z.string().nullable().optional(),
-  to: z.string().optional(),
-  condition: z.string().optional(),
-  state: z.string().optional(),
+  kind: z.literal('action'),
+  event: z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'events are UPPER_SNAKE_CASE'),
+  actor: z.string().min(1),
+  when: PredicateSchema,
+  assign: z.record(z.string(), ScalarSchema),
+  origin: z.enum(['tagger', 'rule', 'agent']),
+  confidence: z.number().min(0).max(1),
+  sources: z.array(z.string()),
+  status: z.enum(['current', 'stale']),
+  note: z.string().optional(),
+  removed: z.literal(true).optional(),
+}).superRefine((fact, context) => {
+  if (Object.keys(fact.assign).length === 0) {
+    context.addIssue({ code: 'custom', message: 'action assign must be non-empty', path: ['assign'] });
+  }
+});
+
+const ConfigurationFactSchema = z.strictObject({
+  id: z.string().regex(SPEC_FACT_ID_PATTERN),
+  kind: z.enum(['init', 'terminal', 'forbidden']),
+  actor: z.string().min(1).optional(),
+  when: PredicateSchema.optional(),
+  assign: z.record(z.string(), ScalarSchema).optional(),
   origin: z.enum(['tagger', 'rule', 'agent']),
   confidence: z.number().min(0).max(1),
   sources: z.array(z.string()),
@@ -142,6 +179,8 @@ const FactSchema = z.strictObject({
   note: z.string().optional(),
   removed: z.literal(true).optional(),
 });
+
+const FactSchema = z.discriminatedUnion('kind', [ActionFactSchema, ConfigurationFactSchema]);
 
 const EntitiesFileSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
@@ -164,7 +203,7 @@ const GraphStateSchema = z.strictObject({
 const GraphTransitionSchema = z.strictObject({
   id: z.string().regex(/^tr[1-9][0-9]*$/, 'transition ids look like tr1'),
   from: z.string().regex(WORKFLOW_WORD_PATTERN),
-  event: z.string().regex(WORKFLOW_WORD_PATTERN),
+  event: z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'events are UPPER_SNAKE_CASE'),
   to: z.string().regex(WORKFLOW_WORD_PATTERN),
   actor: z.string().regex(WORKFLOW_WORD_PATTERN).optional(),
   guard: z.string().regex(SPEC_ENTITY_ID_PATTERN).optional(),
@@ -410,7 +449,11 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
     const factsParsed = FactsFileSchema.safeParse(factsRead.value);
     if (!factsParsed.success) return { ok: false, ...zodFault(factsFile, factsParsed.error) };
     const facts: Fact[] = [];
-    for (const raw of factsParsed.data.facts) facts.push(toFact(raw));
+    for (const raw of factsParsed.data.facts) {
+      const built = toFact(raw);
+      if (built === undefined) return { ok: false, fault: 'schema', message: `invalid spec store JSON in ${basename(factsFile)}: fact ${raw.id} has an invalid when predicate` };
+      facts.push(built);
+    }
     snapshot.facts = facts;
   }
 
@@ -438,24 +481,43 @@ function toEntity(raw: z.infer<typeof EntitySchema>): Entity {
   return entity;
 }
 
-function toFact(raw: z.infer<typeof FactSchema>): Fact {
+function toFact(raw: z.infer<typeof FactSchema>): Fact | undefined {
   const sources: string[] = [];
   for (const source of raw.sources) sources.push(source);
+  if (raw.kind === 'action') {
+    const when = predicateFromScalars(raw.when);
+    if (when === undefined) return undefined;
+    const fact: Fact = {
+      id: raw.id,
+      kind: 'action',
+      event: raw.event,
+      actor: raw.actor,
+      when,
+      assign: patchFromScalars(raw.assign),
+      origin: raw.origin,
+      confidence: raw.confidence,
+      sources,
+      status: raw.status,
+    };
+    if (raw.note !== undefined) fact.note = raw.note;
+    if (raw.removed === true) fact.removed = true;
+    return fact;
+  }
   const fact: Fact = {
     id: raw.id,
-    type: raw.type,
+    kind: raw.kind,
     origin: raw.origin,
     confidence: raw.confidence,
     sources,
     status: raw.status,
   };
   if (raw.actor !== undefined) fact.actor = raw.actor;
-  if (raw.action !== undefined) fact.action = raw.action;
-  if (raw.object !== undefined) fact.object = raw.object;
-  if (raw.from !== undefined) fact.from = raw.from;
-  if (raw.to !== undefined) fact.to = raw.to;
-  if (raw.condition !== undefined) fact.condition = raw.condition;
-  if (raw.state !== undefined) fact.state = raw.state;
+  if (raw.when !== undefined) {
+    const when = predicateFromScalars(raw.when);
+    if (when === undefined) return undefined;
+    fact.when = when;
+  }
+  if (raw.assign !== undefined) fact.assign = patchFromScalars(raw.assign);
   if (raw.note !== undefined) fact.note = raw.note;
   if (raw.removed === true) fact.removed = true;
   return fact;
@@ -650,8 +712,11 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
     for (const fact of snapshot.facts) facts.push(factRecord(fact));
     writeJson(join(dir, 'facts.json'), { schemaVersion: snapshot.schemaVersion, facts });
   }
+  const graphFile = join(dir, 'graph.json');
   if (snapshot.graph !== undefined) {
-    writeJson(join(dir, 'graph.json'), graphRecord(snapshot.schemaVersion, snapshot.graph));
+    writeJson(graphFile, graphRecord(snapshot.schemaVersion, snapshot.graph));
+  } else if (existsSync(graphFile)) {
+    unlinkSync(graphFile);
   }
   if (history !== undefined) appendFileSync(join(dir, 'history.jsonl'), `${JSON.stringify(historyRecord(history))}\n`);
 }
@@ -676,21 +741,34 @@ function entityRecord(entity: Entity): z.infer<typeof EntitySchema> {
 function factRecord(fact: Fact): z.infer<typeof FactSchema> {
   const sources: string[] = [];
   for (const source of fact.sources) sources.push(source);
-  const record: z.infer<typeof FactSchema> = {
+  if (fact.kind === 'action') {
+    const record: z.infer<typeof ActionFactSchema> = {
+      id: fact.id,
+      kind: 'action',
+      event: fact.event,
+      actor: fact.actor,
+      when: predicateScalars(fact.when) as StoredPredicate,
+      assign: scalarsFromPatch(fact.assign),
+      origin: fact.origin,
+      confidence: fact.confidence,
+      sources,
+      status: fact.status,
+    };
+    if (fact.note !== undefined) record.note = fact.note;
+    if (fact.removed === true) record.removed = true;
+    return record;
+  }
+  const record: z.infer<typeof ConfigurationFactSchema> = {
     id: fact.id,
-    type: fact.type,
+    kind: fact.kind,
     origin: fact.origin,
     confidence: fact.confidence,
     sources,
     status: fact.status,
   };
   if (fact.actor !== undefined) record.actor = fact.actor;
-  if (fact.action !== undefined) record.action = fact.action;
-  if (fact.object !== undefined) record.object = fact.object;
-  if (fact.from !== undefined) record.from = fact.from;
-  if (fact.to !== undefined) record.to = fact.to;
-  if (fact.condition !== undefined) record.condition = fact.condition;
-  if (fact.state !== undefined) record.state = fact.state;
+  if (fact.when !== undefined) record.when = predicateScalars(fact.when) as StoredPredicate;
+  if (fact.assign !== undefined) record.assign = scalarsFromPatch(fact.assign);
   if (fact.note !== undefined) record.note = fact.note;
   if (fact.removed === true) record.removed = true;
   return record;

@@ -1,29 +1,56 @@
-// Fact proposals from entities and tokens, plus agent edits.
-// Confidence is advisory. Agent-owned facts are not overwritten.
-import { WORKFLOW_WORD_PATTERN } from './workflow.js';
+// ActionFact and ConfigurationFact proposals from entities and tokens.
+// rebuildFacts runs on every entity write. No performs/transition/guard join.
+import {
+  assembleSpec,
+  type Action,
+  type SpecDraft,
+} from './spec-model.js';
 import {
   clauseSpans,
   hasTag,
   isAuxiliary,
   isConditionMarker,
-  normalizeWord,
-  pastParticiple,
   verbLemma,
   type ClauseSpan,
 } from './spec-entities.js';
-import type { Entity, Fact, FactType, Finding, Sentence, TaggedSentence, Token } from './spec.js';
+import type {
+  ActionFact,
+  ConfigurationFact,
+  Entity,
+  Fact,
+  FactKind,
+  Finding,
+  Sentence,
+  TaggedSentence,
+  Token,
+} from './spec.js';
+import {
+  eventName,
+  patchFromScalars,
+  scalarFromValue,
+  scalarsFromPatch,
+  sameValue,
+  valueFromScalar,
+  varId,
+  type JsonScalar,
+  type Patch,
+  type Predicate,
+  type Value,
+  type ValueType,
+  type VarDecl,
+  type VarId,
+} from './valuation.js';
 
 const NEGATION = new Set(['not', 'cannot', "can't", 'never', "won't", 'wont']);
+const EVENT_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+const VAR_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 export interface FactDraft {
-  type?: FactType;
+  kind?: FactKind;
+  event?: string;
   actor?: string;
-  action?: string;
-  object?: string;
-  from?: string | null;
-  to?: string;
-  condition?: string;
-  state?: string;
+  when?: Predicate;
+  assign?: Patch;
   sources?: string[];
   note?: string;
   confidence?: number;
@@ -42,6 +69,10 @@ interface Frame {
   sentence: Sentence;
 }
 
+export function isActionFact(fact: Fact): fact is ActionFact {
+  return fact.kind === 'action';
+}
+
 export function proposeFacts(
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
@@ -54,30 +85,50 @@ export function proposeFacts(
   return applyDrafts(drafts, existing, tagged, onlySentence, entities);
 }
 
-export function factSignature(fact: Pick<Fact, 'type' | 'actor' | 'action' | 'object' | 'condition' | 'state'>): string {
-  if (fact.type === 'performs') return `performs|${fact.actor ?? ''}|${fact.action ?? ''}`;
-  if (fact.type === 'transition') return `transition|${fact.object ?? ''}|${fact.action ?? ''}`;
-  if (fact.type === 'guard') return `guard|${fact.action ?? ''}|${fact.condition ?? ''}`;
-  if (fact.type === 'initial') return `initial|${fact.object ?? ''}`;
-  if (fact.type === 'final') return `final|${fact.object ?? ''}|${fact.state ?? ''}`;
-  return `forbidden|${fact.actor ?? ''}|${fact.action ?? ''}|${fact.object ?? ''}`;
+export function rebuildFacts(
+  sentences: readonly Sentence[],
+  tagged: readonly TaggedSentence[],
+  entities: readonly Entity[],
+  existing: readonly Fact[],
+): ProposedFacts {
+  const proposed = proposeFacts(sentences, tagged, entities, existing, undefined);
+  return {
+    facts: reconcileFacts(sentences, tagged, entities, proposed.facts),
+    findings: proposed.findings,
+  };
+}
+
+export function factSignature(fact: Pick<Fact, 'kind' | 'actor'> & {
+  event?: string;
+  when?: Predicate;
+  assign?: Patch;
+}): string {
+  const actor = fact.actor ?? '';
+  const when = predicateKey(fact.when);
+  const keys = assignKeys(fact.assign);
+  if (fact.kind === 'action') return `action|${fact.event ?? ''}|${actor}|${when}|${keys}`;
+  return `${fact.kind}|${actor}|${when}|${keys}`;
 }
 
 export function validateFactDraft(draft: FactDraft, entities: readonly Entity[]): { findings: Finding[] } {
   const findings: Finding[] = [];
-  if (draft.type === undefined) {
-    findings.push(blocking('missing-type', 'a fact needs a type', []));
+  if (draft.kind === undefined) {
+    findings.push(blocking('missing-type', 'a fact needs a kind', []));
     return { findings };
   }
-  const type = draft.type;
-  require(draft, type, findings);
-  checkRef(draft.actor, 'actor', entities, findings);
-  checkRef(draft.action, 'action', entities, findings);
-  checkRef(draft.object, 'object', entities, findings);
-  checkRef(draft.condition, 'condition', entities, findings);
-  checkState(draft.from, 'from', findings);
-  checkState(draft.to, 'to', findings);
-  checkState(draft.state, 'state', findings);
+  if (draft.kind === 'action') {
+    if (draft.event === undefined) findings.push(blocking('type-mismatch', 'action fact needs event', []));
+    else if (!EVENT_PATTERN.test(draft.event)) {
+      findings.push(blocking('vocabulary', `event "${draft.event}" must be UPPER_SNAKE_CASE`, []));
+    }
+    if (draft.actor === undefined) findings.push(blocking('type-mismatch', 'action fact needs actor', []));
+    if (draft.assign === undefined || Object.keys(draft.assign).length === 0) {
+      findings.push(blocking('type-mismatch', 'action assign must be non-empty', []));
+    }
+  } else if (draft.when === undefined && (draft.assign === undefined || Object.keys(draft.assign).length === 0)) {
+    findings.push(blocking('type-mismatch', `${draft.kind} fact needs when or assign`, []));
+  }
+  if (draft.actor !== undefined) checkRef(draft.actor, 'actor', entities, findings);
   if (draft.confidence !== undefined && (draft.confidence < 0 || draft.confidence > 1)) {
     findings.push(blocking('type-mismatch', 'confidence must be between 0 and 1', []));
   }
@@ -85,64 +136,64 @@ export function validateFactDraft(draft: FactDraft, entities: readonly Entity[])
 }
 
 export function buildFact(id: string, draft: FactDraft): Fact {
-  const fact: Fact = {
+  const kind = draft.kind ?? 'action';
+  if (kind === 'action') {
+    const fact: ActionFact = {
+      id,
+      kind: 'action',
+      event: draft.event ?? 'EVENT',
+      actor: draft.actor ?? '',
+      when: draft.when ?? { op: 'true' },
+      assign: draft.assign ?? {},
+      origin: 'agent',
+      confidence: draft.confidence ?? 1,
+      sources: draft.sources === undefined ? [] : draft.sources.slice(),
+      status: 'current',
+    };
+    if (draft.note !== undefined) fact.note = draft.note;
+    return fact;
+  }
+  const fact: ConfigurationFact = {
     id,
-    type: draft.type ?? 'performs',
+    kind,
     origin: 'agent',
     confidence: draft.confidence ?? 1,
     sources: draft.sources === undefined ? [] : draft.sources.slice(),
     status: 'current',
   };
-  assignFact(fact, draft);
+  if (draft.actor !== undefined) fact.actor = draft.actor;
+  if (draft.when !== undefined) fact.when = draft.when;
+  if (draft.assign !== undefined) fact.assign = draft.assign;
+  if (draft.note !== undefined) fact.note = draft.note;
   return fact;
 }
 
 export function applyFactPatch(fact: Fact, draft: FactDraft): Fact {
-  const next = copyFact(fact);
-  next.origin = 'agent';
-  next.confidence = draft.confidence ?? 1;
-  next.status = 'current';
-  next.removed = false;
-  if (draft.type !== undefined) next.type = draft.type;
-  if (draft.sources !== undefined) next.sources = draft.sources.slice();
-  assignFact(next, draft);
-  if (draft.note === undefined && fact.note !== undefined && next.note === undefined) next.note = fact.note;
-  return next;
+  const merged = mergeDraft(draftFrom(fact), draft);
+  const next = buildFact(fact.id, merged);
+  const patched = copyFact(next);
+  patched.origin = 'agent';
+  patched.confidence = draft.confidence ?? 1;
+  patched.status = 'current';
+  delete patched.removed;
+  if (draft.note === undefined && fact.note !== undefined && patched.note === undefined) patched.note = fact.note;
+  return patched;
 }
 
 export function contradictionFindings(facts: readonly Fact[]): Finding[] {
   const live = liveFacts(facts);
   const findings: Finding[] = [];
-  const initials = new Map<string, Fact[]>();
-  const finals = new Map<string, Fact[]>();
-  const transitions = new Map<string, Fact[]>();
+  const actions = new Map<string, Fact[]>();
+  const inits = new Map<string, Fact[]>();
+  const terminals = new Map<string, Fact[]>();
   for (const fact of live) {
-    if (fact.type === 'initial' && fact.object !== undefined) pushMap(initials, fact.object, fact);
-    if (fact.type === 'final' && fact.object !== undefined) pushMap(finals, fact.object, fact);
-    if (fact.type === 'transition' && fact.object !== undefined && fact.action !== undefined) {
-      pushMap(transitions, `${fact.object}|${fact.action}`, fact);
-    }
+    if (fact.kind === 'action') pushMap(actions, `${fact.event}|${assignKeys(fact.assign)}`, fact);
+    if (fact.kind === 'init') pushMap(inits, assignKeys(fact.assign), fact);
+    if (fact.kind === 'terminal') pushMap(terminals, predicateKey(fact.when), fact);
   }
-  disagree(initials, findings, 'initial');
-  disagree(finals, findings, 'final');
-  for (const [key, group] of transitions) {
-    // A forbidden fact for the same object and action is the rejected path, not a second warning.
-    if (group.length < 2) continue;
-    let differ = false;
-    const head = group[0];
-    for (const fact of group) {
-      if (head !== undefined && (fact.to !== head.to || fact.from !== head.from)) differ = true;
-    }
-    if (!differ) continue;
-    findings.push({
-      id: `contradicting:transition:${key}`,
-      kind: 'conflict',
-      code: 'contradicting-facts',
-      severity: 'warning',
-      message: `${key} has disagreeing transitions`,
-      refs: refsOf(group),
-    });
-  }
+  disagreeAssign(actions, findings, 'action');
+  disagreeAssign(inits, findings, 'init');
+  disagreeAssign(terminals, findings, 'terminal');
   return findings;
 }
 
@@ -207,21 +258,34 @@ export function sameFacts(left: readonly Fact[] | undefined, right: readonly Fac
 }
 
 export function copyFact(fact: Fact): Fact {
-  const copy: Fact = {
+  if (fact.kind === 'action') {
+    const copy: ActionFact = {
+      id: fact.id,
+      kind: 'action',
+      event: fact.event,
+      actor: fact.actor,
+      when: copyPredicate(fact.when),
+      assign: copyPatch(fact.assign),
+      origin: fact.origin,
+      confidence: fact.confidence,
+      sources: fact.sources.slice(),
+      status: fact.status,
+    };
+    if (fact.note !== undefined) copy.note = fact.note;
+    if (fact.removed === true) copy.removed = true;
+    return copy;
+  }
+  const copy: ConfigurationFact = {
     id: fact.id,
-    type: fact.type,
+    kind: fact.kind,
     origin: fact.origin,
     confidence: fact.confidence,
     sources: fact.sources.slice(),
     status: fact.status,
   };
   if (fact.actor !== undefined) copy.actor = fact.actor;
-  if (fact.action !== undefined) copy.action = fact.action;
-  if (fact.object !== undefined) copy.object = fact.object;
-  if (fact.from !== undefined) copy.from = fact.from;
-  if (fact.to !== undefined) copy.to = fact.to;
-  if (fact.condition !== undefined) copy.condition = fact.condition;
-  if (fact.state !== undefined) copy.state = fact.state;
+  if (fact.when !== undefined) copy.when = copyPredicate(fact.when);
+  if (fact.assign !== undefined) copy.assign = copyPatch(fact.assign);
   if (fact.note !== undefined) copy.note = fact.note;
   if (fact.removed === true) copy.removed = true;
   return copy;
@@ -234,6 +298,264 @@ export function visibleFacts(facts: readonly Fact[]): Fact[] {
     visible.push(fact);
   }
   return visible;
+}
+
+export function factRefs(fact: Fact): string[] {
+  const refs: string[] = [];
+  if (fact.kind === 'action' || fact.actor !== undefined) {
+    if (fact.actor !== undefined) refs.push(fact.actor);
+  }
+  return refs;
+}
+
+export function varNameForEntity(entity: Entity): string | undefined {
+  if (entity.kind === 'object') {
+    if (entity.name === undefined) return undefined;
+    const name = entity.name.replace(/-/g, '_');
+    return VAR_ID_PATTERN.test(name) ? name : undefined;
+  }
+  if (entity.kind === 'condition') {
+    const suffix = entity.id.startsWith('condition:') ? entity.id.slice('condition:'.length) : entity.id;
+    const name = suffix.replace(/-/g, '_');
+    return VAR_ID_PATTERN.test(name) ? name : undefined;
+  }
+  return undefined;
+}
+
+export function eventFromAction(entity: Entity): string | undefined {
+  if (entity.kind !== 'action' || entity.name === undefined) return undefined;
+  const event = entity.name.replace(/-/g, '_').toUpperCase();
+  return EVENT_PATTERN.test(event) ? event : undefined;
+}
+
+export function retargetFactRefs(
+  facts: readonly Fact[],
+  fromIds: readonly string[],
+  toId: string,
+  fromVar: string | undefined,
+  toVar: string | undefined,
+): { facts: Fact[]; affected: string[] } {
+  const affected: string[] = [];
+  const next: Fact[] = [];
+  for (const fact of facts) {
+    const copy = copyFact(fact);
+    let changed = false;
+    if (copy.kind === 'action' && fromIds.includes(copy.actor)) {
+      copy.actor = toId;
+      changed = true;
+    } else if (copy.kind !== 'action' && copy.actor !== undefined && fromIds.includes(copy.actor)) {
+      copy.actor = toId;
+      changed = true;
+    }
+    if (fromVar !== undefined && toVar !== undefined && fromVar !== toVar) {
+      if (copy.kind === 'action') {
+        const when = rewritePredicateVar(copy.when, fromVar, toVar);
+        const assign = rewritePatchVar(copy.assign, fromVar, toVar);
+        if (when.changed) {
+          copy.when = when.predicate;
+          changed = true;
+        }
+        if (assign.changed) {
+          copy.assign = assign.patch;
+          changed = true;
+        }
+      } else {
+        if (copy.when !== undefined) {
+          const when = rewritePredicateVar(copy.when, fromVar, toVar);
+          if (when.changed) {
+            copy.when = when.predicate;
+            changed = true;
+          }
+        }
+        if (copy.assign !== undefined) {
+          const assign = rewritePatchVar(copy.assign, fromVar, toVar);
+          if (assign.changed) {
+            copy.assign = assign.patch;
+            changed = true;
+          }
+        }
+      }
+    }
+    if (changed) affected.push(copy.id);
+    next.push(copy);
+  }
+  return { facts: next, affected };
+}
+
+export function specFromFacts(entities: readonly Entity[], facts: readonly Fact[]): SpecDraft {
+  const liveEntities = usableEntities(entities);
+  const live = liveFacts(facts);
+  const vars: VarDecl[] = [];
+  const seen = new Set<string>();
+  for (const entity of liveEntities) {
+    const name = varNameForEntity(entity);
+    if (name === undefined || seen.has(name)) continue;
+    seen.add(name);
+    const type: ValueType = entity.kind === 'condition' ? 'boolean' : 'atom';
+    vars.push({ id: name as VarId, type });
+  }
+  for (const fact of live) {
+    const patch = fact.assign;
+    if (patch === undefined) continue;
+    for (const key of Object.keys(patch)) {
+      if (seen.has(key) || !VAR_ID_PATTERN.test(key)) continue;
+      seen.add(key);
+      vars.push({ id: key as VarId, type: typeOfValue(patch[key]) });
+    }
+  }
+  const initial: Record<string, Value> = {};
+  for (const decl of vars) {
+    initial[decl.id] = decl.type === 'boolean' ? { t: 'bool', v: false } : { t: 'null' };
+  }
+  for (const fact of live) {
+    if (fact.kind !== 'init' || fact.assign === undefined) continue;
+    for (const key of Object.keys(fact.assign)) {
+      const value = fact.assign[key];
+      if (value !== undefined) initial[key] = value;
+    }
+  }
+  const actions: Action[] = [];
+  for (const fact of live) {
+    if (!isActionFact(fact)) continue;
+    let event: ReturnType<typeof eventName>;
+    try {
+      event = eventName(fact.event);
+    } catch {
+      continue;
+    }
+    const actor = actorName(fact.actor, liveEntities) ?? fact.actor;
+    actions.push({
+      event,
+      actor,
+      when: fact.when,
+      assign: fact.assign,
+    });
+  }
+  const first = liveEntities.find((entity) => entity.kind === 'object' && entity.name !== undefined);
+  const id = first?.name === undefined ? 'spec' : camelId(first.name);
+  return { id, vars, initial, actions, labels: [] };
+}
+
+export function assembleSpecFromFacts(entities: readonly Entity[], facts: readonly Fact[]): ReturnType<typeof assembleSpec> | undefined {
+  const draft = specFromFacts(entities, facts);
+  if (draft.vars.length === 0) return undefined;
+  try {
+    return assembleSpec(draft);
+  } catch {
+    return undefined;
+  }
+}
+
+export function overlayOf(fact: ActionFact, entities: readonly Entity[]): {
+  object: string;
+  from: string | undefined;
+  to: string;
+  event: string;
+  actor: string | undefined;
+  guard: string | undefined;
+} | undefined {
+  const objectVar = primaryObjectVar(fact.assign, entities);
+  if (objectVar === undefined) return undefined;
+  const assigned = fact.assign[objectVar];
+  if (assigned === undefined || assigned.t !== 'atom') return undefined;
+  const objectEntity = objectEntityForVar(objectVar, entities);
+  if (objectEntity?.name === undefined) return undefined;
+  const fromValue = eqValue(fact.when, objectVar);
+  const from = fromValue === undefined || fromValue.t === 'null'
+    ? undefined
+    : fromValue.t === 'atom'
+      ? fromValue.v
+      : undefined;
+  const actorEntity = findEntity(entities, fact.actor);
+  return {
+    object: objectEntity.name,
+    from,
+    to: assigned.v,
+    event: fact.event,
+    actor: actorEntity?.name,
+    guard: booleanGuard(fact.when, entities),
+  };
+}
+
+export function draftFrom(fact: Fact): FactDraft {
+  const draft: FactDraft = {
+    kind: fact.kind,
+    sources: fact.sources.slice(),
+    confidence: fact.confidence,
+  };
+  if (fact.kind === 'action') {
+    draft.event = fact.event;
+    draft.actor = fact.actor;
+    draft.when = copyPredicate(fact.when);
+    draft.assign = copyPatch(fact.assign);
+  } else {
+    if (fact.actor !== undefined) draft.actor = fact.actor;
+    if (fact.when !== undefined) draft.when = copyPredicate(fact.when);
+    if (fact.assign !== undefined) draft.assign = copyPatch(fact.assign);
+  }
+  if (fact.note !== undefined) draft.note = fact.note;
+  return draft;
+}
+
+export function mergeDraft(base: FactDraft, patch: FactDraft): FactDraft {
+  const next: FactDraft = {};
+  if (base.kind !== undefined) next.kind = base.kind;
+  if (base.event !== undefined) next.event = base.event;
+  if (base.actor !== undefined) next.actor = base.actor;
+  if (base.when !== undefined) next.when = copyPredicate(base.when);
+  if (base.assign !== undefined) next.assign = copyPatch(base.assign);
+  if (base.sources !== undefined) next.sources = base.sources.slice();
+  if (base.note !== undefined) next.note = base.note;
+  if (base.confidence !== undefined) next.confidence = base.confidence;
+  if (patch.kind !== undefined) next.kind = patch.kind;
+  if (patch.event !== undefined) next.event = patch.event;
+  if (patch.actor !== undefined) next.actor = patch.actor;
+  if (patch.when !== undefined) next.when = copyPredicate(patch.when);
+  if (patch.assign !== undefined) next.assign = copyPatch(patch.assign);
+  if (patch.sources !== undefined) next.sources = patch.sources.slice();
+  if (patch.note !== undefined) next.note = patch.note;
+  if (patch.confidence !== undefined) next.confidence = patch.confidence;
+  return next;
+}
+
+export function predicateFromScalars(raw: unknown): Predicate | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  if (!('op' in raw) || typeof raw.op !== 'string') return undefined;
+  if (raw.op === 'true') return { op: 'true' };
+  if ((raw.op === 'eq' || raw.op === 'neq') && 'var' in raw && typeof raw.var === 'string' && 'value' in raw && isScalar(raw.value)) {
+    try {
+      return { op: raw.op, var: varId(raw.var), value: valueFromScalar(raw.value) };
+    } catch {
+      return undefined;
+    }
+  }
+  if (raw.op === 'not' && 'of' in raw) {
+    const inner = predicateFromScalars(raw.of);
+    if (inner === undefined) return undefined;
+    return { op: 'not', of: inner };
+  }
+  if ((raw.op === 'and' || raw.op === 'or') && 'of' in raw && Array.isArray(raw.of)) {
+    const of: Predicate[] = [];
+    for (const child of raw.of) {
+      const inner = predicateFromScalars(child);
+      if (inner === undefined) return undefined;
+      of.push(inner);
+    }
+    if (of.length === 0) return undefined;
+    return { op: raw.op, of };
+  }
+  return undefined;
+}
+
+export function predicateScalars(predicate: Predicate): Record<string, unknown> {
+  if (predicate.op === 'true') return { op: 'true' };
+  if (predicate.op === 'eq' || predicate.op === 'neq') {
+    return { op: predicate.op, var: predicate.var, value: scalarFromValue(predicate.value) };
+  }
+  if (predicate.op === 'not') return { op: 'not', of: predicateScalars(predicate.of) };
+  const of: Record<string, unknown>[] = [];
+  for (const child of predicate.of) of.push(predicateScalars(child));
+  return { op: predicate.op, of };
 }
 
 function collectDrafts(
@@ -253,93 +575,86 @@ function collectDrafts(
     const parsed = parseSentence(sentence, item, tokenEntity);
     for (const finding of parsed.findings) findings.push(finding);
     const ordered = orderFrames(parsed.frames, parsed.tokens);
-    const performs: Fact[] = [];
-    const transitionsForSentence: Fact[] = [];
-    const forbidden: Fact[] = [];
-    const transitions = new Map<string, Fact[]>();
+    const lastValue = new Map<string, Value>();
+    const guardsByAction = new Map<string, string[]>();
+    for (const guard of parsed.guards) {
+      const list = guardsByAction.get(guard.action) ?? [];
+      list.push(guard.condition);
+      guardsByAction.set(guard.action, list);
+    }
     for (const frame of ordered) {
       if (frame.action === undefined) continue;
-      if (frame.actor !== undefined) {
-        performs.push(factDraft({
-          type: 'performs',
-          actor: frame.actor.id,
-          action: frame.action.id,
-          origin: 'rule',
-          confidence: 0.9,
-          sources: [sentence.id],
-          sentence,
-        }));
-      }
-      if (frame.object === undefined) continue;
-      const toWord = normalizeWord(pastParticiple(frame.action.lemma, frame.action.token.text));
-      if (toWord.word === undefined) {
+      const actionEntity = findEntity(entities, frame.action.id);
+      const event = actionEntity === undefined ? undefined : eventFromAction(actionEntity);
+      if (event === undefined) {
         findings.push({
           id: `vocabulary:${frame.action.id}`,
           kind: 'vocabulary',
           code: 'vocabulary',
           severity: 'warning',
-          message: `${frame.action.token.text} has no workflow-vocabulary state name`,
+          message: `${frame.action.token.text} has no event name`,
           refs: [sentence.id, frame.action.token.id],
         });
         continue;
       }
+      if (frame.object === undefined) continue;
+      const objectEntity = findEntity(entities, frame.object.id);
+      const objectVar = objectEntity === undefined ? undefined : varNameForEntity(objectEntity);
+      if (objectVar === undefined) continue;
+      const assigned: Value = { t: 'atom', v: actionEntity?.name ?? frame.action.lemma };
+      const whenParts: Predicate[] = [];
+      const previous = lastValue.get(objectVar);
+      if (previous === undefined) whenParts.push({ op: 'eq', var: objectVar as VarId, value: { t: 'null' } });
+      else whenParts.push({ op: 'eq', var: objectVar as VarId, value: previous });
+      const attached = guardsByAction.get(frame.action.id) ?? [];
+      for (const conditionId of attached) {
+        const condition = findEntity(entities, conditionId);
+        const condVar = condition === undefined ? undefined : varNameForEntity(condition);
+        if (condVar === undefined) continue;
+        whenParts.push({ op: 'eq', var: condVar as VarId, value: { t: 'bool', v: true } });
+      }
+      const assign: Record<string, Value> = {};
+      assign[objectVar] = assigned;
+      const sources: string[] = [frame.action.token.id, frame.object.token.id];
       if (frame.negated) {
-        forbidden.push(factDraft({
-          type: 'forbidden',
-          actor: frame.actor?.id,
-          action: frame.action.id,
-          object: frame.object.id,
+        if (frame.actor === undefined) continue;
+        const forbidden: ConfigurationFact = {
+          id: 'f0',
+          kind: 'forbidden',
+          actor: frame.actor.id,
+          when: andAll(whenParts),
+          assign,
           origin: 'rule',
           confidence: 0.7,
           sources: [sentence.id],
-          sentence,
-        }));
+          status: 'current',
+        };
+        drafts.push(forbidden);
         continue;
       }
-      const transition = factDraft({
-        type: 'transition',
-        object: frame.object.id,
-        action: frame.action.id,
-        from: null,
-        to: toWord.word,
+      if (frame.actor === undefined) continue;
+      const note = previous === undefined
+        ? undefined
+        : sequencingWord(parsed.tokens) === 'when'
+          ? 'when inferred from the When-clause order'
+          : sequencingWord(parsed.tokens) !== undefined
+            ? `when inferred from the ${sequencingWord(parsed.tokens)}-clause order`
+            : 'when inferred from clause order';
+      const action: ActionFact = {
+        id: 'f0',
+        kind: 'action',
+        event,
+        actor: frame.actor.id,
+        when: andAll(whenParts),
+        assign,
         origin: 'rule',
-        confidence: 0.5,
-        sources: [frame.action.token.id, frame.object.token.id],
-        sentence,
-      });
-      transitionsForSentence.push(transition);
-      const list = transitions.get(frame.object.id) ?? [];
-      list.push(transition);
-      transitions.set(frame.object.id, list);
-    }
-    const sequencing = sequencingWord(parsed.tokens);
-    for (const list of transitions.values()) {
-      for (let index = 1; index < list.length; index += 1) {
-        const previous = list[index - 1];
-        const current = list[index];
-        if (previous === undefined || current === undefined || previous.to === undefined) continue;
-        current.from = previous.to;
-        current.confidence = sequencing === 'when' ? 0.6 : 0.5;
-        current.note = sequencing === 'when'
-          ? 'from inferred from the When-clause order'
-          : sequencing !== undefined
-            ? `from inferred from the ${sequencing}-clause order`
-            : 'from inferred from clause order';
-      }
-    }
-    for (const fact of performs) drafts.push(fact);
-    for (const fact of transitionsForSentence) drafts.push(fact);
-    for (const fact of forbidden) drafts.push(fact);
-    for (const guard of parsed.guards) {
-      drafts.push(factDraft({
-        type: 'guard',
-        action: guard.action,
-        condition: guard.condition,
-        origin: 'rule',
-        confidence: 0.8,
-        sources: [guard.token.id],
-        sentence: guard.sentence,
-      }));
+        confidence: previous === undefined ? 0.5 : sequencingWord(parsed.tokens) === 'when' ? 0.6 : 0.5,
+        sources,
+        status: 'current',
+      };
+      if (note !== undefined) action.note = note;
+      drafts.push(action);
+      lastValue.set(objectVar, assigned);
     }
   }
   return { drafts, findings };
@@ -353,15 +668,12 @@ function applyDrafts(
   entities: readonly Entity[],
 ): ProposedFacts {
   const findings = collected.findings.slice();
-  const liveBySignature = new Map<string, Fact>();
-  const removedSignatures = new Set<string>();
-  for (const fact of existing) {
-    const signature = factSignature(fact);
-    if (fact.removed === true) removedSignatures.add(signature);
-    else liveBySignature.set(signature, fact);
-  }
   const produced = new Map<string, Fact>();
   for (const draft of collected.drafts) produced.set(factSignature(draft), draft);
+  const removedSignatures = new Set<string>();
+  for (const fact of existing) {
+    if (fact.removed === true) removedSignatures.add(factSignature(fact));
+  }
   const used = new Set<string>();
   for (const fact of existing) used.add(fact.id);
   const consumed = new Set<string>();
@@ -372,11 +684,11 @@ function applyDrafts(
       next.push(copyFact(fact));
       continue;
     }
-    const draft = produced.get(signature);
+    const draft = matchingDraft(produced, fact);
     if (draft !== undefined && fact.origin === 'agent') {
       if (differs(fact, draft)) findings.push(agentFactConflict(fact.id));
       next.push(copyFact(fact));
-      consumed.add(signature);
+      consumed.add(factSignature(draft));
       continue;
     }
     if (draft !== undefined) {
@@ -401,18 +713,6 @@ function applyDrafts(
     created.id = freshFactId(used);
     next.push(created);
   }
-  for (const fact of visibleFacts(next)) {
-    if (fact.status !== 'current' || fact.type !== 'transition') continue;
-    if (fact.from !== null && fact.from !== undefined) continue;
-    findings.push({
-      id: `transition-without-from:${fact.id}`,
-      kind: 'gap',
-      code: 'transition-without-from',
-      severity: 'warning',
-      message: `${fact.id} has no source state`,
-      refs: [fact.id, ...fact.sources],
-    });
-  }
   for (const finding of unusedEntityFindings(entities, visibleFacts(next))) findings.push(finding);
   for (const finding of contradictionFindings(next)) findings.push(finding);
   return { facts: next, findings };
@@ -423,6 +723,9 @@ function unusedEntityFindings(entities: readonly Entity[], facts: readonly Fact[
   for (const fact of facts) {
     if (fact.status !== 'current') continue;
     for (const ref of factRefs(fact)) used.add(ref);
+    for (const entity of entities) {
+      if (entityUsesFact(entity, fact)) used.add(entity.id);
+    }
   }
   const findings: Finding[] = [];
   for (const entity of entities) {
@@ -438,6 +741,19 @@ function unusedEntityFindings(entities: readonly Entity[], facts: readonly Fact[
     });
   }
   return findings;
+}
+
+export function entityUsesFact(entity: Entity, fact: Fact): boolean {
+  if (entity.kind === 'actor') return fact.actor === entity.id;
+  if (entity.kind === 'action') {
+    const event = eventFromAction(entity);
+    return isActionFact(fact) && event !== undefined && fact.event === event;
+  }
+  const name = varNameForEntity(entity);
+  if (name === undefined) return false;
+  if (isActionFact(fact)) return predicateUses(fact.when, name) || patchUses(fact.assign, name);
+  return (fact.when !== undefined && predicateUses(fact.when, name))
+    || (fact.assign !== undefined && patchUses(fact.assign, name));
 }
 
 interface ParsedSentence {
@@ -683,48 +999,26 @@ function spanCovering(spans: readonly ClauseSpan[], relative: number): ClauseSpa
   return undefined;
 }
 
-interface DraftInput {
-  type: FactType;
-  actor?: string;
-  action?: string;
-  object?: string;
-  from?: string | null;
-  to?: string;
-  condition?: string;
-  origin: Fact['origin'];
-  confidence: number;
-  sources: string[];
-  sentence: Sentence;
-  note?: string;
-}
-
-function factDraft(input: DraftInput): Fact {
-  const fact: Fact = {
-    id: 'f0',
-    type: input.type,
-    origin: input.origin,
-    confidence: input.confidence,
-    sources: input.sources.slice(),
-    status: 'current',
-  };
-  if (input.actor !== undefined) fact.actor = input.actor;
-  if (input.action !== undefined) fact.action = input.action;
-  if (input.object !== undefined) fact.object = input.object;
-  if (input.from !== undefined) fact.from = input.from;
-  if (input.to !== undefined) fact.to = input.to;
-  if (input.condition !== undefined) fact.condition = input.condition;
-  if (input.note !== undefined) fact.note = input.note;
-  return fact;
+function matchingDraft(produced: Map<string, Fact>, fact: Fact): Fact | undefined {
+  const exact = produced.get(factSignature(fact));
+  if (exact !== undefined) return exact;
+  if (!isActionFact(fact)) return undefined;
+  for (const draft of produced.values()) {
+    if (isActionFact(draft) && draft.event === fact.event && draft.actor === fact.actor) return draft;
+  }
+  return undefined;
 }
 
 function differs(agent: Fact, draft: Fact): boolean {
-  return agent.actor !== draft.actor
-    || agent.action !== draft.action
-    || agent.object !== draft.object
-    || agent.from !== draft.from
-    || agent.to !== draft.to
-    || agent.condition !== draft.condition
-    || agent.state !== draft.state;
+  if (agent.kind !== draft.kind) return true;
+  if (agent.actor !== draft.actor) return true;
+  if (isActionFact(agent) && isActionFact(draft)) {
+    return agent.event !== draft.event
+      || !samePredicate(agent.when, draft.when)
+      || !samePatch(agent.assign, draft.assign);
+  }
+  if (agent.kind === 'action' || draft.kind === 'action') return true;
+  return !sameOptionalPredicate(agent.when, draft.when) || !sameOptionalPatch(agent.assign, draft.assign);
 }
 
 function agentFactConflict(id: string): Finding {
@@ -756,20 +1050,7 @@ function freshFactId(used: Set<string>): string {
   return id;
 }
 
-function require(draft: FactDraft, type: FactType, findings: Finding[]): void {
-  const missing: string[] = [];
-  if ((type === 'performs' || type === 'transition' || type === 'guard' || type === 'forbidden') && draft.action === undefined) missing.push('action');
-  if (type === 'performs' && draft.actor === undefined) missing.push('actor');
-  if ((type === 'transition' || type === 'initial' || type === 'final') && draft.object === undefined) missing.push('object');
-  if (type === 'transition' && draft.to === undefined) missing.push('to');
-  if (type === 'guard' && draft.condition === undefined) missing.push('condition');
-  if ((type === 'initial' || type === 'final') && draft.state === undefined) missing.push('state');
-  if (missing.length === 0) return;
-  findings.push(blocking('type-mismatch', `${type} fact needs ${missing.join(', ')}`, []));
-}
-
-function checkRef(id: string | undefined, kind: Entity['kind'], entities: readonly Entity[], findings: Finding[]): void {
-  if (id === undefined) return;
+function checkRef(id: string, kind: Entity['kind'], entities: readonly Entity[], findings: Finding[]): void {
   const entity = findEntity(entities, id);
   if (entity === undefined) {
     findings.push(blocking('unknown-entity', `unknown entity ${id}`, [id]));
@@ -784,13 +1065,6 @@ function checkRef(id: string | undefined, kind: Entity['kind'], entities: readon
   }
 }
 
-function checkState(value: string | null | undefined, field: string, findings: Finding[]): void {
-  if (value === undefined || value === null) return;
-  if (!WORKFLOW_WORD_PATTERN.test(value)) {
-    findings.push(blocking('vocabulary', `${field} "${value}" is not workflow vocabulary`, []));
-  }
-}
-
 function blocking(code: string, message: string, refs: string[]): Finding {
   const suffix = refs[0] ?? message;
   return {
@@ -801,17 +1075,6 @@ function blocking(code: string, message: string, refs: string[]): Finding {
     message,
     refs,
   };
-}
-
-function assignFact(fact: Fact, draft: FactDraft): void {
-  if (draft.actor !== undefined) fact.actor = draft.actor;
-  if (draft.action !== undefined) fact.action = draft.action;
-  if (draft.object !== undefined) fact.object = draft.object;
-  if (draft.from !== undefined) fact.from = draft.from;
-  if (draft.to !== undefined) fact.to = draft.to;
-  if (draft.condition !== undefined) fact.condition = draft.condition;
-  if (draft.state !== undefined) fact.state = draft.state;
-  if (draft.note !== undefined) fact.note = draft.note;
 }
 
 function liveFacts(facts: readonly Fact[]): Fact[] {
@@ -828,20 +1091,22 @@ function pushMap(map: Map<string, Fact[]>, key: string, fact: Fact): void {
   map.set(key, list);
 }
 
-function disagree(map: ReadonlyMap<string, Fact[]>, findings: Finding[], label: string): void {
+function disagreeAssign(map: ReadonlyMap<string, Fact[]>, findings: Finding[], label: string): void {
   for (const [key, group] of map) {
     if (group.length < 2) continue;
-    const states = new Set<string>();
+    const head = group[0];
+    if (head === undefined) continue;
+    let differ = false;
     for (const fact of group) {
-      if (fact.state !== undefined) states.add(fact.state);
+      if (!sameOptionalPatch(head.assign, fact.assign)) differ = true;
     }
-    if (states.size < 2) continue;
+    if (!differ) continue;
     findings.push({
       id: `contradicting:${label}:${key}`,
       kind: 'conflict',
       code: 'contradicting-facts',
       severity: 'warning',
-      message: `${key} has disagreeing ${label} states`,
+      message: `${key} has disagreeing ${label} assignments`,
       refs: refsOf(group),
     });
   }
@@ -850,15 +1115,6 @@ function disagree(map: ReadonlyMap<string, Fact[]>, findings: Finding[], label: 
 function refsOf(facts: readonly Fact[]): string[] {
   const refs: string[] = [];
   for (const fact of facts) refs.push(fact.id);
-  return refs;
-}
-
-function factRefs(fact: Fact): string[] {
-  const refs: string[] = [];
-  if (fact.actor !== undefined) refs.push(fact.actor);
-  if (fact.action !== undefined) refs.push(fact.action);
-  if (fact.object !== undefined) refs.push(fact.object);
-  if (fact.condition !== undefined) refs.push(fact.condition);
   return refs;
 }
 
@@ -884,21 +1140,15 @@ function findTagged(tagged: readonly TaggedSentence[], id: string): TaggedSenten
 }
 
 function sameFact(left: Fact, right: Fact): boolean {
-  return left.id === right.id
-    && left.type === right.type
-    && left.actor === right.actor
-    && left.action === right.action
-    && left.object === right.object
-    && left.from === right.from
-    && left.to === right.to
-    && left.condition === right.condition
-    && left.state === right.state
-    && left.origin === right.origin
-    && left.confidence === right.confidence
-    && left.status === right.status
-    && left.note === right.note
-    && left.removed === right.removed
-    && sameList(left.sources, right.sources);
+  if (left.id !== right.id || left.kind !== right.kind || left.origin !== right.origin) return false;
+  if (left.confidence !== right.confidence || left.status !== right.status || left.note !== right.note) return false;
+  if (left.removed !== right.removed || !sameList(left.sources, right.sources)) return false;
+  if (left.actor !== right.actor) return false;
+  if (isActionFact(left) && isActionFact(right)) {
+    return left.event === right.event && samePredicate(left.when, right.when) && samePatch(left.assign, right.assign);
+  }
+  if (left.kind === 'action' || right.kind === 'action') return false;
+  return sameOptionalPredicate(left.when, right.when) && sameOptionalPatch(left.assign, right.assign);
 }
 
 function sameList(left: readonly string[], right: readonly string[]): boolean {
@@ -907,4 +1157,197 @@ function sameList(left: readonly string[], right: readonly string[]): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+function copyPredicate(predicate: Predicate): Predicate {
+  if (predicate.op === 'true') return { op: 'true' };
+  if (predicate.op === 'eq' || predicate.op === 'neq') {
+    return { op: predicate.op, var: predicate.var, value: predicate.value };
+  }
+  if (predicate.op === 'not') return { op: 'not', of: copyPredicate(predicate.of) };
+  const of: Predicate[] = [];
+  for (const child of predicate.of) of.push(copyPredicate(child));
+  return { op: predicate.op, of };
+}
+
+function copyPatch(patch: Patch): Patch {
+  const next: Record<string, Value> = {};
+  for (const key of Object.keys(patch)) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    next[key] = value;
+  }
+  return next;
+}
+
+function samePredicate(left: Predicate, right: Predicate): boolean {
+  if (left.op !== right.op) return false;
+  if (left.op === 'true') return true;
+  if ((left.op === 'eq' || left.op === 'neq') && (right.op === 'eq' || right.op === 'neq')) {
+    return left.var === right.var && sameValue(left.value, right.value);
+  }
+  if (left.op === 'not' && right.op === 'not') return samePredicate(left.of, right.of);
+  if ((left.op === 'and' || left.op === 'or') && (right.op === 'and' || right.op === 'or')) {
+    if (left.of.length !== right.of.length) return false;
+    for (let index = 0; index < left.of.length; index += 1) {
+      const a = left.of[index];
+      const b = right.of[index];
+      if (a === undefined || b === undefined || !samePredicate(a, b)) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function samePatch(left: Patch, right: Patch): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    const a = left[key];
+    const b = right[key];
+    if (a === undefined || b === undefined || !sameValue(a, b)) return false;
+  }
+  return true;
+}
+
+function sameOptionalPredicate(left: Predicate | undefined, right: Predicate | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return samePredicate(left, right);
+}
+
+function sameOptionalPatch(left: Patch | undefined, right: Patch | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return samePatch(left, right);
+}
+
+function predicateKey(predicate: Predicate | undefined): string {
+  if (predicate === undefined) return '';
+  return JSON.stringify(predicateScalars(predicate));
+}
+
+function assignKeys(patch: Patch | undefined): string {
+  if (patch === undefined) return '';
+  return Object.keys(patch).sort().join(',');
+}
+
+function andAll(parts: readonly Predicate[]): Predicate {
+  if (parts.length === 0) return { op: 'true' };
+  const first = parts[0];
+  if (parts.length === 1 && first !== undefined) return first;
+  return { op: 'and', of: parts };
+}
+
+function rewritePredicateVar(predicate: Predicate, fromVar: string, toVar: string): { predicate: Predicate; changed: boolean } {
+  if (predicate.op === 'true') return { predicate, changed: false };
+  if (predicate.op === 'eq' || predicate.op === 'neq') {
+    if (predicate.var !== fromVar) return { predicate, changed: false };
+    return { predicate: { op: predicate.op, var: toVar as VarId, value: predicate.value }, changed: true };
+  }
+  if (predicate.op === 'not') {
+    const inner = rewritePredicateVar(predicate.of, fromVar, toVar);
+    if (!inner.changed) return { predicate, changed: false };
+    return { predicate: { op: 'not', of: inner.predicate }, changed: true };
+  }
+  const of: Predicate[] = [];
+  let changed = false;
+  for (const child of predicate.of) {
+    const next = rewritePredicateVar(child, fromVar, toVar);
+    of.push(next.predicate);
+    if (next.changed) changed = true;
+  }
+  if (!changed) return { predicate, changed: false };
+  return { predicate: { op: predicate.op, of }, changed: true };
+}
+
+function rewritePatchVar(patch: Patch, fromVar: string, toVar: string): { patch: Patch; changed: boolean } {
+  if (!Object.hasOwn(patch, fromVar)) return { patch, changed: false };
+  const next: Record<string, Value> = {};
+  for (const key of Object.keys(patch)) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    next[key === fromVar ? toVar : key] = value;
+  }
+  return { patch: next, changed: true };
+}
+
+function predicateUses(predicate: Predicate, name: string): boolean {
+  if (predicate.op === 'true') return false;
+  if (predicate.op === 'eq' || predicate.op === 'neq') return predicate.var === name;
+  if (predicate.op === 'not') return predicateUses(predicate.of, name);
+  for (const child of predicate.of) {
+    if (predicateUses(child, name)) return true;
+  }
+  return false;
+}
+
+function patchUses(patch: Patch, name: string): boolean {
+  return Object.hasOwn(patch, name);
+}
+
+function primaryObjectVar(assign: Patch, entities: readonly Entity[]): string | undefined {
+  for (const key of Object.keys(assign)) {
+    if (objectEntityForVar(key, entities) !== undefined) return key;
+  }
+  return Object.keys(assign)[0];
+}
+
+function objectEntityForVar(name: string, entities: readonly Entity[]): Entity | undefined {
+  for (const entity of entities) {
+    if (entity.kind !== 'object') continue;
+    if (varNameForEntity(entity) === name) return entity;
+  }
+  return undefined;
+}
+
+function eqValue(predicate: Predicate, name: string): Value | undefined {
+  if (predicate.op === 'eq' && predicate.var === name) return predicate.value;
+  if (predicate.op === 'and') {
+    for (const child of predicate.of) {
+      const value = eqValue(child, name);
+      if (value !== undefined) return value;
+    }
+  }
+  return undefined;
+}
+
+function booleanGuard(predicate: Predicate, entities: readonly Entity[]): string | undefined {
+  if (predicate.op === 'eq' && predicate.value.t === 'bool' && predicate.value.v === true) {
+    for (const entity of entities) {
+      if (entity.kind === 'condition' && varNameForEntity(entity) === predicate.var) return entity.id;
+    }
+  }
+  if (predicate.op === 'and') {
+    for (const child of predicate.of) {
+      const guard = booleanGuard(child, entities);
+      if (guard !== undefined) return guard;
+    }
+  }
+  return undefined;
+}
+
+function actorName(id: string, entities: readonly Entity[]): string | undefined {
+  return findEntity(entities, id)?.name;
+}
+
+function camelId(name: string): string {
+  const parts = name.split('-');
+  const first = parts[0] ?? 'spec';
+  let id = first;
+  for (let index = 1; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (part === undefined || part.length === 0) continue;
+    id += part.charAt(0).toUpperCase() + part.slice(1);
+  }
+  return id;
+}
+
+function typeOfValue(value: Value | undefined): ValueType {
+  if (value?.t === 'bool') return 'boolean';
+  if (value?.t === 'num') return 'number';
+  return 'atom';
+}
+
+function isScalar(value: unknown): value is JsonScalar {
+  return value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string';
 }

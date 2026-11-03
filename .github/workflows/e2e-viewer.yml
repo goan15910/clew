@@ -82,7 +82,7 @@ jobs:
             echo '| --- | --- |'
             echo '| Views | facts, entities, sentences (3) |'
             echo '| Entity kind | any, actor, object, action, condition (5) |'
-            echo '| Fact type | any, performs, transition, guard, initial, final, forbidden (7) |'
+            echo '| Fact kind | any, action, init, terminal, forbidden (5) |'
             echo '| Fact status | any, current, stale (3) |'
             echo '| Searches | empty, f1, customer, s1, approve, zzzz-no-match (6) |'
             echo

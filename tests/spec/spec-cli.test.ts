@@ -326,14 +326,14 @@ describe('spec commands', { concurrency: false }, () => {
       const session = specSessionDir('old', { CLEW_DATA_DIR: dir });
       const sessionPath = join(session, 'session.json');
       const stored = JSON.parse(readFileSync(sessionPath, 'utf8')) as { schemaVersion: number };
-      stored.schemaVersion = 2;
+      stored.schemaVersion = 1;
       writeFileSync(sessionPath, `${JSON.stringify(stored, null, 2)}\n`);
       const tag = clew(['spec', 'tag', '--json'], dir);
       assert.equal(tag.status, 2);
-      assert.match(tag.stderr, /schema 2/);
       assert.match(tag.stderr, /schema 1/);
+      assert.match(tag.stderr, /schema 2/);
       const after = JSON.parse(readFileSync(sessionPath, 'utf8')) as { schemaVersion: number };
-      assert.equal(after.schemaVersion, 2);
+      assert.equal(after.schemaVersion, 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

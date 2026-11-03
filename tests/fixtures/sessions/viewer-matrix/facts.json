@@ -1,133 +1,89 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "facts": [
     {
       "id": "f1",
-      "type": "performs",
-      "origin": "rule",
-      "confidence": 0.9,
-      "sources": [
-        "s1"
-      ],
-      "status": "current",
+      "kind": "action",
+      "event": "SUBMIT",
       "actor": "actor:customer",
-      "action": "action:submit"
+      "when": { "op": "eq", "var": "order", "value": null },
+      "assign": { "order": "submit" },
+      "origin": "rule",
+      "confidence": 0.5,
+      "sources": ["s1.t4", "s1.t6"],
+      "status": "current"
     },
     {
       "id": "f2",
-      "type": "performs",
-      "origin": "rule",
-      "confidence": 0.9,
-      "sources": [
-        "s1"
-      ],
-      "status": "current",
+      "kind": "action",
+      "event": "APPROVE",
       "actor": "actor:manager",
-      "action": "action:approve"
+      "when": {
+        "op": "and",
+        "of": [
+          { "op": "eq", "var": "order", "value": "submit" },
+          { "op": "eq", "var": "c1", "value": true }
+        ]
+      },
+      "assign": { "order": "approve" },
+      "origin": "rule",
+      "confidence": 0.6,
+      "sources": ["s1.t9", "s1.t11"],
+      "status": "current",
+      "note": "when inferred from the When-clause order"
     },
     {
       "id": "f3",
-      "type": "transition",
-      "origin": "rule",
-      "confidence": 0.5,
-      "sources": [
-        "s1.t4",
-        "s1.t6"
-      ],
-      "status": "current",
-      "action": "action:submit",
-      "object": "object:order",
-      "from": null,
-      "to": "submitted"
+      "kind": "init",
+      "assign": { "order": "draft" },
+      "origin": "agent",
+      "confidence": 1.0,
+      "sources": ["s1"],
+      "status": "current"
     },
     {
       "id": "f4",
-      "type": "transition",
-      "origin": "rule",
-      "confidence": 0.6,
-      "sources": [
-        "s1.t9",
-        "s1.t11"
-      ],
-      "status": "current",
-      "action": "action:approve",
-      "object": "object:order",
-      "from": "submitted",
-      "to": "approved",
-      "note": "from inferred from the When-clause order"
+      "kind": "terminal",
+      "assign": { "order": "approve" },
+      "origin": "agent",
+      "confidence": 1.0,
+      "sources": ["s1"],
+      "status": "stale"
     },
     {
       "id": "f5",
-      "type": "guard",
+      "kind": "forbidden",
+      "actor": "actor:clerk",
+      "when": { "op": "eq", "var": "package", "value": null },
+      "assign": { "package": "cancel" },
       "origin": "rule",
-      "confidence": 0.8,
-      "sources": [
-        "s1.t12"
-      ],
-      "status": "current",
-      "action": "action:approve",
-      "condition": "condition:c1"
+      "confidence": 0.85,
+      "sources": ["s2"],
+      "status": "current"
     },
     {
       "id": "f6",
-      "type": "initial",
-      "origin": "agent",
-      "confidence": 1.0,
-      "sources": [
-        "s1"
-      ],
-      "status": "current",
-      "object": "object:order",
-      "state": "draft"
+      "kind": "action",
+      "event": "CANCEL",
+      "actor": "actor:clerk",
+      "when": { "op": "eq", "var": "package", "value": null },
+      "assign": { "package": "cancel" },
+      "origin": "rule",
+      "confidence": 0.4,
+      "sources": ["s2"],
+      "status": "stale"
     },
     {
       "id": "f7",
-      "type": "final",
-      "origin": "agent",
-      "confidence": 1.0,
-      "sources": [
-        "s1"
-      ],
-      "status": "stale",
-      "object": "object:order",
-      "state": "approved"
-    },
-    {
-      "id": "f8",
-      "type": "forbidden",
-      "origin": "rule",
-      "confidence": 0.85,
-      "sources": [
-        "s2"
-      ],
-      "status": "current",
-      "actor": "actor:clerk",
-      "action": "action:cancel",
-      "object": "object:package"
-    },
-    {
-      "id": "f9",
-      "type": "performs",
-      "origin": "rule",
-      "confidence": 0.4,
-      "sources": [
-        "s2"
-      ],
-      "status": "stale",
-      "actor": "actor:clerk",
-      "action": "action:cancel"
-    },
-    {
-      "id": "f10",
-      "type": "guard",
+      "kind": "action",
+      "event": "APPROVE",
+      "actor": "actor:manager",
+      "when": { "op": "eq", "var": "order", "value": "submit" },
+      "assign": { "order": "approve" },
       "origin": "rule",
       "confidence": 0.2,
-      "sources": [
-        "s1"
-      ],
+      "sources": ["s1"],
       "status": "current",
-      "action": "action:approve",
-      "condition": "condition:c1",
       "removed": true
     }
   ]

@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { chartInteractive, workflowInteractive } from '../../src/application/interactive-graph.js';
 import { draftChains, draftCharts, draftLabelModel } from '../../src/domain/spec-graph-view.js';
 import { toWorkflowSetDraft } from '../../src/domain/spec-graph.js';
-import type { DraftGraph, Entity, Fact, Sentence, SpecSnapshot, TaggedSentence } from '../../src/domain/spec.js';
+import type { DraftGraph, Entity, Sentence, SpecSnapshot, TaggedSentence } from '../../src/domain/spec.js';
 import { SPEC_SCHEMA_VERSION } from '../../src/domain/spec.js';
+import { storedFacts } from './helpers/stored-facts.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const matrix = join(root, 'tests', 'fixtures', 'sessions', 'viewer-matrix');
@@ -63,7 +64,7 @@ function loadSnapshot(): SpecSnapshot {
     sentences: readJson<{ sentences: Sentence[] }>('sentences.json').sentences,
     tagged: readJson<{ sentences: TaggedSentence[] }>('tokens.json').sentences,
     entities: readJson<{ entities: Entity[] }>('entities.json').entities,
-    facts: readJson<{ facts: Fact[] }>('facts.json').facts,
+    facts: storedFacts(readJson<{ facts: unknown[] }>('facts.json').facts),
     graph,
   };
 }

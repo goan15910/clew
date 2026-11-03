@@ -1,6 +1,7 @@
 // Use case: derive entity candidates and list them.
 import { hasBlocking, type Entity, type EntityKind, type EntityStatus, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import { deriveEntities, entityFindings, sameEntities } from '../domain/spec-entities.js';
+import { rebuildFacts, sameFacts } from '../domain/spec-facts.js';
 import type { Outcome, SpecEntitiesDocument } from './documents.js';
 import { specInput } from './documents.js';
 import type { SpecStore } from './ports.js';
@@ -25,11 +26,13 @@ export function listEntities(command: ListEntitiesCommand, store: SpecStore): Ou
       return undefined;
     }
     const derived = deriveEntities(current.sentences, current.tagged, current.entities ?? []);
+    const rebuilt = rebuildFacts(current.sentences, current.tagged, derived.entities, current.facts ?? []);
     findings = [...derived.findings, ...entityFindings(filterEntities(derived.entities, command))];
-    if (sameEntities(current.entities, derived.entities)) return undefined;
+    if (sameEntities(current.entities, derived.entities) && sameFacts(current.facts, rebuilt.facts)) return undefined;
     const now = new Date().toISOString();
     const snapshot = copySnapshot(current, now);
     snapshot.entities = derived.entities;
+    snapshot.facts = rebuilt.facts;
     const ids: string[] = [];
     for (const entity of derived.entities) ids.push(entity.id);
     return {
@@ -81,7 +84,7 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
     tagged: current.tagged,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
-  if (current.facts !== undefined) snapshot.facts = current.facts;
+  if (current.spans !== undefined) snapshot.spans = current.spans;
   return snapshot;
 }
 
