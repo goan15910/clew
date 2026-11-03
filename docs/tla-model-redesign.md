@@ -1,6 +1,8 @@
 # TLA+ model redesign (Clew)
 
-> **Status.** Design for stacked PRs. Arena base = candidate 2. Grafts from candidates 1 and 3. Do not merge until Jeff reviews.
+> **Status.** Design for stacked PRs. Do not merge until Jeff reviews.
+>
+> **Arena.** Cross-judge ([judge](bc-c2f16294-9b55-5fc7-a64e-00cf5a50bb94)) scored C1 29, C2 25, C3 22 and recommended C1. Shipping base stays **C2’s CLI surface** (`chart` / `workflows` / `spec`, separate files) already opened in #44–#45. Absorb C1’s pipeline and stack-green rules, and the judge’s deal-breaker fixes for C2.
 >
 > **Identity.** A state is one complete valuation of the closed variable set. Labels, workflow node ids, and fact ids are not identity. Equal valuations are the same state.
 >
@@ -98,13 +100,19 @@ flowchart TD
 >
 > **Labels.** Optional. Match a patch (or full valuation). Ambiguous label → finding. Labels never feed `step` or `valuationId`.
 >
-> **Workflow node.** `id` = visit. `assign` = full valuation after the step. Emit writes full maps. Hand-authored YAML may use a label or a partial map; verify resolves to exactly one reachable valuation or reports `name-gap` / `ambiguous-state`.
+> **Workflow node.** `id` = visit. `assign` = **full valuation only** (no label or partial at verify time). Emit always writes full maps. Labels are display on the spec, never node identity.
 >
-> **Sessions.** Global per OS user (`CLEW_DATA_DIR` / XDG). Project-agnostic. Spec schema version 2. Delete persisted `graph.json` on first v2 write; keep a flows overlay for agent split/group.
+> **Verify start.** Accepted flows must begin at a valuation reachable from `initial` (usually `initial` itself). Starting at an unreachable valuation fails. This closes the C2 sample-trace hole the cross-judge flagged.
+>
+> **Sessions.** Global per OS user (`CLEW_DATA_DIR` / XDG). Project-agnostic. Spec schema version 2. Delete persisted `graph.json` on first v2 write; recompute model/reach on read; keep flows overlays keyed by fact id for agent split/group.
 >
 > **Parse boundary.** Zod only in YAML/JSON loaders and the store. Domain builds field by field. No `**` object unpacking.
 >
 > **XState.** View/analyze projection only. Verify uses domain `step`. `provedBy: 'next-state'`.
+>
+> **Empty assign.** An action’s `assign` is non-empty (`NonEmptyAssignments`). Stutter is implicit, not an authored no-op action.
+>
+> **Stack green.** Each PR keeps the default product check green. Prefer C1’s “existing todo node states become labels on the migrated chart” for PR2 over skipped verify tests.
 
 ## Usage sketch
 
@@ -137,13 +145,13 @@ edges:
   - { from: n1, event: SUBMIT, to: n2, text: "…" }
 ```
 
-Fact shapes after entities:
+Fact shapes after entities (discriminated union; no `performs` join):
 
-- **ActionFact.** `event`, `actor?`, `when` (predicate), `assign` (patch). Signature includes event + when + assign keys.
+- **ActionFact.** `event`, `actor`, `when` (predicate), `assign` (non-empty patch). Actor lives on the action fact. Signature includes event + when + assign keys.
 - **ConfigurationFact.** `init` | `terminal` | `forbidden` over a predicate or attempted assign.
-- Deleted as first-class kinds: vocabulary `from`/`to` strings, lone `performs`/`transition`/`guard` without assign.
+- Deleted: vocabulary `from`/`to` strings; separate `performs` / `transition` / `guard` kinds that join by action name.
 
-`rebuildFacts` runs inside every entity command write. `proposeFacts` fills ActionFacts from SVO frames: object vars default `null` until assigned; action lemma → event; condition entities → boolean vars (so “else” is a value, not a missing fact).
+`rebuildFacts` runs inside every entity command write. `proposeFacts` fills ActionFacts from SVO frames: object vars default `null` until assigned; action lemma → event; condition entities → boolean vars (so “else” is a value, not a missing fact). `specFromFacts` / `modelFromFacts` produce the **same** `Spec` / draft the YAML loader parses.
 
 ## Module map
 
@@ -174,9 +182,9 @@ flowchart LR
 |----|----------|-------|
 | **0** | This doc in repo `docs/tla-model-redesign.md` | Doc-only review |
 | **1** | `domain/valuation.ts` + unit tests | Same pairs → same id; `apply` leaves others equal |
-| **2** | `clew.spec.v1` loader; todo example rewritten; reject location charts | `chart check` on new todo; old YAML fails with hint |
-| **3** | Workflow `assign`; verify via `step`; XState view-only | `verify` todo round-trip; bad assign fails |
-| **4** | Fact schema v2; `rebuildFacts` on entity writes; propose writes patches | Promote changes facts; no `pastParticiple` `to` |
+| **2** | `clew.spec.v1` loader; todo rewritten; reject location charts; keep verify green via labels on migrated chart | `chart check` + existing todo `verify` still pass |
+| **3** | Workflow full `assign`; verify via `step` + reachable-from-initial; XState view-only | `verify` round-trip; unreachable start fails; bad assign fails |
+| **4** | Fact schema v2 (ActionFact / ConfigurationFact); `rebuildFacts`; no `performs` join | Promote changes facts; no `pastParticiple` `to` |
 | **5** | Unfold, emit workflows + `--chart`, drop `graph.json`, delete `stale-graph` | emit → verify without hand location chart |
 | **6** | Synthetic always-on CI harness | init→emit on synthetic fixture; no private corpus |
 
@@ -188,4 +196,10 @@ flowchart LR
 
 ## Arena note
 
-Base candidate 2. Grafted C1 explore/witness, condition-as-bool, emit chart, partial state resolution. Grafted C3 ActionFact/ConfigurationFact wording. Rejected C3 `clew behavior` rename and single-file chart+workflows merge (keeps documented `chart` / `workflows` / `spec` commands).
+Cross-judge recommended C1. Kept C2 product shape (separate chart/workflows/spec files and CLI nouns) because #44/#45 already ship on that surface and C3’s `clew behavior` bundle removes the independent chart oracle.
+
+Absorbed from C1: `explore`/`witness`, condition-as-bool vars, `modelFromFacts` ≡ loader draft, emit `--chart`, stack-green PR2 label trick, Init as a set when YAML lists multiple initials.
+
+Absorbed from judge vs C2: drop `performs` join; full valuations only on workflow nodes; verify reachable-from-initial; no persisted authoritative `graph.json`; committed baseline JSON counts.
+
+Absorbed from C3: ActionFact/ConfigurationFact; `NonEmptyAssignments`; stable attempt ids from fact id + source key. Rejected C3 mega-PRs, forbidden-as-pseudo-action, and agent-typed variables before auto propose.
