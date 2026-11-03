@@ -42,7 +42,7 @@ clew spec entities rename --id <id> (--name <name> | --text <text>) [--session <
 clew spec entities reject --id <id> [--reason <text>] [--session <id>] [--json]
 clew spec entities promote --id <id> [--kind actor] [--session <id>] [--json]
 clew spec facts propose [--sentence <id>] [--session <id>] [--json]
-clew spec facts add (--type <type> ... | --from <file.json>) [--session <id>] [--json]
+clew spec facts add (--kind <kind> ... | --from <file.json>) [--session <id>] [--json]
 clew spec facts edit (--id <id> ... | --from <file.json>) [--session <id>] [--json]
 clew spec facts remove (--id <id> ... | --from <file.json>) [--session <id>] [--json]
 clew spec graph build [--session <id>] [--json]
@@ -114,7 +114,7 @@ Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling 
 
 `history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, propose records live fact ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec facts propose`, and `spec graph build` have an empty `before`.
 
-`session.json` carries `schemaVersion`. This Clew reads schema 1. A different version is exit 2 and names the missing migration. The store adapter is the only place that validates that JSON with Zod.
+`session.json` carries `schemaVersion`. This Clew reads schema 2. A different version is exit 2 and names the missing migration. There is no migration from schema 1. The store adapter is the only place that validates that JSON with Zod.
 
 Every spec document has `findings`. A finding is `{ id, kind, code, severity, message, refs }`. `kind` is `gap`, `conflict`, `stale`, `vocabulary`, or `coverage`. `severity` is `blocking`, `warning`, or `info`. `ok` means the layer was produced. It stays true when findings are present. Exit 0 means no blocking finding. Exit 1 means a blocking finding is in the document, and stderr stays empty. Warnings and info do not change the exit code.
 
@@ -164,15 +164,16 @@ Latin-script languages are not detected. Translate those to plain English before
 | `normalized-name` | info | the written name was normalized |
 | `stale-fact` | warning | rejecting an entity marked the facts that cite it stale |
 
-`spec facts propose` drafts facts from subject-verb-object frames, clause order, and condition markers. It does not overwrite `origin: agent`. A disagreement is `agent-fact`. Running it again, when nothing changed, does not append history. `--sentence s1` limits the proposal to that sentence. Emission order inside a sentence is performs, then transitions, then forbidden, then guards. The first transition on an object has `from: null` and confidence 0.5. A later transition in a When sentence takes the previous `to` as `from`, confidence 0.6. A past participle is the `to` state (`submit` becomes `submitted`; `ship` becomes `shipped`; a surface form such as `cancelled` is kept). `before` and `after` on a propose history line are the live fact ids, omitting removed tombstones. The first propose has an empty `before`. A forbidden fact for the same object and action is the rejected path, not a `contradicting-facts` warning. Disagreeing transitions, and disagreeing initial or final states, still warn. Negation (`cannot`, `not`, `never`) emits `forbidden` instead of a transition, and still emits `performs`. Passive voice takes the noun before the verb as the object and the actor after “by”. `initial` and `final` are not proposed. Removed facts stay in the store as tombstones (`removed: true`, `status: stale`, `origin: agent`) so a later propose does not recreate that signature. Documents omit removed facts. Adding a fact with a removed signature revives that id. Adding a live duplicate signature is a blocking `contradicting-facts` finding and does not write.
+`spec entities list` and every entity edit (`merge`, `rename`, `reject`, `promote`) also run `rebuildFacts` in the same store write, so facts follow the live entities. `spec facts propose` is the same rebuild, invoked on its own. It does not overwrite `origin: agent`. A disagreement is `agent-fact`. Running it again, when nothing changed, does not append history. `--sentence s1` limits the proposal to that sentence.
 
-`spec facts add`, `edit`, and `remove` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. `--from-state` and `--to-state` name transition states, because `--from` is the patch file. `--source` and `--id` are repeatable on the commands that accept them. Confidence is a number from 0 to 1. An edit sets confidence to 1 unless the patch sets it. An unknown fact id is exit 2. A well-formed entity id that is not in the session is a blocking finding, not an input issue.
+Facts are a discriminated union. An `action` fact has `event` (UPPER_SNAKE from the action lemma), `actor`, `when` (a predicate), and a non-empty `assign` patch. `init`, `terminal`, and `forbidden` are configuration facts over a predicate or an attempted assign. There is no `performs` / `transition` / `guard` join by action name, and no vocabulary `from` / `to` location strings. Object vars start as `null` until assigned. A later action in the same sentence takes the previous assign as `when`. Condition entities become boolean vars (`eq c1 true`), so the false value is the else. The assign atom is the action lemma (`submit`, `ship`, `cancel`), not a past participle. Negation emits `forbidden` instead of an action. Passive voice takes the noun before the verb as the object and the actor after “by”. `init` and `terminal` are not proposed. Removed facts stay in the store as tombstones (`removed: true`, `status: stale`, `origin: agent`) so a later propose does not recreate that signature. Documents omit removed facts. Adding a fact with a removed signature revives that id. Adding a live duplicate signature is a blocking `contradicting-facts` finding and does not write.
+
+`spec facts add`, `edit`, and `remove` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. `--kind` is `action`, `init`, `terminal`, or `forbidden`. `--when` and `--assign` are JSON. `--from` is only the patch file. `--source` and `--id` are repeatable on the commands that accept them. Confidence is a number from 0 to 1. An edit sets confidence to 1 unless the patch sets it. An unknown fact id is exit 2. A well-formed entity id that is not in the session is a blocking finding, not an input issue.
 
 `spec facts propose` findings:
 
 | Code | Severity | When |
 |---|---|---|
-| `transition-without-from` | warning | a current transition still has `from: null` |
 | `unused-entity` | warning | a live entity is not cited by a current fact |
 | `action-without-actor` | warning | a frame has an action and no actor |
 | `action-without-object` | warning | a frame has an action and no object |
@@ -201,7 +202,7 @@ These commands leave the session and `history.jsonl` unchanged, and `updated` st
 
 Exit 0 means the requested layer has been written. An empty entity list and an empty fact list are written. Exit 2 means the layer has not been written, the session is missing, the session is locked, or the arguments are wrong. The exit is 0 or 2.
 
-The stderr message names only the first missing layer. Tagged sentences and unique tokens need the tag layer, and the message is `no tokens; run clew spec tag first`. Entities need that layer, then a written entity list. When the tag layer is missing, the message is the tag sentence. When the entity list is missing, the message is `no entities; run clew spec entities list first`. Facts need the tag layer, then entities, then a written fact list. The messages follow that order. When the fact list is missing, the message is `no facts; run clew spec facts propose first`.
+The stderr message names only the first missing layer. Tagged sentences and unique tokens need the tag layer, and the message is `no tokens; run clew spec tag first`. Entities need that layer, then a written entity list. When the tag layer is missing, the message is the tag sentence. When the entity list is missing, the message is `no entities; run clew spec entities list first`. Facts need the tag layer, then entities, then a written fact list. The messages follow that order. `spec entities list` writes facts, so after list the fact list is present. When the fact list is missing, the message is `no facts; run clew spec entities list first`.
 
 `spec init` writes an empty `tokens.json` and leaves the tagger unset. That file is not a tag layer. The tag layer is written when the session has a tagger, or when any tagged sentence has tokens.
 
@@ -219,12 +220,12 @@ The stderr message names only the first missing layer. Tagged sentences and uniq
 | `stale-fact` | warning | a fact is stale |
 | `transition-without-from` | warning | status still sees a current transition with no source state |
 | `entities-absent` | info | `spec entities list` has not been run |
-| `facts-absent` | info | `spec facts propose` or an edit has not been run |
+| `facts-absent` | info | `spec entities list` has not written facts yet |
 | `graph-absent` | info | `spec graph build` has not been run |
 
-`spec graph build` reads the current facts and writes `graph.json`. Schema version stays 1; a session from an earlier slice still opens, and `graph.json` appears only after a build. Running build again, when the graph and the paths are unchanged, does not append history. A build history line’s `before` lists the flow ids already stored, and `after` lists the flow ids written. The first build has an empty `before`. Split and group record the same way: every flow id before the edit, then every flow id after it. Transition ids stay with the fact that produced them (`tr1` keeps the fact `f3`). A fact that no longer matches is not given a retired id. States are the `from` and `to` of each transition, then any `initial` or `final` fact. A state’s `facts` list every current initial, final, or transition fact that names that state, sorted by fact number. A transition with `from: null` is left out, with a blocking `transition-without-from` finding.
+`spec graph build` reads the current facts and writes a temporary overlay `graph.json`. Schema version is 2. A schema 1 session is exit 2 with no migration. `graph.json` appears only after a build, and an entity write that omits the graph unlinks it. Running build again, when the graph and the paths are unchanged, does not append history. A build history line’s `before` lists the flow ids already stored, and `after` lists the flow ids written. The first build has an empty `before`. Split and group record the same way. Transition ids stay with the action fact that produced them (`tr1` keeps `f1`). Overlay `from` and `to` are assign atoms (the action lemma, not a past participle). Overlay `event` is the ActionFact event (`SUBMIT`). An action whose `when` is still `null` for the object var is left out, with a blocking `transition-without-from` finding.
 
-The path cover is one accepted flow per provable transition (`Submit order` for event `submit` on object `order`) and one rejected flow per `forbidden` fact (`Cannot approve order`, `rejectAt` 1). A guarded transition with no else is not given an accepted flow, because that path cannot be proved. `guard-without-else` stays blocking and is not also reported as `uncovered-transition`. Once a forbidden fact or another guard supplies the else, the accepted flow is proposed and can be grouped. A forbidden fact that matches a transition cites that transition. A forbidden fact with no transition is a rejected flow with an empty transition list; emit draws it from the object’s initial state to the past participle (`cancel` to `cancelled`) and uses the source sentence as the edge text. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden fact, keep their ids.
+The path cover is one accepted flow per provable transition (`Submit order` for event `SUBMIT` on object `order`) and one rejected flow per `forbidden` fact (`Cannot approve order`, `rejectAt` 1). A condition entity is a boolean var, so the false value is the else and `guard-without-else` is not raised for `condition:` guards. A forbidden fact that matches a transition cites that transition. A forbidden fact with no transition is a rejected flow with an empty transition list; emit draws it from the object’s initial state to the attempted assign atom (`cancel`) and uses the source sentence as the edge text. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden fact, keep their ids.
 
 `spec graph split --id W1 --at 2` cuts an accepted path before the second edge. `--at tr2` names that edge instead. The first path keeps `W1`. The second path gets the next workflow id. Both become `origin: agent`. A rejected path is a blocking `rejected-split` and is not written. A cut that would leave a path with no edge is `unsplittable` and is not written. An unknown flow or split point is exit 2.
 
@@ -236,7 +237,7 @@ The path cover is one accepted flow per provable transition (`Submit order` for 
 
 | Code | Severity | When |
 |---|---|---|
-| `transition-without-from` | blocking | a transition fact still has no source state, so it is omitted |
+| `transition-without-from` | blocking | an action fact still has no source valuation, so it is omitted |
 | `guard-without-else` | blocking | a guarded transition has no other guard on the same state and event, and no forbidden fact for that object and action |
 | `self-loop` | blocking | a transition’s source and target are the same state |
 | `vocabulary` | blocking | a state name is not workflow vocabulary |
@@ -555,7 +556,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 }
 ```
 
-`spec.facts.propose`. `from: null` means the rule did not see a source state. The agent supplies one with `spec facts edit --id f3 --from-state draft`. This excerpt omits the warning findings that proposal usually returns.
+`spec.facts.propose`. The first action `when` is `order: null`. The agent supplies a source valuation with `spec facts edit --id f1 --when '{"op":"eq","var":"order","value":"draft"}'`. This excerpt omits the warning findings that proposal usually returns.
 
 ```json
 {
@@ -563,9 +564,8 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
   "ok": true,
   "session": "order-sentence",
   "facts": [
-    { "id": "f1", "type": "performs", "actor": "actor:customer", "action": "action:submit", "origin": "rule", "confidence": 0.9, "sources": ["s1"], "status": "current" },
-    { "id": "f3", "type": "transition", "object": "object:order", "action": "action:submit", "from": null, "to": "submitted", "origin": "rule", "confidence": 0.5, "sources": ["s1.t4", "s1.t6"], "status": "current" },
-    { "id": "f5", "type": "guard", "action": "action:approve", "condition": "condition:c1", "origin": "rule", "confidence": 0.8, "sources": ["s1.t12"], "status": "current" }
+    { "id": "f1", "kind": "action", "event": "SUBMIT", "actor": "actor:customer", "when": { "op": "eq", "var": "order", "value": null }, "assign": { "order": "submit" }, "origin": "rule", "confidence": 0.5, "sources": ["s1.t4", "s1.t6"], "status": "current" },
+    { "id": "f2", "kind": "action", "event": "APPROVE", "actor": "actor:manager", "when": { "op": "and", "of": [{ "op": "eq", "var": "order", "value": "submit" }, { "op": "eq", "var": "c1", "value": true }] }, "assign": { "order": "approve" }, "origin": "rule", "confidence": 0.6, "sources": ["s1.t9", "s1.t11"], "status": "current" }
   ],
   "findings": [],
   "issues": []
@@ -581,13 +581,13 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
   "command": "spec.trace",
   "ok": true,
   "session": "order-sentence",
-  "id": "f6",
+  "id": "f3",
   "chain": [
-    { "layer": "fact", "id": "f6", "type": "initial", "status": "current", "origin": "agent", "refs": [] },
+    { "layer": "fact", "id": "f3", "type": "init", "status": "current", "origin": "agent", "refs": [] },
     { "layer": "entity", "id": "object:order", "kind": "object", "name": "order" }
   ],
   "findings": [
-    { "id": "orphan:f6", "kind": "coverage", "code": "orphan", "severity": "warning", "message": "f6 has no sentence source", "refs": ["f6"] }
+    { "id": "orphan:f3", "kind": "coverage", "code": "orphan", "severity": "warning", "message": "f3 has no sentence source", "refs": ["f3"] }
   ],
   "issues": []
 }
@@ -665,7 +665,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
 }
 ```
 
-`spec.graph.build` after the agent sets `f3`’s source to `draft` and adds an initial fact. `approved` is not final, and the guard on `tr2` has no else, so the exit is 1. This excerpt keeps those two findings.
+`spec.graph.build` after the agent sets `f1`’s `when` to `draft` and adds an `init` fact. `approve` is not final, so the exit is 0 with a warning. Boolean condition vars do not raise `guard-without-else`.
 
 ```json
 {
@@ -675,27 +675,27 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
   "graph": {
     "objects": ["order"],
     "states": [
-      { "id": "draft", "object": "order", "initial": true, "facts": ["f3", "f6"] },
-      { "id": "submitted", "object": "order", "facts": ["f3", "f4"] },
-      { "id": "approved", "object": "order", "facts": ["f4"] }
+      { "id": "draft", "object": "order", "initial": true, "facts": ["f1", "f3"] },
+      { "id": "submit", "object": "order", "facts": ["f1", "f2"] },
+      { "id": "approve", "object": "order", "facts": ["f2"] }
     ],
     "transitions": [
-      { "id": "tr1", "from": "draft", "event": "submit", "to": "submitted", "actor": "customer", "object": "order", "fact": "f3", "facts": ["f1", "f3"] },
-      { "id": "tr2", "from": "submitted", "event": "approve", "to": "approved", "actor": "manager", "guard": "condition:c1", "object": "order", "fact": "f4", "facts": ["f2", "f4", "f5"] }
+      { "id": "tr1", "from": "draft", "event": "SUBMIT", "to": "submit", "actor": "customer", "object": "order", "fact": "f1", "facts": ["f1"] },
+      { "id": "tr2", "from": "submit", "event": "APPROVE", "to": "approve", "actor": "manager", "guard": "condition:c1", "object": "order", "fact": "f2", "facts": ["f2"] }
     ]
   },
   "flows": [
-    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["tr1"], "origin": "rule" }
+    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["tr1"], "origin": "rule" },
+    { "id": "W2", "title": "Approve order", "expect": "accepted", "transitions": ["tr2"], "origin": "rule" }
   ],
   "findings": [
-    { "id": "no-final-state:order:approved", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approved has no outgoing transition and is not marked final", "refs": ["approved"] },
-    { "id": "guard-without-else:tr2", "kind": "gap", "code": "guard-without-else", "severity": "blocking", "message": "approve is guarded by c1 (the total is under 500 dollars); nothing says what happens to a submitted order otherwise", "refs": ["tr2", "f4", "condition:c1"] }
+    { "id": "no-final-state:order:approve", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approve has no outgoing transition and is not marked final", "refs": ["approve"] }
   ],
   "issues": []
 }
 ```
 
-`spec.emit --dry-run` for that graph. The guarded approve transition is not an accepted flow, so the set contains only W1. `workflowSet` is that set as structured views, including each node's `assign`. The findings match the build, and they are omitted here. No file is written. Grouping W1 with an approve flow waits until a forbidden fact or another guard supplies the else. `--force` with `--out` writes the YAML even while `guard-without-else` is open, sets `forced: true`, and still exits 1.
+`spec.emit --dry-run` for that graph. Both transitions are accepted flows. `workflowSet` is that set as structured views, including each node's `assign`. The findings match the build, and they are omitted here. No file is written.
 
 ```json
 {
@@ -714,22 +714,22 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
         "start": "draft",
         "nodes": [
           { "id": "draft", "assign": { "phase": "draft" }, "state": "draft" },
-          { "id": "submitted", "assign": { "phase": "submitted" }, "state": "submitted" }
+          { "id": "submit", "assign": { "phase": "submit" }, "state": "submit" }
         ],
         "edges": [
           {
             "from": "draft",
             "event": "SUBMIT",
-            "to": "submitted",
+            "to": "submit",
             "text": "The customer submits an order",
             "stateFrom": "draft",
-            "stateTo": "submitted"
+            "stateTo": "submit"
           }
         ]
       }
     ]
   },
-  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", assign: { phase: \"draft\" } }\n      - { id: \"submitted\", assign: { phase: \"submitted\" } }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submitted\", text: \"The customer submits an order\" }\n",
+  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", assign: { phase: \"draft\" } }\n      - { id: \"submit\", assign: { phase: \"submit\" } }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submit\", text: \"The customer submits an order\" }\n",
   "findings": [],
   "issues": []
 }
