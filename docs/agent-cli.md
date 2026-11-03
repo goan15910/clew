@@ -8,13 +8,15 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 
 **`compare` is kept, and it no longer replays.** It ranks JSON documents produced by `clew verify --json`. An agent verifies each candidate, then compares those documents. The candidate name is the chart file’s basename (`examples/todo/b-full.yaml` is `b-full`), carried on the verify document, because two charts can share one chart id.
 
-**Chart and workflow names match directly.** There is no mapping file. A workflow node's `state` is the chart state id, and an edge's `event` is the chart event. `verify` compares those strings exactly. A selected workflow whose state is not on the chart exits 2 with fault `name-gap` and a message that names the missing state. An event the chart never declares does not stop the command: that flow fails (exit 1) and the other selected flows still run. That is why `a-basic` fails W6, W7, and W8 while `b-full` passes all eight. States a selected flow does not use are not checked. Chart ids and workflow-set ids are not compared.
+**A workflow node is a full valuation.** `assign` names every spec var. `verify` replays each edge with domain `step` and `can`, and compares `valuationId`. An assign that is missing a var, names an unknown var, or fails a type check is exit 2 with fault `name-gap`. An event the spec never enables fails only that flow (exit 1). That is why `a-basic` fails W6, W7, and W8 while `b-full` passes all eight. Chart ids and workflow-set ids are not compared.
 
-**Naming contract between workflow sets and charts.** Spec sessions and the draft graph keep kebab-case words (`mark-shipped`, `in-progress`). `spec emit` is the translation onto the chart. A node's `state` becomes a camelCase chart id (`markShipped`, `inProgress`). An edge's `event` becomes `UPPER_SNAKE` (`MARK_SHIPPED`). A token that is already in that form is left as it is, so `inProgress` does not become `inprogress` and `SUBMIT` stays `SUBMIT`. Node ids, and edge `from`, `to`, and `start`, stay kebab-case. `verify` then matches those `state` and `event` strings to the chart exactly. A chart written by hand uses the same ids and events, so an emitted set and that chart name the same things.
+**Accepted flows start reachable from `initial`.** The first node's assign must be a valuation `explore` can reach from the spec's initial valuation. Starting at an unreachable valuation fails that flow. Labels are display on the spec and on traces. They never feed `step` or `valuationId`.
+
+**Naming contract between workflow sets and charts.** Spec sessions and the draft graph keep kebab-case words (`mark-shipped`, `in-progress`). `spec emit` writes a node's `assign` and an edge's `event` as `UPPER_SNAKE` (`MARK_SHIPPED`). Node ids, and edge `from`, `to`, and `start`, stay kebab-case. Emit currently writes `{ phase: <chartStateId> }`, which verifies against a one-var spec.
 
 **The first analyses are the chart-only checks already in Clew:** states reachable from the initial state, unreachable states, dead ends (non-final states with no outgoing transition), and the shortest event path to each reachable state. Transitions no selected flow exercises are reported by `verify`, because that check needs a workflow set. Further analyses are not in this command set.
 
-**A workflow set is a meta-graph of named linked lists.** The file has an `id` and a `workflows` array. Each workflow has a unique `id` (the sub-graph name), nodes, and edges. Node ids are unique inside that workflow. A node’s `state` is the chart state id, so a list may visit the same state twice under two node ids. Edges form a single path from `start`: one head, one outgoing edge, one incoming edge, no cycles, no disconnected nodes. Walk order follows the links, not the order of the YAML list. There is no reader for the old `machineId` / `steps` / `end` shape. Those files fail schema validation with a migration hint.
+**A workflow set is a meta-graph of named linked lists.** The file has an `id` and a `workflows` array. Each workflow has a unique `id` (the sub-graph name), nodes, and edges. Node ids are unique inside that workflow. A node's `assign` is a full valuation, so a list may visit the same phase twice under two node ids with different maps. Edges form a single path from `start`: one head, one outgoing edge, one incoming edge, no cycles, no disconnected nodes. Walk order follows the links, not the order of the YAML list. There is no reader for the old `machineId` / `steps` / `end` shape, or for a node `state` field. Those files fail schema validation with a migration hint.
 
 **`machineId` is not compared.** It was removed. The workflow set has its own `id`. `verify` does not compare that id to the chart id.
 
@@ -298,7 +300,7 @@ Unknown ids, a failing check document, and a file that is neither shape are exit
 |---|---|
 | 0 | Chart schema and graph are valid; or the analysis is clean; or the workflow set is valid; or every selected flow passed; or compare has a winner; or a spec command left no blocking findings |
 | 1 | Schema or graph is invalid; or the analysis found an unreachable state or a dead end; or a selected flow failed; or compare has no winner; or a spec command reported a blocking finding |
-| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; a workflow state is not on the chart; the selection names a missing flow; the spec file, session, or id cannot be read |
+| 2 | The file is missing or is not YAML/JSON; arguments are wrong; the chart is too invalid to analyze; a node assign is not a total valuation of the spec; the selection names a missing flow; the spec file, session, or id cannot be read |
 
 Schema is checked before the graph. Graph findings are produced only after the schema is valid (`graphChecked` tells them apart). YAML and JSON syntax errors are exit 2: there is no document to judge yet.
 
@@ -306,7 +308,7 @@ On exit 2 the messages go to stderr. `--json` also prints a document on stdout. 
 
 ## Data model
 
-**Chart.** Unchanged aside from the removed `workflowState` field: `id`, `initial`, `guards`, `effects`, `states` (`id`, `label`, `final`, `data`), `transitions` (`from`, `event`, `to`, `actor`, `guard`, `effect`). State ids are camelCase. Events are `UPPER_SNAKE_CASE`.
+**Chart.** `kind: clew.spec.v1` with `id`, `vars`, a total `initial` valuation, guarded `actions`, and optional `labels`. Location-id charts fail schema. Events are `UPPER_SNAKE_CASE`. Variable ids are `lower_snake_case`. `chart check` reports that sketch. `chart analyze` and `chart view` still project labels to a flat location picture for XState. `verify` does not.
 
 **Workflow set.**
 
@@ -316,25 +318,23 @@ workflows:
   - id: W2
     title: Snooze and resume
     expect: accepted
-    start: edit
+    start: working
     nodes:
-      - { id: edit, state: draft }
-      - { id: working, state: inProgress }
-      - { id: snoozed, state: snoozed }
-      - { id: resumed, state: inProgress }
+      - { id: working, assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null } }
+      - { id: snoozed, assign: { phase: snoozed, listed: true, title: task, started_at: set, completed_at: null, wake_at: set, deleted_at: null } }
+      - { id: resumed, assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null } }
     edges:
-      - { from: edit, event: SUBMIT, to: working, text: "Start it" }
       - { from: working, event: SNOOZE, to: snoozed, text: "Snooze" }
       - { from: snoozed, event: RESUME, to: resumed, text: "Resume" }
 ```
 
-`expect: rejected` adds `rejectAt` (1-based index in walk order) and must not be combined with an accepted flow. Workflow ids match `^[A-Za-z][A-Za-z0-9_-]*$`. Node ids match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. State names match `^[a-z][A-Za-z0-9]*(-[a-z0-9]+)*$`, so a camelCase chart id (`draft`, `inProgress`) is valid, and lowercase kebab-case still loads. Events match `^(?:[A-Z][A-Z0-9_]*|[a-z][a-z0-9]*(-[a-z0-9]+)*)$`, so a chart event (`SUBMIT`) is valid, and lowercase kebab-case still loads. `spec emit` writes only the chart form of those fields. Kebab-case still loads so an older file or a name-gap fixture can be read; `verify` then requires the exact chart string.
+`expect: rejected` adds `rejectAt` (1-based index in walk order) and must not be combined with an accepted flow. Workflow ids match `^[A-Za-z][A-Za-z0-9_-]*$`. Node ids match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. Events match `^(?:[A-Z][A-Z0-9_]*|[a-z][a-z0-9]*(-[a-z0-9]+)*)$`. `assign` is a map of spec vars to scalars. Completeness against the spec is checked at `verify` time.
 
-`verify` uses the strings as written. A workflow state that is not a chart state id is exit 2, fault `name-gap`, and the message names that state. The verify document then has no `flows`. An event the chart never declares is replayed anyway, and only that flow fails (exit 1). `a-basic` never declares `RESTORE`, so W6 fails and W1 still passes. A flow may start at any chart state. Flows that start at the chart’s initial state are also proved with `@xstate/graph` `getPathsFromEvents`. Other flows are proved by replay.
+`verify` replays with `step`. `provedBy` is `next-state`. XState is not on this path. An assign that is not a total valuation of the spec is exit 2, fault `name-gap`, and the verify document has no `flows`. An event the spec never enables fails only that flow (exit 1). `a-basic` never declares `RESTORE`, so W6 fails and W1 still passes. An accepted flow whose start is not reachable from `initial` fails.
 
 ## JSON documents
 
-These are shapes. Captured command output is in the pull request. Every `--json` document has `command` and `ok`. `issues` is an array of `{ "kind", "file", "path", "message" }`. `kind` is `schema`, `graph`, or `input`. A name gap is `graph`. A verify trace lists every attempted step. Each step still has `workflow` and `chart`, each `{ from, event, to }`. Those strings are equal, because the names match directly. On a refused step, both `to` values are null.
+These are shapes. Captured command output is in the pull request. Every `--json` document has `command` and `ok`. `issues` is an array of `{ "kind", "file", "path", "message" }`. `kind` is `schema`, `graph`, or `input`. A name gap is `graph`. A verify trace lists every attempted step. Each step still has `workflow` and `chart`, each `{ from, event, to }`. Those strings are label ids when a label uniquely matches the valuation. On a refused step, both `to` values are null.
 
 `chart.check`, valid:
 
@@ -345,9 +345,10 @@ These are shapes. Captured command output is in the pull request. Every `--json`
   "graphChecked": true,
   "chart": {
     "id": "todoTask",
-    "initial": "draft",
-    "states": [{ "id": "draft", "label": "Draft", "final": false }],
-    "transitions": [{ "from": "draft", "event": "SUBMIT", "to": "todo" }]
+    "vars": [{ "id": "phase", "type": "atom" }],
+    "initial": { "phase": "draft" },
+    "actions": [{ "event": "SUBMIT", "actor": "user" }],
+    "labels": [{ "id": "draft", "text": "Draft" }]
   },
   "issues": []
 }
@@ -389,7 +390,7 @@ These are shapes. Captured command output is in the pull request. Every `--json`
         "title": "Create and complete a task",
         "expect": "accepted",
         "start": "edit",
-        "nodes": [{ "id": "edit", "state": "draft" }],
+        "nodes": [{ "id": "edit", "assign": { "phase": "draft", "listed": false, "title": "task" }, "state": "draft" }],
         "edges": [
           {
             "from": "edit",
@@ -425,7 +426,7 @@ These are shapes. Captured command output is in the pull request. Every `--json`
       "expect": "rejected",
       "pass": false,
       "reason": "should have been refused at step 3",
-      "provedBy": "replay",
+      "provedBy": "next-state",
       "finalState": { "chart": "archived", "workflow": "archived" },
       "trace": [
         {
@@ -694,7 +695,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
 }
 ```
 
-`spec.emit --dry-run` for that graph. The guarded approve transition is not an accepted flow, so the set contains only W1. `workflowSet` is that set as structured views, including each edge’s `stateFrom` and `stateTo`. The findings match the build, and they are omitted here. No file is written. Grouping W1 with an approve flow waits until a forbidden fact or another guard supplies the else. `--force` with `--out` writes the YAML even while `guard-without-else` is open, sets `forced: true`, and still exits 1.
+`spec.emit --dry-run` for that graph. The guarded approve transition is not an accepted flow, so the set contains only W1. `workflowSet` is that set as structured views, including each node's `assign`. The findings match the build, and they are omitted here. No file is written. Grouping W1 with an approve flow waits until a forbidden fact or another guard supplies the else. `--force` with `--out` writes the YAML even while `guard-without-else` is open, sets `forced: true`, and still exits 1.
 
 ```json
 {
@@ -712,8 +713,8 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
         "expect": "accepted",
         "start": "draft",
         "nodes": [
-          { "id": "draft", "state": "draft" },
-          { "id": "submitted", "state": "submitted" }
+          { "id": "draft", "assign": { "phase": "draft" }, "state": "draft" },
+          { "id": "submitted", "assign": { "phase": "submitted" }, "state": "submitted" }
         ],
         "edges": [
           {
@@ -728,7 +729,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
       }
     ]
   },
-  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", state: \"draft\" }\n      - { id: \"submitted\", state: \"submitted\" }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submitted\", text: \"The customer submits an order\" }\n",
+  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", assign: { phase: \"draft\" } }\n      - { id: \"submitted\", assign: { phase: \"submitted\" } }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submitted\", text: \"The customer submits an order\" }\n",
   "findings": [],
   "issues": []
 }
@@ -740,10 +741,11 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
 |---|---|
 | `machineId` on the workflow file | Removed. Not compared. The set has its own `id`. |
 | `workflowState` on a chart state | Removed. The workflow state name is the chart state id. |
-| `steps: [{ text, event }]` and `end` | `nodes` (`id`, `state`) and `edges` (`from`, `event`, `to`, `text`). `start` is the head. The old `end` is the state of the last node. |
-| One implicit chain from the chart’s initial state | The list may start at any chart state. Revisiting a state uses a second node id with the same `state`. |
+| `steps: [{ text, event }]` and `end` | `nodes` (`id`, `assign`) and `edges` (`from`, `event`, `to`, `text`). `start` is the head. |
+| Node `state` | `assign`, a full valuation of the spec vars. A node `state` field fails schema. |
+| One implicit chain from the chart’s initial state | The list starts at a valuation reachable from `initial`. Revisiting a phase uses a second node id with a different map. |
 | `clew verify chart workflows` and `clew compare workflows chart...` | `clew verify chart workflows`. `clew compare` reads verify JSON files. |
-| `mapping.yaml` as the third argument to `clew verify` | Removed. This is a breaking change. State and event names match exactly. A workflow state that is not on the chart is exit 2 (`name-gap`). An event the chart never declares fails only that flow (exit 1). The verify step shape is unchanged: each trace step still has `workflow` and `chart`. |
+| `mapping.yaml` as the third argument to `clew verify` | Removed. This is a breaking change. `verify` uses domain `step`. An assign that is not a total valuation is exit 2 (`name-gap`). An event the spec never enables fails only that flow (exit 1). `provedBy` is `next-state`. |
 
 `examples/todo/workflows.yaml` is the migrated to-do set: eight named sub-graphs. `examples/todo/a-basic.yaml` fails W6, W7, and W8. `examples/todo/b-full.yaml` passes all eight. The old `machineId` / `steps` / `end` shape and a chart that still carries `workflowState` are `tests/fixtures/workflows/legacy.yaml` and `tests/fixtures/charts/legacy-chart.yaml`. Those files fail schema validation with a migration hint. Other boundary files (a dead end, a branching list, a misspelled state, an effect that sets an undeclared field) are under `tests/fixtures/` and are covered by the Venom suites.
 
