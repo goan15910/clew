@@ -88,7 +88,7 @@ Running `spec init` again with the same session id refreshes that session. Witho
 
 `--session` selects a session. When it is omitted, Clew uses the only open session. Zero sessions, or more than one, is exit 2.
 
-The session store is one store per OS user, outside any repo. Every `clew spec` command uses it from any directory, inside a git repo or not. A session is known by its id alone. Clew does not record the directory, repo, or spec path it was registered from. Nothing is written next to the spec, and there is nothing to commit. On Linux and macOS the base directory is `$XDG_DATA_HOME/clew`, or `~/.local/share/clew` when `XDG_DATA_HOME` is unset. On Windows it is `%LOCALAPPDATA%\clew`. `CLEW_DATA_DIR` overrides that base. Under it, sessions live at:
+The session store is one store per OS user, outside any repo. Every `clew spec` command uses it from any directory, inside a git repo or not. A session is known by its id alone. Clew does not record the directory, repo, or spec path it was registered from. Nothing is written next to the spec, and there is nothing to commit. On Linux and macOS the base directory is `$XDG_DATA_HOME/clew`, or `~/.local/share/clew` when `XDG_DATA_HOME` is unset. On Windows it is `%LOCALAPPDATA%\clew`. `CLEW_DATA_DIR` overrides that base. The synthetic pipeline harness is `tests/spec/synthetic-pipeline.harness.ts`. It always runs in CI against `tests/fixtures/synthetic-pipeline.md`. Under the data dir, sessions live at:
 
 ```txt
 spec/<session-id>/
