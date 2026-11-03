@@ -398,8 +398,10 @@ export interface SpecEmitDocument {
   dryRun?: boolean;
   forced?: boolean;
   written?: string;
+  chartWritten?: string;
   id?: string;
   yaml?: string;
+  chartYaml?: string;
   workflowSet?: { id: string; workflows: WorkflowView[] };
   findings: Finding[];
   fault?: SpecFault;

@@ -1,6 +1,6 @@
 // Ports the use cases need. Adapters implement these; the use cases do not import adapters.
 import type { Model } from '../domain/model.js';
-import type { Spec } from '../domain/spec-model.js';
+import type { Spec, SpecDraft } from '../domain/spec-model.js';
 import type { BuildInfo } from '../domain/upgrade.js';
 import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
 import type { Traversal } from '../domain/traversal.js';
@@ -140,6 +140,11 @@ export interface PosTaggerPort {
 
 export interface WorkflowSetWriter {
   render(draft: WorkflowSetDraft): string;
+  write(file: string, yaml: string): { ok: true } | { ok: false; message: string };
+}
+
+export interface SpecWriter {
+  render(draft: SpecDraft): string;
   write(file: string, yaml: string): { ok: true } | { ok: false; message: string };
 }
 

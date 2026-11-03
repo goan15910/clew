@@ -137,6 +137,16 @@ function draftGraphSession(root: string, specDir: string, requestPath: string): 
   return id;
 }
 
+function overlayGraphSession(root: string, specDir: string, requestPath: string): string | 'bad' | undefined {
+  if (requestPath === '/graph.json') return basename(root);
+  const match = /^\/sessions\/([^/]+)\/graph\.json$/.exec(requestPath);
+  if (match === null) return undefined;
+  const id = decodeURIComponent(match[1] ?? '');
+  const dir = join(specDir, id);
+  if (!isSessionId(id) || !confinedToSession(specDir, dir, id)) return 'bad';
+  return id;
+}
+
 function resolveTarget(root: string, specDir: string, requestPath: string): string | undefined {
   const match = /^\/sessions\/([^/]+)(\/.*)$/.exec(requestPath.split('?')[0] ?? '');
   if (match === null) return safeFile(root, requestPath);
@@ -169,6 +179,22 @@ export function serveSessionViewer(sessionDir: string): Promise<SessionViewerSer
     }
     if (draftSession !== undefined) {
       sendJson(response, request.method, viewSpecGraph({ id: draftSession }, jsonSpecStore, graphvizGraphImages));
+      return;
+    }
+    const overlaySession = overlayGraphSession(root, specDir, requestPath);
+    if (overlaySession === 'bad') {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('bad path');
+      return;
+    }
+    if (overlaySession !== undefined) {
+      const loaded = jsonSpecStore.update(overlaySession, { create: false }, () => undefined);
+      if (!loaded.ok || loaded.snapshot.graph === undefined) {
+        response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        response.end('not found');
+        return;
+      }
+      sendJson(response, request.method, loaded.snapshot.graph);
       return;
     }
     const target = resolveTarget(root, specDir, request.url ?? '/');

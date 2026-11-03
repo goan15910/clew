@@ -24,6 +24,7 @@ import {
   type TaggedSentence,
   type Token,
 } from '../../domain/spec.js';
+import { attachOverlay } from '../../domain/spec-graph.js';
 import { predicateFromScalars, predicateScalars } from '../../domain/spec-facts.js';
 import { patchFromScalars, scalarsFromPatch } from '../../domain/valuation.js';
 import { WORKFLOW_ID_PATTERN, WORKFLOW_WORD_PATTERN } from '../../domain/workflow.js';
@@ -201,7 +202,7 @@ const GraphStateSchema = z.strictObject({
 });
 
 const GraphTransitionSchema = z.strictObject({
-  id: z.string().regex(/^tr[1-9][0-9]*$/, 'transition ids look like tr1'),
+  id: z.string().min(1),
   from: z.string().regex(WORKFLOW_WORD_PATTERN),
   event: z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'events are UPPER_SNAKE_CASE'),
   to: z.string().regex(WORKFLOW_WORD_PATTERN),
@@ -212,23 +213,25 @@ const GraphTransitionSchema = z.strictObject({
   facts: z.array(z.string()),
 });
 
+const OverlayId = z.string().regex(/^(?:f|tr)[1-9][0-9]*$/, 'flow steps are fact ids');
+
 const FlowSchema = z.strictObject({
   id: z.string().regex(WORKFLOW_ID_PATTERN),
   title: z.string().min(1),
   expect: z.enum(['accepted', 'rejected']),
   rejectAt: z.number().int().positive().optional(),
-  transitions: z.array(z.string().regex(/^tr[1-9][0-9]*$/)),
+  transitions: z.array(OverlayId),
   forbidden: z.string().regex(SPEC_FACT_ID_PATTERN).optional(),
   origin: z.enum(['rule', 'agent']),
 }).superRefine((flow, context) => {
   if (flow.expect === 'accepted' && flow.transitions.length < 1) {
-    context.addIssue({ code: 'custom', message: 'an accepted flow needs a transition', path: ['transitions'] });
+    context.addIssue({ code: 'custom', message: 'an accepted flow needs a fact', path: ['transitions'] });
   }
   if (flow.expect === 'rejected' && flow.rejectAt === undefined) {
     context.addIssue({ code: 'custom', message: 'a rejected flow needs rejectAt', path: ['rejectAt'] });
   }
   if (flow.expect === 'rejected' && flow.transitions.length === 0 && flow.forbidden === undefined) {
-    context.addIssue({ code: 'custom', message: 'a rejected flow needs a transition or a forbidden fact', path: ['forbidden'] });
+    context.addIssue({ code: 'custom', message: 'a rejected flow needs a fact or a forbidden fact', path: ['forbidden'] });
   }
 });
 
@@ -237,6 +240,11 @@ const GraphFileSchema = z.strictObject({
   objects: z.array(z.string()),
   states: z.array(GraphStateSchema),
   transitions: z.array(GraphTransitionSchema),
+  flows: z.array(FlowSchema),
+});
+
+const OverlayFileSchema = z.strictObject({
+  schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
   flows: z.array(FlowSchema),
 });
 
@@ -457,16 +465,9 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
     snapshot.facts = facts;
   }
 
-  const graphFile = join(dir, 'graph.json');
-  if (existsSync(graphFile)) {
-    const graphRead = readJson(graphFile);
-    if (!graphRead.ok) return graphRead;
-    const graphVersion = versionFault(graphRead.value, graphFile);
-    if (graphVersion !== undefined) return { ok: false, fault: graphVersion.fault, message: graphVersion.message };
-    const graphParsed = GraphFileSchema.safeParse(graphRead.value);
-    if (!graphParsed.success) return { ok: false, ...zodFault(graphFile, graphParsed.error) };
-    snapshot.graph = toGraph(graphParsed.data);
-  }
+  const overlay = readOverlay(dir, snapshot.entities ?? [], snapshot.facts ?? []);
+  if (!overlay.ok) return overlay;
+  if (overlay.graph !== undefined) snapshot.graph = overlay.graph;
   return { ok: true, snapshot };
 }
 
@@ -523,6 +524,32 @@ function toFact(raw: z.infer<typeof FactSchema>): Fact | undefined {
   return fact;
 }
 
+function readOverlay(
+  dir: string,
+  entities: readonly Entity[],
+  facts: readonly Fact[],
+): { ok: true; graph?: DraftGraph } | { ok: false; fault: 'schema' | 'unreadable'; message: string } {
+  const overlayFile = join(dir, 'flows.json');
+  if (existsSync(overlayFile)) {
+    const overlayRead = readJson(overlayFile);
+    if (!overlayRead.ok) return overlayRead;
+    const overlayVersion = versionFault(overlayRead.value, overlayFile);
+    if (overlayVersion !== undefined) return { ok: false, fault: overlayVersion.fault, message: overlayVersion.message };
+    const overlayParsed = OverlayFileSchema.safeParse(overlayRead.value);
+    if (!overlayParsed.success) return { ok: false, ...zodFault(overlayFile, overlayParsed.error) };
+    return { ok: true, graph: attachOverlay(entities, facts, overlayFlows(overlayParsed.data.flows, [])) };
+  }
+  const graphFile = join(dir, 'graph.json');
+  if (!existsSync(graphFile)) return { ok: true };
+  const graphRead = readJson(graphFile);
+  if (!graphRead.ok) return graphRead;
+  const graphVersion = versionFault(graphRead.value, graphFile);
+  if (graphVersion !== undefined) return { ok: false, fault: graphVersion.fault, message: graphVersion.message };
+  const graphParsed = GraphFileSchema.safeParse(graphRead.value);
+  if (!graphParsed.success) return { ok: false, ...zodFault(graphFile, graphParsed.error) };
+  return { ok: true, graph: toGraph(graphParsed.data) };
+}
+
 function toGraph(raw: z.infer<typeof GraphFileSchema>): DraftGraph {
   const objects: string[] = [];
   for (const object of raw.objects) objects.push(object);
@@ -570,51 +597,47 @@ function toGraph(raw: z.infer<typeof GraphFileSchema>): DraftGraph {
   return { objects, states, transitions, flows };
 }
 
-function graphRecord(schemaVersion: number, graph: DraftGraph): z.infer<typeof GraphFileSchema> {
-  const objects: string[] = [];
-  for (const object of graph.objects) objects.push(object);
-  const states: z.infer<typeof GraphStateSchema>[] = [];
-  for (const state of graph.states) {
-    const facts: string[] = [];
-    for (const fact of state.facts) facts.push(fact);
-    const record: z.infer<typeof GraphStateSchema> = { id: state.id, object: state.object, facts };
-    if (state.initial === true) record.initial = true;
-    if (state.final === true) record.final = true;
-    states.push(record);
-  }
-  const transitions: z.infer<typeof GraphTransitionSchema>[] = [];
-  for (const transition of graph.transitions) {
-    const facts: string[] = [];
-    for (const fact of transition.facts) facts.push(fact);
-    const record: z.infer<typeof GraphTransitionSchema> = {
-      id: transition.id,
-      from: transition.from,
-      event: transition.event,
-      to: transition.to,
-      object: transition.object,
-      fact: transition.fact,
-      facts,
+function overlayFlows(
+  raw: readonly z.infer<typeof FlowSchema>[],
+  transitions: readonly z.infer<typeof GraphTransitionSchema>[],
+): SpecFlow[] {
+  const factOf = new Map<string, string>();
+  for (const transition of transitions) factOf.set(transition.id, transition.fact);
+  const flows: SpecFlow[] = [];
+  for (const flow of raw) {
+    const ids: string[] = [];
+    for (const id of flow.transitions) ids.push(factOf.get(id) ?? id);
+    const built: SpecFlow = {
+      id: flow.id,
+      title: flow.title,
+      expect: flow.expect,
+      transitions: ids,
+      origin: flow.origin,
     };
-    if (transition.actor !== undefined) record.actor = transition.actor;
-    if (transition.guard !== undefined) record.guard = transition.guard;
-    transitions.push(record);
+    if (flow.rejectAt !== undefined) built.rejectAt = flow.rejectAt;
+    if (flow.forbidden !== undefined) built.forbidden = flow.forbidden;
+    flows.push(built);
   }
-  const flows: z.infer<typeof FlowSchema>[] = [];
-  for (const flow of graph.flows) {
-    const transitionIds: string[] = [];
-    for (const id of flow.transitions) transitionIds.push(id);
+  return flows;
+}
+
+function overlayRecord(schemaVersion: number, flows: readonly SpecFlow[]): z.infer<typeof OverlayFileSchema> {
+  const records: z.infer<typeof FlowSchema>[] = [];
+  for (const flow of flows) {
+    const ids: string[] = [];
+    for (const id of flow.transitions) ids.push(id);
     const record: z.infer<typeof FlowSchema> = {
       id: flow.id,
       title: flow.title,
       expect: flow.expect,
-      transitions: transitionIds,
+      transitions: ids,
       origin: flow.origin,
     };
     if (flow.rejectAt !== undefined) record.rejectAt = flow.rejectAt;
     if (flow.forbidden !== undefined) record.forbidden = flow.forbidden;
-    flows.push(record);
+    records.push(record);
   }
-  return { schemaVersion: schemaVersion as typeof SPEC_SCHEMA_VERSION, objects, states, transitions, flows };
+  return { schemaVersion: schemaVersion as typeof SPEC_SCHEMA_VERSION, flows: records };
 }
 
 function sentenceRecord(sentence: Sentence): z.infer<typeof SentenceSchema> {
@@ -713,10 +736,12 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
     writeJson(join(dir, 'facts.json'), { schemaVersion: snapshot.schemaVersion, facts });
   }
   const graphFile = join(dir, 'graph.json');
+  if (existsSync(graphFile)) unlinkSync(graphFile);
+  const overlayFile = join(dir, 'flows.json');
   if (snapshot.graph !== undefined) {
-    writeJson(graphFile, graphRecord(snapshot.schemaVersion, snapshot.graph));
-  } else if (existsSync(graphFile)) {
-    unlinkSync(graphFile);
+    writeJson(overlayFile, overlayRecord(snapshot.schemaVersion, snapshot.graph.flows));
+  } else if (existsSync(overlayFile)) {
+    unlinkSync(overlayFile);
   }
   if (history !== undefined) appendFileSync(join(dir, 'history.jsonl'), `${JSON.stringify(historyRecord(history))}\n`);
 }

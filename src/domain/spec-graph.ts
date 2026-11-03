@@ -1,7 +1,7 @@
-// Draft graph assembly, path cover, and the workflow-set draft.
-// One accepted path per provable transition, plus one rejected path per forbidden fact.
-// A guard with no else is not an accepted flow. Agent-owned flows are kept.
-// Gap findings are recomputed, not stored.
+// Unfold from Spec/facts, path cover, and the workflow-set draft.
+// One accepted path per provable action fact, plus one rejected path per forbidden fact.
+// Flows overlay is keyed by fact id so split/group survive a rebuild.
+// Gap findings are recomputed, not stored. There is no stale-graph.
 import type { Issue } from './issue.js';
 import { chartEventName, chartStateId } from './model.js';
 import type {
@@ -17,11 +17,20 @@ import type {
   TaggedSentence,
   Token,
 } from './spec.js';
-import { eventFromAction, isActionFact, overlayOf, varNameForEntity, visibleFacts } from './spec-facts.js';
-import { scalarFromValue } from './valuation.js';
-import type { Patch } from './valuation.js';
+import { assembleSpecFromFacts, eventFromAction, isActionFact, overlayOf, specFromFacts, varNameForEntity, visibleFacts } from './spec-facts.js';
+import type { Spec, SpecDraft } from './spec-model.js';
+import { reachableFromInitial } from './spec-model.js';
 import {
-  assignDisplay,
+  apply,
+  DEFAULT_REACH_BOUND,
+  holds,
+  type Patch,
+  type Predicate,
+  type Valuation,
+  type Value,
+} from './valuation.js';
+import {
+  copyPatch,
   WORKFLOW_ID_PATTERN,
   WORKFLOW_WORD_PATTERN,
   type WorkflowNodeDraft,
@@ -47,8 +56,13 @@ interface Assembled {
   findings: Finding[];
 }
 
-export function buildGraph(entities: readonly Entity[], facts: readonly Fact[], existing: DraftGraph | undefined): GraphBuild {
-  const assembled = assembleGraph(entities, facts, existing);
+export function buildGraph(
+  entities: readonly Entity[],
+  facts: readonly Fact[],
+  existing: DraftGraph | undefined,
+  bound = DEFAULT_REACH_BOUND,
+): GraphBuild {
+  const assembled = assembleGraph(entities, facts);
   const covered = proposeFlows(assembled, entities, facts, existing);
   const graph: DraftGraph = {
     objects: assembled.objects,
@@ -56,18 +70,56 @@ export function buildGraph(entities: readonly Entity[], facts: readonly Fact[], 
     transitions: assembled.transitions,
     flows: covered.flows,
   };
-  return { graph, findings: [...assembled.findings, ...covered.findings, ...flowCoverage(graph, facts, entities)] };
+  return {
+    graph,
+    findings: [...assembled.findings, ...truncationFindings(entities, facts, bound), ...covered.findings, ...flowCoverage(graph, facts, entities)],
+  };
 }
 
-export function graphLayerFindings(snapshot: SpecSnapshot): Finding[] {
+export function graphLayerFindings(snapshot: SpecSnapshot, bound = DEFAULT_REACH_BOUND): Finding[] {
   if (snapshot.graph === undefined) return [absentGraph()];
   const entities = snapshot.entities ?? [];
   const facts = snapshot.facts ?? [];
-  const fresh = assembleGraph(entities, facts, snapshot.graph);
-  if (!sameStructure(fresh, snapshot.graph)) {
-    return [staleGraph(), ...fresh.findings];
-  }
-  return [...fresh.findings, ...flowCoverage(snapshot.graph, facts, entities)];
+  const fresh = assembleGraph(entities, facts);
+  const graph: DraftGraph = {
+    objects: fresh.objects,
+    states: fresh.states,
+    transitions: fresh.transitions,
+    flows: snapshot.graph.flows,
+  };
+  return [...fresh.findings, ...truncationFindings(entities, facts, bound), ...flowCoverage(graph, facts, entities)];
+}
+
+/** Persistable overlay: flows keyed by fact id. States and transitions are recomputed on read. */
+export function overlayGraph(graph: DraftGraph | undefined): DraftGraph | undefined {
+  if (graph === undefined) return undefined;
+  const flows: SpecFlow[] = [];
+  for (const flow of graph.flows) flows.push(copyFlow(flow));
+  return { objects: [], states: [], transitions: [], flows };
+}
+
+/** Recompute states and transitions from facts. Keep the stored flow overlay as-is. */
+export function attachOverlay(entities: readonly Entity[], facts: readonly Fact[], flows: readonly SpecFlow[]): DraftGraph {
+  const assembled = assembleGraph(entities, facts);
+  const kept: SpecFlow[] = [];
+  for (const flow of flows) kept.push(copyFlow(flow));
+  return {
+    objects: assembled.objects,
+    states: assembled.states,
+    transitions: assembled.transitions,
+    flows: kept,
+  };
+}
+
+export function chartDraftFromFacts(entities: readonly Entity[], facts: readonly Fact[]): SpecDraft {
+  const draft = specFromFacts(entities, facts);
+  return {
+    id: draft.id,
+    vars: draft.vars,
+    initial: draft.initial,
+    actions: draft.actions,
+    labels: labelsFromFacts(entities, facts, draft),
+  };
 }
 
 export function splitFlow(graph: DraftGraph, flowId: string, at: string): GraphEdit {
@@ -119,10 +171,11 @@ export function toWorkflowSetDraft(
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
 ): { draft?: WorkflowSetDraft; findings: Finding[] } {
+  const spec = assembleSpecFromFacts(entities, facts);
   const workflows: WorkflowSetDraft['workflows'][number][] = [];
   const findings: Finding[] = [];
   for (const flow of graph.flows) {
-    const built = flowDraft(flow, graph, entities, facts, sentences, tagged);
+    const built = flowDraft(flow, graph, entities, facts, sentences, tagged, spec);
     if (built.problem !== undefined) {
       findings.push(blocked('path-not-linear', built.problem, [flow.id, ...flow.transitions]));
       continue;
@@ -188,7 +241,7 @@ export function workflowSetId(objects: readonly string[]): string {
   return `${id}Flows`;
 }
 
-function assembleGraph(entities: readonly Entity[], facts: readonly Fact[], existing: DraftGraph | undefined): Assembled {
+function assembleGraph(entities: readonly Entity[], facts: readonly Fact[]): Assembled {
   const live = currentFacts(facts);
   const findings: Finding[] = [];
   const actionFacts: Fact[] = [];
@@ -197,11 +250,10 @@ function assembleGraph(entities: readonly Entity[], facts: readonly Fact[], exis
     if (!readyAction(fact, entities, findings)) continue;
     actionFacts.push(fact);
   }
-  const ids = assignTransitionIds(actionFacts, existing);
   const transitions: GraphTransition[] = [];
   for (const fact of actionFacts) {
     if (!isActionFact(fact)) continue;
-    const built = makeTransition(fact, live, entities, ids.get(fact.id) ?? 'tr1');
+    const built = makeTransition(fact, live, entities, fact.id);
     if (built === undefined) continue;
     transitions.push(built.transition);
     for (const finding of built.findings) findings.push(finding);
@@ -501,8 +553,11 @@ function flowDraft(
   facts: readonly Fact[],
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
+  spec: Spec | undefined,
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
-  if (flow.expect === 'rejected' && flow.transitions.length === 0) return syntheticRejected(flow, graph, entities, facts, sentences, tagged);
+  if (flow.expect === 'rejected' && flow.transitions.length === 0) {
+    return syntheticRejected(flow, graph, entities, facts, sentences, tagged, spec);
+  }
   const transitions: GraphTransition[] = [];
   for (const id of flow.transitions) {
     const transition = findTransition(graph.transitions, id);
@@ -511,17 +566,22 @@ function flowDraft(
   }
   if (transitions.length === 0) return { problem: `${flow.id} has no transitions` };
   if (!chainObjects(transitions)) return { problem: `${flow.id} is not a linear path` };
+  const walked = walkValuations(spec, transitions, facts);
+  if (walked.problem !== undefined) return { problem: `${flow.id} ${walked.problem}` };
   const nodes: WorkflowNodeDraft[] = [];
   const used = new Set<string>();
   const first = transitions[0];
-  if (first === undefined) return { problem: `${flow.id} has no transitions` };
-  const start = addNode(nodes, used, first.from);
+  if (first === undefined || walked.assigns[0] === undefined) return { problem: `${flow.id} has no transitions` };
+  const start = addNode(nodes, used, first.from, walked.assigns[0]);
   const edges: { from: string; event: string; to: string; text: string }[] = [];
   let cursor = start;
-  for (const transition of transitions) {
+  for (let index = 0; index < transitions.length; index += 1) {
+    const transition = transitions[index];
+    const nextAssign = walked.assigns[index + 1];
+    if (transition === undefined || nextAssign === undefined) return { problem: `${flow.id} breaks at ${transition?.id ?? 'end'}` };
     const current = nodes[nodes.length - 1];
-    if (current === undefined || assignDisplay(current.assign) !== chartStateId(transition.from)) return { problem: `${flow.id} breaks at ${transition.id}` };
-    const to = addNode(nodes, used, transition.to);
+    if (current === undefined) return { problem: `${flow.id} breaks at ${transition.id}` };
+    const to = addNode(nodes, used, transition.to, nextAssign);
     edges.push({
       from: cursor,
       event: chartEventName(transition.event),
@@ -549,6 +609,7 @@ function syntheticRejected(
   facts: readonly Fact[],
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
+  spec: Spec | undefined,
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
   const fact = flow.forbidden === undefined ? undefined : findFact(facts, flow.forbidden);
   if (fact === undefined || fact.kind !== 'forbidden') return { problem: `${flow.id} has no forbidden fact` };
@@ -565,6 +626,12 @@ function syntheticRejected(
   const text = sentence !== undefined
     ? cleanClause(sentence.text)
     : `The ${actor?.name ?? 'actor'} cannot ${event} the ${object}`;
+  const startAssign = spec === undefined
+    ? phaseAssign(initial.id)
+    : patchFromValuation(startFromWhen(spec, fact.when));
+  const endAssign = spec === undefined
+    ? phaseAssign(to)
+    : patchFromValuation(applyAttempt(spec, startFromWhen(spec, fact.when), fact.assign ?? {}));
   const workflow: WorkflowSetDraft['workflows'][number] = {
     id: flow.id,
     title: flow.title,
@@ -572,8 +639,8 @@ function syntheticRejected(
     start: initial.id,
     rejectAt: flow.rejectAt ?? 1,
     nodes: [
-      { id: initial.id, assign: phaseAssign(chartStateId(initial.id)) },
-      { id: to, assign: phaseAssign(chartStateId(to)) },
+      { id: initial.id, assign: startAssign },
+      { id: to, assign: endAssign },
     ],
     edges: [{ from: initial.id, event: chartEventName(event), to, text }],
   };
@@ -933,51 +1000,6 @@ function splitIndex(flow: SpecFlow, transitions: readonly GraphTransition[], at:
   return { index };
 }
 
-function assignTransitionIds(facts: readonly Fact[], existing: DraftGraph | undefined): Map<string, string> {
-  const assigned = new Map<string, string>();
-  const used = new Set<string>();
-  for (const transition of existing?.transitions ?? []) used.add(transition.id);
-  for (const fact of facts) {
-    const previous = existing?.transitions.find((transition) => transition.fact === fact.id);
-    if (previous === undefined) continue;
-    assigned.set(fact.id, previous.id);
-  }
-  let max = 0;
-  for (const id of used) {
-    const number = Number(id.slice(2));
-    if (Number.isInteger(number) && number > max) max = number;
-  }
-  for (const fact of facts) {
-    if (assigned.has(fact.id)) continue;
-    max += 1;
-    const id = `tr${max}`;
-    used.add(id);
-    assigned.set(fact.id, id);
-  }
-  return assigned;
-}
-
-function resolveEntity(id: string | undefined, kind: Entity['kind'], entities: readonly Entity[], findings: Finding[], factId: string): Entity | undefined {
-  if (id === undefined) {
-    findings.push(blocked('type-mismatch', `${factId} needs ${kind}`, [factId]));
-    return undefined;
-  }
-  const entity = findEntity(entities, id);
-  if (entity === undefined) {
-    findings.push(blocked('unknown-entity', `unknown entity ${id}`, [id, factId]));
-    return undefined;
-  }
-  if (entity.status === 'rejected' || entity.status === 'stale') {
-    findings.push(blocked('rejected-entity', `${id} is ${entity.status}`, [id, factId]));
-    return undefined;
-  }
-  if (entity.kind !== kind) {
-    findings.push(blocked('type-mismatch', `${id} is ${entity.kind}, not ${kind}`, [id, factId]));
-    return undefined;
-  }
-  return entity;
-}
-
 function objectLabel(fact: Fact, entities: readonly Entity[]): string | undefined {
   if (isActionFact(fact)) return overlayOf(fact, entities)?.object;
   if (fact.assign === undefined) return undefined;
@@ -1057,18 +1079,17 @@ function phaseAssign(phase: string): Patch {
   return { phase: { t: 'atom', v: phase } };
 }
 
-function addNode(nodes: WorkflowNodeDraft[], used: Set<string>, state: string): string {
-  const chartState = chartStateId(state);
+function addNode(nodes: WorkflowNodeDraft[], used: Set<string>, state: string, assign: Patch): string {
   if (!used.has(state)) {
     used.add(state);
-    nodes.push({ id: state, assign: phaseAssign(chartState) });
+    nodes.push({ id: state, assign: copyPatch(assign) });
     return state;
   }
   let number = 2;
   while (used.has(`${state}-${number}`)) number += 1;
   const id = `${state}-${number}`;
   used.add(id);
-  nodes.push({ id, assign: phaseAssign(chartState) });
+  nodes.push({ id, assign: copyPatch(assign) });
   return id;
 }
 
@@ -1203,10 +1224,6 @@ function absentGraph(): Finding {
   };
 }
 
-function staleGraph(): Finding {
-  return blocked('stale-graph', 'the graph is stale because facts changed; run clew spec graph build', []);
-}
-
 function staleFlow(id: string): Finding {
   return {
     id: `stale:${id}`,
@@ -1234,12 +1251,155 @@ function blocked(code: string, message: string, refs: string[]): Finding {
   const id = suffix === undefined || suffix === code ? code : `${code}:${suffix}`;
   const kind = code === 'vocabulary'
     ? 'vocabulary'
-    : code === 'stale-graph'
-      ? 'stale'
-      : code === 'uncovered-transition' || code === 'no-workflows' || code === 'forbidden-uncovered'
-        ? 'coverage'
-        : 'gap';
+    : code === 'uncovered-transition' || code === 'no-workflows' || code === 'forbidden-uncovered' || code === 'state-space-truncated'
+      ? 'coverage'
+      : 'gap';
   return { id, kind, code, severity: 'blocking', message, refs };
+}
+
+function truncationFindings(entities: readonly Entity[], facts: readonly Fact[], bound: number): Finding[] {
+  const spec = assembleSpecFromFacts(entities, facts);
+  if (spec === undefined) return [];
+  const reach = reachableFromInitial(spec, bound);
+  if (!reach.truncated) return [];
+  return [blocked('state-space-truncated', `state space truncated at ${bound} valuations`, [])];
+}
+
+function labelsFromFacts(entities: readonly Entity[], facts: readonly Fact[], draft: SpecDraft): SpecDraft['labels'] {
+  const labels: SpecDraft['labels'][number][] = [];
+  const used = new Set<string>();
+  const terminals = new Set<string>();
+  for (const fact of currentFacts(facts)) {
+    if (fact.kind !== 'terminal' || fact.assign === undefined) continue;
+    for (const key of Object.keys(fact.assign)) {
+      const value = fact.assign[key];
+      if (value?.t === 'atom') terminals.add(`${key}:${value.v}`);
+    }
+  }
+  const atoms: { varName: string; atom: string }[] = [];
+  for (const decl of draft.vars) {
+    const initial = draft.initial[decl.id];
+    if (initial?.t === 'atom') atoms.push({ varName: decl.id, atom: initial.v });
+  }
+  for (const fact of currentFacts(facts)) {
+    if (!isActionFact(fact)) continue;
+    const overlay = overlayOf(fact, entities);
+    if (overlay === undefined) continue;
+    const objectEntity = findEntityByName(entities, 'object', overlay.object);
+    const name = objectEntity === undefined ? overlay.object.replace(/-/g, '_') : (varNameForEntity(objectEntity) ?? overlay.object.replace(/-/g, '_'));
+    if (overlay.from !== undefined) atoms.push({ varName: name, atom: overlay.from });
+    atoms.push({ varName: name, atom: overlay.to });
+  }
+  for (const item of atoms) {
+    const key = `${item.varName}:${item.atom}`;
+    const id = chartStateId(item.atom);
+    if (used.has(id) || !WORKFLOW_WORD_PATTERN.test(item.atom)) continue;
+    used.add(id);
+    const match: Record<string, Value> = {};
+    match[item.varName] = { t: 'atom', v: item.atom };
+    labels.push({
+      id,
+      match,
+      text: capitalize(item.atom.replace(/-/g, ' ')),
+      final: terminals.has(key) ? true : undefined,
+    });
+  }
+  return labels;
+}
+
+function walkValuations(
+  spec: Spec | undefined,
+  transitions: readonly GraphTransition[],
+  facts: readonly Fact[],
+): { assigns: Patch[]; problem?: string } {
+  const actionFacts: Fact[] = [];
+  for (const transition of transitions) {
+    const fact = findFact(facts, transition.fact);
+    if (fact === undefined || !isActionFact(fact)) return overlayAssigns(transitions);
+    actionFacts.push(fact);
+  }
+  if (spec === undefined) return overlayAssigns(transitions);
+  const env = envEqs(actionFacts);
+  let current = applySafe(spec.initial, env);
+  const first = actionFacts[0];
+  if (first !== undefined && isActionFact(first) && !holds(first.when, current)) {
+    current = applySafe(current, eqPatch(first.when));
+  }
+  const assigns: Patch[] = [patchFromValuation(current)];
+  for (const fact of actionFacts) {
+    if (!isActionFact(fact)) continue;
+    if (!holds(fact.when, current)) current = applySafe(current, eqPatch(fact.when));
+    current = applySafe(current, fact.assign);
+    assigns.push(patchFromValuation(current));
+  }
+  return { assigns };
+}
+
+function overlayAssigns(transitions: readonly GraphTransition[]): { assigns: Patch[]; problem?: string } {
+  const first = transitions[0];
+  if (first === undefined) return { assigns: [], problem: 'has no transitions' };
+  const assigns: Patch[] = [phaseAssign(first.from)];
+  for (const transition of transitions) assigns.push(phaseAssign(transition.to));
+  return { assigns };
+}
+
+function startFromWhen(spec: Spec, when: Predicate | undefined): Valuation {
+  if (when === undefined) return spec.initial;
+  return applySafe(spec.initial, eqPatch(when));
+}
+
+function applyAttempt(spec: Spec, from: Valuation, patch: Patch): Valuation {
+  return applySafe(from, patch);
+}
+
+function applySafe(state: Valuation, patch: Patch): Valuation {
+  try {
+    return apply(state, patch);
+  } catch {
+    return state;
+  }
+}
+
+function patchFromValuation(state: Valuation): Patch {
+  const patch: Record<string, Value> = {};
+  for (const [id, value] of state.entries()) patch[id] = value;
+  return patch;
+}
+
+function eqPatch(predicate: Predicate): Patch {
+  const patch: Record<string, Value> = {};
+  collectEq(predicate, patch);
+  return patch;
+}
+
+function collectEq(predicate: Predicate, patch: Record<string, Value>): void {
+  if (predicate.op === 'eq') {
+    patch[predicate.var] = predicate.value;
+    return;
+  }
+  if (predicate.op === 'and') {
+    for (const child of predicate.of) collectEq(child, patch);
+  }
+}
+
+function envEqs(facts: readonly Fact[]): Patch {
+  const assigned = new Set<string>();
+  for (const fact of facts) {
+    if (!isActionFact(fact)) continue;
+    for (const key of Object.keys(fact.assign)) assigned.add(key);
+  }
+  const patch: Record<string, Value> = {};
+  for (const fact of facts) {
+    if (!isActionFact(fact)) continue;
+    const eqs: Record<string, Value> = {};
+    collectEq(fact.when, eqs);
+    for (const key of Object.keys(eqs)) {
+      const value = eqs[key];
+      if (value === undefined || assigned.has(key)) continue;
+      patch[key] = value;
+    }
+  }
+  return patch;
 }
 
 function findFlow(flows: readonly SpecFlow[], id: string): SpecFlow | undefined {

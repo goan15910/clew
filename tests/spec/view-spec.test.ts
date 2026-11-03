@@ -178,6 +178,8 @@ describe('spec view', { concurrency: false }, () => {
       const server = await serveSessionViewer(withGraph);
       try {
         const origin = new URL(server.url).origin;
+        const overlay = await (await fetch(`${origin}/graph.json`)).json() as { states?: { id: string }[] };
+        assert.ok(overlay.states?.some((state) => state.id === 'draft'));
         const drawn = await (await fetch(`${origin}/draft-graph.json`)).json() as DraftGraphImageDocument;
         assert.equal(drawn.session, 'viewer-matrix');
         assert.equal(drawn.message, undefined);

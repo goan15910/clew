@@ -1,21 +1,27 @@
-// Use case: render the chosen paths as a workflow set. Refuse while blocking findings remain.
+// Use case: render the chosen paths as a workflow set, and optionally the unfolded spec.
 import { patchScalars } from '../domain/spec-model.js';
 import { assignDisplay, nodesInWalkOrder, workflowSetIssues } from '../domain/workflow.js';
-import { graphLayerFindings, toWorkflowSetDraft, workflowCheckFindings } from '../domain/spec-graph.js';
+import { chartDraftFromFacts, graphLayerFindings, toWorkflowSetDraft, workflowCheckFindings } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding } from '../domain/spec.js';
 import type { Outcome, SpecEmitDocument, WorkflowEdgeView, WorkflowView } from './documents.js';
 import { specInput } from './documents.js';
-import type { SpecStore, WorkflowSetWriter } from './ports.js';
+import type { SpecStore, SpecWriter, WorkflowSetWriter } from './ports.js';
 import { resolveSession } from './spec-session.js';
 
 export interface EmitSpecCommand {
   sessionId?: string;
   dryRun: boolean;
   out?: string;
+  chart?: string;
   force: boolean;
 }
 
-export function emitSpec(command: EmitSpecCommand, store: SpecStore, writer: WorkflowSetWriter): Outcome<SpecEmitDocument> {
+export function emitSpec(
+  command: EmitSpecCommand,
+  store: SpecStore,
+  writer: WorkflowSetWriter,
+  charts: SpecWriter,
+): Outcome<SpecEmitDocument> {
   const resolved = resolveSession(store, command.sessionId);
   if (!resolved.ok) return invalid('session', resolved.message);
   let problem: string | undefined;
@@ -47,6 +53,8 @@ export function emitSpec(command: EmitSpecCommand, store: SpecStore, writer: Wor
       views = workflowViews(rendered.draft);
     }
   }
+  const chartDraft = chartDraftFromFacts(snapshot.entities ?? [], snapshot.facts ?? []);
+  const chartYaml = chartDraft.vars.length > 0 ? charts.render(chartDraft) : undefined;
   const blocking = hasBlocking(findings);
   const document: SpecEmitDocument = {
     command: 'spec.emit',
@@ -58,6 +66,7 @@ export function emitSpec(command: EmitSpecCommand, store: SpecStore, writer: Wor
   };
   if (rendered.draft !== undefined) document.id = rendered.draft.id;
   if (yaml !== undefined) document.yaml = yaml;
+  if (chartYaml !== undefined) document.chartYaml = chartYaml;
   if (views !== undefined && rendered.draft !== undefined) document.workflowSet = { id: rendered.draft.id, workflows: views };
   if (command.dryRun) {
     document.dryRun = true;
@@ -70,6 +79,12 @@ export function emitSpec(command: EmitSpecCommand, store: SpecStore, writer: Wor
   const wrote = writer.write(command.out, yaml);
   if (!wrote.ok) return invalid('unreadable', wrote.message);
   document.written = command.out;
+  if (command.chart !== undefined) {
+    if (chartYaml === undefined) return invalid('session', 'no spec to write; facts need at least one variable');
+    const chartWrote = charts.write(command.chart, chartYaml);
+    if (!chartWrote.ok) return invalid('unreadable', chartWrote.message);
+    document.chartWritten = command.chart;
+  }
   if (command.force) document.forced = true;
   return { exit: blocking ? 'fail' : 'pass', document };
 }
@@ -90,7 +105,6 @@ function workflowViews(draft: NonNullable<ReturnType<typeof toWorkflowSetDraft>[
         stateTo: to === undefined ? edge.to : assignDisplay(to.assign),
       });
     }
-    // Walk order matches workflows check once the draft has no issues.
     const ordered = nodesInWalkOrder({
       id: workflow.id,
       title: workflow.title,
