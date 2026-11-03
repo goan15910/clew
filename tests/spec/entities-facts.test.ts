@@ -9,7 +9,7 @@ import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import type { SpecEntitiesDocument, SpecFactsDocument, SpecStatusDocument, SpecTagDocument, SpecTraceDocument } from '../../src/application/documents.js';
 import { contradictionFindings, proposeFacts } from '../../src/domain/spec-facts.js';
 import { entityFindings, pastParticiple } from '../../src/domain/spec-entities.js';
-import type { Entity, Fact, Sentence, TaggedSentence, Token } from '../../src/domain/spec.js';
+import type { ActionFact, Entity, Fact, Sentence, TaggedSentence, Token } from '../../src/domain/spec.js';
 import { varId, type Patch, type Predicate } from '../../src/domain/valuation.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -166,6 +166,120 @@ describe('spec entities and facts', { concurrency: false }, () => {
     const approve = proposed.facts.find((fact) => fact.kind === 'action' && fact.event === 'APPROVE');
     assert.deepEqual(approve?.assign, { order: { t: 'atom', v: 'approve' } });
     assert.deepEqual(approve?.when, { op: 'eq', var: 'order', value: { t: 'atom', v: 'submit' } });
+  });
+
+  test('an objectless leftover in a transitive sentence does not bind', () => {
+    const sentences = [sentenceOf('s1', 'Ada opens the hold queue in the library console.')];
+    const tagged = [taggedOf('s1', [
+      tokenOf('s1.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+      tokenOf('s1.t2', 'marks', ['Action', 'Verb'], [13, 18]),
+      tokenOf('s1.t3', 'report', ['Object', 'Noun'], [23, 29]),
+      tokenOf('s1.t4', 'handled', ['Action', 'Verb'], [33, 40]),
+    ])];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('action:mark', 'action', 'mark'),
+      entity('action:handle', 'action', 'handle'),
+      entity('object:report', 'object', 'report'),
+    ];
+    entities[0]!.sources = ['s1.t1'];
+    entities[1]!.sources = ['s1.t2'];
+    entities[2]!.sources = ['s1.t4'];
+    entities[3]!.sources = ['s1.t3'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    assert.equal(proposed.findings.some((finding) => finding.code === 'action-without-object'), true);
+    const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
+    assert.equal(live.length, 1);
+    assert.equal(live[0]?.event, 'MARK');
+    assert.deepEqual(live[0]?.assign, { report: { t: 'atom', v: 'mark' } });
+  });
+
+  test('an objectless infinitive does not bind to the last object', () => {
+    const sentences = [
+      sentenceOf('s1', 'The customer submits an order.'),
+      sentenceOf('s2', 'Ada picks a branch and a patron account.'),
+    ];
+    const tagged = [
+      taggedOf('s1', [
+        tokenOf('s1.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s1.t2', 'submits', ['Action', 'Verb'], [13, 20]),
+        tokenOf('s1.t3', 'order', ['Object', 'Noun'], [24, 29]),
+      ]),
+      taggedOf('s2', [
+        tokenOf('s2.t1', 'system', ['Object', 'Noun'], [4, 10]),
+        tokenOf('s2.t2', 'groups', ['Object', 'Noun'], [11, 17]),
+        tokenOf('s2.t3', 'labels', ['Action', 'Verb'], [26, 32]),
+        tokenOf('s2.t4', 'reason', ['Action', 'Verb', 'Infinitive'], [36, 42]),
+      ]),
+    ];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('action:submit', 'action', 'submit'),
+      entity('action:label', 'action', 'label'),
+      entity('action:reason', 'action', 'reason'),
+      entity('object:order', 'object', 'order'),
+      entity('object:system', 'object', 'system'),
+      entity('object:group', 'object', 'group'),
+    ];
+    entities[0]!.sources = ['s1.t1'];
+    entities[1]!.sources = ['s1.t2'];
+    entities[2]!.sources = ['s2.t3'];
+    entities[3]!.sources = ['s2.t4'];
+    entities[4]!.sources = ['s1.t3'];
+    entities[5]!.sources = ['s2.t1'];
+    entities[6]!.sources = ['s2.t2'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
+    assert.equal(live.some((fact) => fact.event === 'REASON'), false);
+    assert.equal(live.some((fact) => fact.event === 'SUBMIT'), true);
+  });
+
+  test('a singleton object fact folds onto a lifecycle object named in the same sentence', () => {
+    const sentences = [
+      sentenceOf('s1', 'The customer submits an order.'),
+      sentenceOf('s2', 'The manager approves the order.'),
+      sentenceOf('s3', 'The customer edits the name of the order.'),
+    ];
+    const tagged = [
+      taggedOf('s1', [
+        tokenOf('s1.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s1.t2', 'submits', ['Action', 'Verb'], [13, 20]),
+        tokenOf('s1.t3', 'order', ['Object', 'Noun'], [24, 29]),
+      ]),
+      taggedOf('s2', [
+        tokenOf('s2.t1', 'manager', ['Actor', 'Noun'], [4, 11]),
+        tokenOf('s2.t2', 'approves', ['Action', 'Verb'], [12, 20]),
+        tokenOf('s2.t3', 'order', ['Object', 'Noun'], [25, 30]),
+      ]),
+      taggedOf('s3', [
+        tokenOf('s3.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s3.t2', 'edits', ['Action', 'Verb'], [13, 18]),
+        tokenOf('s3.t3', 'name', ['Object', 'Noun'], [23, 27]),
+        tokenOf('s3.t4', 'order', ['Object', 'Noun'], [35, 40]),
+      ]),
+    ];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('actor:manager', 'actor', 'manager'),
+      entity('action:submit', 'action', 'submit'),
+      entity('action:approve', 'action', 'approve'),
+      entity('action:edit', 'action', 'edit'),
+      entity('object:order', 'object', 'order'),
+      entity('object:name', 'object', 'name'),
+    ];
+    entities[0]!.sources = ['s1.t1', 's3.t1'];
+    entities[1]!.sources = ['s2.t1'];
+    entities[2]!.sources = ['s1.t2'];
+    entities[3]!.sources = ['s2.t2'];
+    entities[4]!.sources = ['s3.t2'];
+    entities[5]!.sources = ['s1.t3', 's2.t3', 's3.t4'];
+    entities[6]!.sources = ['s3.t3'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
+    assert.equal(live.length, 3);
+    const edit = live.find((fact) => fact.event === 'EDIT');
+    assert.deepEqual(edit?.assign, { order: { t: 'atom', v: 'edit' } });
+    assert.equal(live.some((fact) => fact.kind === 'action' && Object.keys(fact.assign).includes('name')), false);
   });
 
   test('a later sentence that restates the same event and assign does not mint a second fact', () => {
