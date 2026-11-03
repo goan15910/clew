@@ -315,24 +315,17 @@ export function factRefs(fact: Fact): string[] {
 function frameObjectVar(
   frame: Frame,
   entities: readonly Entity[],
-): { varName: string; sources: string[] } | undefined {
+  lastObject: string | undefined,
+): { varName: string; sources: string[]; mentioned: boolean } | undefined {
   if (frame.action === undefined) return undefined;
   if (frame.object !== undefined) {
     const objectEntity = findEntity(entities, frame.object.id);
     const objectVar = objectEntity === undefined ? undefined : varNameForEntity(objectEntity);
     if (objectVar === undefined) return undefined;
-    return { varName: objectVar, sources: [frame.action.token.id, frame.object.token.id] };
+    return { varName: objectVar, sources: [frame.action.token.id, frame.object.token.id], mentioned: true };
   }
-  const actionEntity = findEntity(entities, frame.action.id);
-  const minted = actionEntity === undefined ? undefined : varNameFromLemma(actionEntity.name);
-  if (minted === undefined) return undefined;
-  return { varName: minted, sources: [frame.action.token.id] };
-}
-
-function varNameFromLemma(name: string | undefined): string | undefined {
-  if (name === undefined) return undefined;
-  const normalized = name.replace(/-/g, '_');
-  return VAR_ID_PATTERN.test(normalized) ? normalized : undefined;
+  if (lastObject === undefined) return undefined;
+  return { varName: lastObject, sources: [frame.action.token.id], mentioned: false };
 }
 
 export function varNameForEntity(entity: Entity): string | undefined {
@@ -605,6 +598,7 @@ function collectDrafts(
   const drafts: Fact[] = [];
   const findings: Finding[] = [];
   const lastValue = new Map<string, Value>();
+  let lastObject: string | undefined;
   for (const sentence of sentences) {
     if (sentence.status !== 'current') continue;
     if (onlySentence !== undefined && sentence.id !== onlySentence) continue;
@@ -634,11 +628,13 @@ function collectDrafts(
         });
         continue;
       }
-      const target = frameObjectVar(frame, entities);
+      const target = frameObjectVar(frame, entities, lastObject);
       if (target === undefined) continue;
+      if (target.mentioned) lastObject = target.varName;
       const assigned: Value = { t: 'atom', v: actionEntity?.name ?? frame.action.lemma };
-      const whenParts: Predicate[] = [];
       const previous = lastValue.get(target.varName);
+      if (!frame.negated && previous !== undefined && sameValue(previous, assigned)) continue;
+      const whenParts: Predicate[] = [];
       if (previous === undefined) whenParts.push({ op: 'eq', var: target.varName as VarId, value: { t: 'null' } });
       else whenParts.push({ op: 'eq', var: target.varName as VarId, value: previous });
       const attached = guardsByAction.get(frame.action.id) ?? [];

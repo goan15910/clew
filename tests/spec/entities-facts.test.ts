@@ -114,7 +114,7 @@ describe('spec entities and facts', { concurrency: false }, () => {
     assert.match(warnings[0]?.message ?? '', /disagreeing action/);
   });
 
-  test('an action without an object still mints a non-empty assign from the lemma', () => {
+  test('an action without an object does not mint a lemma var, and still warns', () => {
     const sentences = [sentenceOf('s1', 'The customer submits.')];
     const tagged = [taggedOf('s1', [
       tokenOf('s1.t1', 'The', [], [0, 3]),
@@ -130,9 +130,74 @@ describe('spec entities and facts', { concurrency: false }, () => {
     const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
     assert.equal(proposed.findings.some((finding) => finding.code === 'action-without-object'), true);
     const action = proposed.facts.find((fact) => fact.kind === 'action' && fact.status === 'current');
-    assert.ok(action);
-    assert.deepEqual(action.assign, { submit: { t: 'atom', v: 'submit' } });
-    assert.ok(Object.keys(action.assign ?? {}).length > 0);
+    assert.equal(action, undefined);
+  });
+
+  test('an action without an object binds to the last mentioned object', () => {
+    const sentences = [
+      sentenceOf('s1', 'The customer submits an order.'),
+      sentenceOf('s2', 'The manager approves.'),
+    ];
+    const tagged = [
+      taggedOf('s1', [
+        tokenOf('s1.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s1.t2', 'submits', ['Action', 'Verb'], [13, 20]),
+        tokenOf('s1.t3', 'order', ['Object', 'Noun'], [24, 29]),
+      ]),
+      taggedOf('s2', [
+        tokenOf('s2.t1', 'manager', ['Actor', 'Noun'], [4, 11]),
+        tokenOf('s2.t2', 'approves', ['Action', 'Verb'], [12, 20]),
+      ]),
+    ];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('actor:manager', 'actor', 'manager'),
+      entity('action:submit', 'action', 'submit'),
+      entity('action:approve', 'action', 'approve'),
+      entity('object:order', 'object', 'order'),
+    ];
+    entities[0]!.sources = ['s1.t1'];
+    entities[1]!.sources = ['s2.t1'];
+    entities[2]!.sources = ['s1.t2'];
+    entities[3]!.sources = ['s2.t2'];
+    entities[4]!.sources = ['s1.t3'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    assert.equal(proposed.findings.some((finding) => finding.code === 'action-without-object'), true);
+    const approve = proposed.facts.find((fact) => fact.kind === 'action' && fact.event === 'APPROVE');
+    assert.deepEqual(approve?.assign, { order: { t: 'atom', v: 'approve' } });
+    assert.deepEqual(approve?.when, { op: 'eq', var: 'order', value: { t: 'atom', v: 'submit' } });
+  });
+
+  test('a later sentence that restates the same event and assign does not mint a second fact', () => {
+    const sentences = [
+      sentenceOf('s1', 'The customer selects a company.'),
+      sentenceOf('s2', 'The customer selects a company.'),
+    ];
+    const tagged = [
+      taggedOf('s1', [
+        tokenOf('s1.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s1.t2', 'selects', ['Action', 'Verb'], [13, 20]),
+        tokenOf('s1.t3', 'company', ['Object', 'Noun'], [23, 30]),
+      ]),
+      taggedOf('s2', [
+        tokenOf('s2.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s2.t2', 'selects', ['Action', 'Verb'], [13, 20]),
+        tokenOf('s2.t3', 'company', ['Object', 'Noun'], [23, 30]),
+      ]),
+    ];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('action:select', 'action', 'select'),
+      entity('object:company', 'object', 'company'),
+    ];
+    entities[0]!.sources = ['s1.t1', 's2.t1'];
+    entities[1]!.sources = ['s1.t2', 's2.t2'];
+    entities[2]!.sources = ['s1.t3', 's2.t3'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    const selects = proposed.facts.filter((fact) => fact.kind === 'action' && fact.status === 'current' && fact.event === 'SELECT');
+    assert.equal(selects.length, 1);
+    assert.deepEqual(selects[0]?.when, { op: 'eq', var: 'company', value: { t: 'null' } });
+    assert.deepEqual(selects[0]?.assign, { company: { t: 'atom', v: 'select' } });
   });
 
   test('when chains across sentences that share an object', () => {
