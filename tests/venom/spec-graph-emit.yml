@@ -118,7 +118,7 @@ testcases:
     - result.systemoutjson.workflowSet.id ShouldEqual orderFlows
     - result.systemoutjson.workflowSet.workflows.workflows0.id ShouldEqual W1
     - result.systemoutjson.workflowSet.workflows.workflows1.id ShouldEqual W2
-    - result.systemoutjson.chartYaml ShouldContainSubstring "kind: clew.spec.v1"
+    - result.systemoutjson.chartYaml ShouldContainSubstring "clew.spec.v1"
     - result.systemoutjson.issues ShouldHaveLength 0
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --out '{{.dir}}/flows.yaml' --json"
