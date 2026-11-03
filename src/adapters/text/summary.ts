@@ -18,7 +18,7 @@ export function humanSummary(document: CommandDocument): string {
   }
   if (document.command === 'chart.check') {
     if (document.ok && document.chart) {
-      return `${document.chart.id}: schema valid, graph valid (${document.chart.states.length} states, ${document.chart.transitions.length} transitions)`;
+      return `${document.chart.id}: schema valid, graph valid (${document.chart.vars.length} vars, ${document.chart.actions.length} actions)`;
     }
     const which = document.graphChecked ? 'graph' : 'schema';
     return [`invalid (${which})`, ...formatIssues(document.issues).map((line) => `  ${line}`)].join('\n');

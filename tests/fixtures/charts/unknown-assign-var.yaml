@@ -1,0 +1,16 @@
+# Invalid: assign names a variable that is not declared.
+kind: clew.spec.v1
+id: todoTask
+vars:
+  - { id: phase, type: atom }
+  - { id: title, type: atom }
+initial:
+  phase: draft
+  title: ""
+actions:
+  - event: SUBMIT
+    actor: user
+    when: { op: eq, var: phase, value: draft }
+    assign: { phase: todo, priority: high }
+labels:
+  - { id: draft, match: { phase: draft }, text: Draft }

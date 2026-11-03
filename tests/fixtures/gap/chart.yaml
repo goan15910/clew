@@ -1,16 +1,17 @@
+# Chart states are start and done. Workflows that name editing/closed are a name gap.
+kind: clew.spec.v1
 id: gapChart
-initial: start
-guards: []
-effects:
-  - { name: markDone, sets: done }
-states:
-  - id: start
-    label: Start
-    data: {}
-  - id: done
-    label: Done
-    final: true
-    data:
-      done: boolean
-transitions:
-  - { from: start, event: GO, to: done, actor: user, effect: markDone }
+vars:
+  - { id: phase, type: atom }
+  - { id: done, type: boolean }
+initial:
+  phase: start
+  done: false
+actions:
+  - event: GO
+    actor: user
+    when: { op: eq, var: phase, value: start }
+    assign: { phase: done, done: true }
+labels:
+  - { id: start, match: { phase: start }, text: Start }
+  - { id: done, match: { phase: done }, text: Done, final: true }

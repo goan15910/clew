@@ -10,7 +10,7 @@ testcases:
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
-    - 'result.systemout ShouldContainSubstring "todoTask: schema valid, graph valid (7 states, 13 transitions)"'
+    - 'result.systemout ShouldContainSubstring "todoTask: schema valid, graph valid (7 vars, 13 actions)"'
 
 - name: valid chart json
   steps:
@@ -23,13 +23,12 @@ testcases:
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.graphChecked ShouldBeTrue
     - result.systemoutjson.chart.id ShouldEqual todoTask
-    - result.systemoutjson.chart.initial ShouldEqual draft
     - result.systemoutjson.issues ShouldHaveLength 0
 
-- name: unknown target state is a graph failure
+- name: unknown assign variable is a graph failure
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/misspelled-state.yaml --json"
+    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/unknown-assign-var.yaml --json"
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
@@ -37,22 +36,22 @@ testcases:
     - result.systemoutjson.graphChecked ShouldBeTrue
     - result.systemoutjson.issues ShouldHaveLength 1
     - result.systemoutjson.issues.issues0.kind ShouldEqual graph
-    - result.systemoutjson.issues.issues0.path ShouldEqual transitions.0.to
-    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "unknown state"
+    - result.systemoutjson.issues.issues0.path ShouldEqual actions.0.assign.priority
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "unknown variable"
 
-- name: effect sets an undeclared field
+- name: missing initial variable is a graph failure
   steps:
   - type: exec
-    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/undeclared-effect-field.yaml --json"
+    script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/missing-initial-var.yaml --json"
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.ok ShouldBeFalse
     - result.systemoutjson.graphChecked ShouldBeTrue
     - result.systemoutjson.issues.issues0.kind ShouldEqual graph
-    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "not declared on target state"
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "missing variable"
 
-- name: legacy workflowState is a schema failure with a migration hint
+- name: location-id chart is a schema failure with a migration hint
   steps:
   - type: exec
     script: "cd '{{.root}}' && {{.clew}} chart check tests/fixtures/charts/legacy-chart.yaml --json"
@@ -62,7 +61,7 @@ testcases:
     - result.systemoutjson.ok ShouldBeFalse
     - result.systemoutjson.graphChecked ShouldBeFalse
     - result.systemoutjson.issues.issues0.kind ShouldEqual schema
-    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "workflowState was removed"
+    - result.systemoutjson.issues.issues0.message ShouldContainSubstring "clew.spec.v1"
 
 - name: missing file is exit 2 on stderr and json
   steps:

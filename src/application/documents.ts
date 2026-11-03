@@ -44,9 +44,10 @@ export function tagIssues(file: string, kind: OutputIssue['kind'], errors: reado
 
 export interface ChartSketch {
   id: string;
-  initial: string;
-  states: { id: string; label: string; final: boolean }[];
-  transitions: { from: string; event: string; to: string }[];
+  vars: { id: string; type: string }[];
+  initial: Record<string, boolean | number | string | null>;
+  actions: { event: string; actor: string }[];
+  labels: { id?: string; text: string; final?: boolean }[];
 }
 
 export interface ChartCheckDocument {

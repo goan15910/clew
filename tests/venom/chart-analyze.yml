@@ -51,7 +51,7 @@ testcases:
     script: "cd '{{.root}}' && {{.clew}} chart analyze tests/fixtures/charts/misspelled-state.yaml --json"
     assertions:
     - result.code ShouldEqual 2
-    - result.systemerr ShouldContainSubstring "unknown state"
+    - result.systemerr ShouldContainSubstring "clew.spec.v1"
     - result.systemoutjson.command ShouldEqual chart.analyze
     - result.systemoutjson.ok ShouldBeFalse
     - result.systemoutjson.fault ShouldEqual invalid-chart

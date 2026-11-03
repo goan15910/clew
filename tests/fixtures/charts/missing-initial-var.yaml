@@ -1,0 +1,11 @@
+# Invalid: initial is not a total valuation.
+kind: clew.spec.v1
+id: todoTask
+vars:
+  - { id: phase, type: atom }
+  - { id: listed, type: boolean }
+initial:
+  phase: draft
+actions: []
+labels:
+  - { id: draft, match: { phase: draft }, text: Draft }
