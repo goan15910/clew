@@ -1,4 +1,6 @@
-// Use case: prove each selected named sub-graph against a chart. Names match directly.
+// Use case: prove each selected named sub-graph against a spec by next-state replay.
+import { DEFAULT_REACH_BOUND } from '../domain/valuation.js';
+import { reachableFromInitial } from '../domain/spec-model.js';
 import { alignChain, transitionCoverage, unusedTransitions, verifyFlow, type ChartFlow, type WorkflowResult } from '../domain/verification.js';
 import type { LinkedWorkflow, WorkflowSet } from '../domain/workflow.js';
 import { candidateName } from './candidate-name.js';
@@ -37,13 +39,13 @@ function unique(ids: readonly string[]): string[] {
 
 function flowDocument(result: WorkflowResult): VerifyFlowDocument {
   const trace: VerifyTraceStep[] = [];
-  for (const step of result.trace) {
+  for (const item of result.trace) {
     trace.push({
-      n: step.n,
-      text: step.text,
-      accepted: step.accepted,
-      workflow: { from: step.workflowFrom, event: step.workflowEvent, to: step.workflowTo },
-      chart: { from: step.from, event: step.event, to: step.to },
+      n: item.n,
+      text: item.text,
+      accepted: item.accepted,
+      workflow: { from: item.workflowFrom, event: item.workflowEvent, to: item.workflowTo },
+      chart: { from: item.from, event: item.event, to: item.to },
     });
   }
   return {
@@ -63,19 +65,25 @@ function invalid(fault: VerifyDocument['fault'], issues: OutputIssue[]): Outcome
 }
 
 export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Outcome<VerifyDocument> {
-  const chart = ports.models.load(command.chartFile);
+  const specFile = ports.specs.load(command.chartFile);
+  const viewFile = ports.models.load(command.chartFile);
   const workflows = ports.workflows.load(command.workflowsFile);
   const issues: OutputIssue[] = [];
-  if (!chart.ok) issues.push(...tagIssues(command.chartFile, chart.fault === 'unreadable' ? 'input' : chart.fault, chart.errors));
+  if (!specFile.ok) issues.push(...tagIssues(command.chartFile, specFile.fault === 'unreadable' ? 'input' : specFile.fault, specFile.errors));
   if (!workflows.ok) issues.push(...tagIssues(command.workflowsFile, workflows.fault === 'unreadable' ? 'input' : workflows.fault, workflows.errors));
-  if (!chart.ok || !workflows.ok) {
+  if (!specFile.ok || !workflows.ok) {
     let fault: VerifyDocument['fault'] = 'invalid-workflows';
-    if (!chart.ok) fault = chart.fault === 'unreadable' ? 'unreadable' : 'invalid-chart';
+    if (!specFile.ok) fault = specFile.fault === 'unreadable' ? 'unreadable' : 'invalid-chart';
     else if (!workflows.ok) fault = workflows.fault === 'unreadable' ? 'unreadable' : 'invalid-workflows';
     return invalid(fault, issues);
   }
+  if (!viewFile.ok) {
+    issues.push(...tagIssues(command.chartFile, viewFile.fault === 'unreadable' ? 'input' : viewFile.fault, viewFile.errors));
+    return invalid(viewFile.fault === 'unreadable' ? 'unreadable' : 'invalid-chart', issues);
+  }
 
-  const model = chart.value;
+  const spec = specFile.value;
+  const model = viewFile.value;
   const set = workflows.value;
 
   const ids = collectIds(command, set, ports, issues);
@@ -90,11 +98,21 @@ export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Ou
   }
 
   const selected = selectWorkflows(set, ids, issues);
-  const states = new Set(model.states().map((state) => state.id));
+  const reach = reachableFromInitial(spec, DEFAULT_REACH_BOUND);
+  if (reach.truncated) {
+    issues.push({
+      kind: 'graph',
+      file: command.chartFile,
+      path: '',
+      message: `state space truncated at ${DEFAULT_REACH_BOUND} valuations`,
+    });
+    return invalid('invalid-chart', issues);
+  }
+  const reached = new Set(reach.nodes.map((node) => node.id));
   const flows: ChartFlow[] = [];
   let nameGap = false;
   for (const workflow of selected) {
-    const aligned = alignChain(workflow.chain, states);
+    const aligned = alignChain(spec, workflow.chain);
     if (!aligned.ok) {
       nameGap = true;
       for (const gap of aligned.gaps) {
@@ -113,9 +131,8 @@ export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Ou
   }
   if (issues.length > 0) return invalid(nameGap ? 'name-gap' : 'selection', issues);
 
-  const traversal = ports.engine.open(model);
   const results: WorkflowResult[] = [];
-  for (const flow of flows) results.push(verifyFlow(model, flow, traversal));
+  for (const flow of flows) results.push(verifyFlow(spec, flow, reached));
   const documents: VerifyFlowDocument[] = [];
   for (const result of results) documents.push(flowDocument(result));
   const passed = results.filter((result) => result.pass).length;
@@ -132,7 +149,7 @@ export function verifyFlows(command: VerifyFlowsCommand, ports: VerifyPorts): Ou
     command: 'verify',
     ok: failed === 0,
     candidate: name,
-    chartId: model.id,
+    chartId: spec.id,
     workflowSetId: set.id,
     selected: ids,
     summary: { passed, failed, total: results.length },

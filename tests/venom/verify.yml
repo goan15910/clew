@@ -34,6 +34,7 @@ testcases:
     - result.systemoutjson.flows.flows0.trace.trace0.chart.event ShouldEqual SUBMIT
     - result.systemoutjson.flows.flows0.trace.trace0.workflow.to ShouldEqual todo
     - result.systemoutjson.flows.flows0.trace.trace0.chart.to ShouldEqual todo
+    - result.systemoutjson.flows.flows0.provedBy ShouldEqual next-state
 
 - name: a-basic fails W6 W7 and W8
   steps:
@@ -189,8 +190,8 @@ testcases:
     script: "cd '{{.root}}' && {{.clew}} verify tests/fixtures/gap/chart.yaml tests/fixtures/gap/workflows.yaml --json"
     assertions:
     - result.code ShouldEqual 2
-    - 'result.systemerr ShouldContainSubstring "name gap: workflow state"'
-    - 'result.systemerr ShouldContainSubstring "is not on the chart"'
+    - 'result.systemerr ShouldContainSubstring "name gap: workflow node"'
+    - result.systemerr ShouldContainSubstring 'assign missing variable'
     - result.systemoutjson.fault ShouldEqual name-gap
     - result.systemoutjson.ok ShouldBeFalse
     - result.systemoutjson.issues.issues0.kind ShouldEqual graph
@@ -227,3 +228,29 @@ testcases:
     - result.systemoutjson.command ShouldEqual verify
     - result.systemoutjson.ok ShouldBeFalse
     - result.systemoutjson.fault ShouldEqual usage
+
+- name: unreachable start fails
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml tests/fixtures/workflows/unreachable-start.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.summary.failed ShouldEqual 1
+    - result.systemoutjson.flows.flows0.pass ShouldBeFalse
+    - result.systemoutjson.flows.flows0.reason ShouldContainSubstring "not reachable from initial"
+    - result.systemoutjson.flows.flows0.provedBy ShouldEqual next-state
+
+- name: bad assign fails
+  steps:
+  - type: exec
+    script: "cd '{{.root}}' && {{.clew}} verify examples/todo/b-full.yaml tests/fixtures/workflows/bad-assign.yaml --json"
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.ok ShouldBeFalse
+    - result.systemoutjson.summary.failed ShouldEqual 1
+    - result.systemoutjson.flows.flows0.pass ShouldBeFalse
+    - result.systemoutjson.flows.flows0.reason ShouldContainSubstring "lands in"
+    - result.systemoutjson.flows.flows0.provedBy ShouldEqual next-state

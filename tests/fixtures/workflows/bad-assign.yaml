@@ -1,0 +1,14 @@
+# SUBMIT sets listed true. This visit claims listed stays false.
+id: badAssign
+workflows:
+  - id: W1
+    title: Submit lands on the wrong valuation
+    expect: accepted
+    start: edit
+    nodes:
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+    edges:
+      - { from: edit, event: SUBMIT, to: listed, text: "Add the draft" }

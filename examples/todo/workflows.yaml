@@ -1,7 +1,8 @@
 # Named linked lists. Each workflow is one sub-graph.
-# A node's state is the chart state id. An edge's event is the chart event.
-# expect: accepted — every edge must be possible and land on `to`.
-# expect: rejected — the chart must refuse the edge at `rejectAt`.
+# A node's assign is a full valuation of the chart vars. An edge's event is a spec action.
+# expect: accepted — every edge must be enabled and land on `to`.
+# expect: rejected — the spec must refuse the edge at `rejectAt`.
+# Accepted flows start at a valuation reachable from initial (here, initial itself).
 id: todoFlows
 workflows:
   - id: W1
@@ -9,10 +10,14 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: listed, state: todo }
-      - { id: working, state: inProgress }
-      - { id: finished, state: done }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: working
+        assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
+      - id: finished
+        assign: { phase: done, listed: true, title: task, started_at: set, completed_at: set, wake_at: null, deleted_at: null }
     edges:
       - { from: edit, event: SUBMIT, to: listed, text: "Add the draft to my list" }
       - { from: listed, event: START, to: working, text: "Start working on it" }
@@ -22,12 +27,18 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: listed, state: todo }
-      - { id: working, state: inProgress }
-      - { id: snoozed, state: snoozed }
-      - { id: resumed, state: inProgress }
-      - { id: finished, state: done }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: working
+        assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
+      - id: snoozed
+        assign: { phase: snoozed, listed: true, title: task, started_at: set, completed_at: null, wake_at: set, deleted_at: null }
+      - id: resumed
+        assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
+      - id: finished
+        assign: { phase: done, listed: true, title: task, started_at: set, completed_at: set, wake_at: null, deleted_at: null }
     edges:
       - { from: edit, event: SUBMIT, to: listed, text: "Add the task" }
       - { from: listed, event: START, to: working, text: "Start it" }
@@ -39,11 +50,16 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: listed, state: todo }
-      - { id: working, state: inProgress }
-      - { id: finished, state: done }
-      - { id: reopened, state: todo }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: working
+        assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
+      - id: finished
+        assign: { phase: done, listed: true, title: task, started_at: set, completed_at: set, wake_at: null, deleted_at: null }
+      - id: reopened
+        assign: { phase: todo, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
     edges:
       - { from: edit, event: SUBMIT, to: listed, text: "Add the task" }
       - { from: listed, event: START, to: working, text: "Start it" }
@@ -54,11 +70,16 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: listed, state: todo }
-      - { id: working, state: inProgress }
-      - { id: finished, state: done }
-      - { id: kept, state: archived }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: working
+        assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
+      - id: finished
+        assign: { phase: done, listed: true, title: task, started_at: set, completed_at: set, wake_at: null, deleted_at: null }
+      - id: kept
+        assign: { phase: archived, listed: false, title: task, started_at: set, completed_at: set, wake_at: null, deleted_at: null }
     edges:
       - { from: edit, event: SUBMIT, to: listed, text: "Add the task" }
       - { from: listed, event: START, to: working, text: "Start it" }
@@ -69,8 +90,10 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: gone, state: deleted }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: gone
+        assign: { phase: deleted, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: set }
     edges:
       - { from: edit, event: DELETE, to: gone, text: "Delete the draft" }
   - id: W6
@@ -78,10 +101,14 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: listed, state: todo }
-      - { id: gone, state: deleted }
-      - { id: restored, state: todo }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: gone
+        assign: { phase: deleted, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: set }
+      - id: restored
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
     edges:
       - { from: edit, event: SUBMIT, to: listed, text: "Add the task" }
       - { from: listed, event: DELETE, to: gone, text: "Delete it by mistake" }
@@ -91,9 +118,12 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: listed, state: todo }
-      - { id: finished, state: done }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: finished
+        assign: { phase: done, listed: true, title: task, started_at: null, completed_at: set, wake_at: null, deleted_at: null }
     edges:
       - { from: edit, event: SUBMIT, to: listed, text: "Add the task" }
       - { from: listed, event: COMPLETE, to: finished, text: "Tick it done straight away" }
@@ -103,10 +133,14 @@ workflows:
     rejectAt: 3
     start: edit
     nodes:
-      - { id: edit, state: draft }
-      - { id: listed, state: todo }
-      - { id: working, state: inProgress }
-      - { id: kept, state: archived }
+      - id: edit
+        assign: { phase: draft, listed: false, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: task, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: working
+        assign: { phase: inProgress, listed: true, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
+      - id: kept
+        assign: { phase: archived, listed: false, title: task, started_at: set, completed_at: null, wake_at: null, deleted_at: null }
     edges:
       - { from: edit, event: SUBMIT, to: listed, text: "Add the task" }
       - { from: listed, event: START, to: working, text: "Start it" }

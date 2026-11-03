@@ -13,7 +13,7 @@ vars:
 initial:
   phase: draft
   listed: false
-  title: ""
+  title: task
   started_at: null
   completed_at: null
   wake_at: null

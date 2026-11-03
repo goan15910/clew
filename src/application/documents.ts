@@ -70,6 +70,7 @@ export interface ChartAnalyzeDocument {
 
 export interface WorkflowNodeView {
   id: string;
+  assign: Record<string, boolean | number | string | null>;
   state: string;
 }
 

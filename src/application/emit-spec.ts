@@ -1,5 +1,6 @@
 // Use case: render the chosen paths as a workflow set. Refuse while blocking findings remain.
-import { nodesInWalkOrder, workflowSetIssues } from '../domain/workflow.js';
+import { patchScalars } from '../domain/spec-model.js';
+import { assignDisplay, nodesInWalkOrder, workflowSetIssues } from '../domain/workflow.js';
 import { graphLayerFindings, toWorkflowSetDraft, workflowCheckFindings } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding } from '../domain/spec.js';
 import type { Outcome, SpecEmitDocument, WorkflowEdgeView, WorkflowView } from './documents.js';
@@ -85,8 +86,8 @@ function workflowViews(draft: NonNullable<ReturnType<typeof toWorkflowSetDraft>[
         event: edge.event,
         to: edge.to,
         text: edge.text,
-        stateFrom: from?.state ?? edge.from,
-        stateTo: to?.state ?? edge.to,
+        stateFrom: from === undefined ? edge.from : assignDisplay(from.assign),
+        stateTo: to === undefined ? edge.to : assignDisplay(to.assign),
       });
     }
     // Walk order matches workflows check once the draft has no issues.
@@ -97,22 +98,34 @@ function workflowViews(draft: NonNullable<ReturnType<typeof toWorkflowSetDraft>[
       start: workflow.start,
       rejectAt: workflow.rejectAt,
       nodes: workflow.nodes,
-      chain: edges.map((edge, index) => ({
-        n: index + 1,
-        from: edge.from,
-        to: edge.to,
-        event: edge.event,
-        text: edge.text,
-        stateFrom: edge.stateFrom,
-        stateTo: edge.stateTo,
-      })),
+      chain: edges.map((edge, index) => {
+        const fromNode = workflow.nodes.find((node) => node.id === edge.from);
+        const toNode = workflow.nodes.find((node) => node.id === edge.to);
+        return {
+          n: index + 1,
+          from: edge.from,
+          to: edge.to,
+          event: edge.event,
+          text: edge.text,
+          assignFrom: fromNode?.assign ?? {},
+          assignTo: toNode?.assign ?? {},
+        };
+      }),
     });
+    const nodes: WorkflowView['nodes'] = [];
+    for (const node of ordered) {
+      nodes.push({
+        id: node.id,
+        assign: patchScalars(node.assign),
+        state: assignDisplay(node.assign),
+      });
+    }
     const view: WorkflowView = {
       id: workflow.id,
       title: workflow.title,
       expect: workflow.expect,
       start: workflow.start,
-      nodes: ordered,
+      nodes,
       edges,
     };
     if (workflow.rejectAt !== undefined) view.rejectAt = workflow.rejectAt;

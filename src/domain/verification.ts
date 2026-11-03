@@ -1,18 +1,23 @@
-// Reachability, dead ends, and workflow replay. The traversal port supplies the engine.
+// Reachability, dead ends, and next-state workflow replay.
 import type { Model } from './model.js';
+import {
+  can,
+  displayOf,
+  enabled,
+  step,
+  valuationFromAssign,
+  type Spec,
+} from './spec-model.js';
 import type { Traversal } from './traversal.js';
-import type { ChainStep } from './workflow.js';
+import type { Valuation, ValuationId } from './valuation.js';
+import { assignDisplay, type ChainStep } from './workflow.js';
 
-/** One linked-list edge after the workflow name has been checked against the chart. The two sides use the same string. */
 export interface AlignedStep {
   n: number;
   text: string;
-  workflowFrom: string;
-  workflowEvent: string;
-  workflowTo: string;
-  chartFrom: string;
-  chartEvent: string;
-  chartTo: string;
+  event: string;
+  from: Valuation;
+  to: Valuation;
 }
 
 function remember(gaps: string[], seen: Set<string>, gap: string): void {
@@ -21,38 +26,32 @@ function remember(gaps: string[], seen: Set<string>, gap: string): void {
   gaps.push(gap);
 }
 
-/**
- * Match each chain step to the chart by exact name.
- * A workflow state that is not a chart state is a name gap (the command stops).
- * An event is copied through even when the chart never declares it, so only that flow fails.
- */
 export function alignChain(
+  spec: Spec,
   chain: readonly ChainStep[],
-  chartStates: ReadonlySet<string>,
 ): { ok: true; steps: AlignedStep[] } | { ok: false; gaps: string[] } {
   const gaps: string[] = [];
   const seen = new Set<string>();
   const steps: AlignedStep[] = [];
-  for (const step of chain) {
+  for (const item of chain) {
+    const from = valuationFromAssign(spec, item.assignFrom);
+    const to = valuationFromAssign(spec, item.assignTo);
     let missing = false;
-    if (!chartStates.has(step.stateFrom)) {
-      remember(gaps, seen, `name gap: workflow state "${step.stateFrom}" is not on the chart`);
+    if (!from.ok) {
+      remember(gaps, seen, `name gap: workflow node "${item.from}" (${assignDisplay(item.assignFrom)}) ${from.message}`);
       missing = true;
     }
-    if (!chartStates.has(step.stateTo)) {
-      remember(gaps, seen, `name gap: workflow state "${step.stateTo}" is not on the chart`);
+    if (!to.ok) {
+      remember(gaps, seen, `name gap: workflow node "${item.to}" (${assignDisplay(item.assignTo)}) ${to.message}`);
       missing = true;
     }
-    if (missing) continue;
+    if (missing || !from.ok || !to.ok) continue;
     steps.push({
-      n: step.n,
-      text: step.text,
-      workflowFrom: step.stateFrom,
-      workflowEvent: step.event,
-      workflowTo: step.stateTo,
-      chartFrom: step.stateFrom,
-      chartEvent: step.event,
-      chartTo: step.stateTo,
+      n: item.n,
+      text: item.text,
+      event: item.event,
+      from: from.valuation,
+      to: to.valuation,
     });
   }
   if (gaps.length > 0) return { ok: false, gaps };
@@ -108,159 +107,146 @@ export function structuralChecks(model: Model, traversal: Traversal): Structure 
   return { reachable, unreachable, deadEnds, shortestPaths: shortest };
 }
 
-function traceOf(step: AlignedStep, from: string, to: string | null, accepted: boolean): TraceStep {
+function traceOf(item: AlignedStep, spec: Spec, from: Valuation, to: Valuation | null, accepted: boolean): TraceStep {
+  const fromName = displayOf(spec, from);
   return {
-    n: step.n,
-    text: step.text,
-    event: step.chartEvent,
-    from,
-    to,
+    n: item.n,
+    text: item.text,
+    event: item.event,
+    from: fromName,
+    to: to === null ? null : displayOf(spec, to),
     accepted,
-    workflowEvent: step.workflowEvent,
-    workflowFrom: step.workflowFrom,
-    workflowTo: accepted ? step.workflowTo : null,
+    workflowEvent: item.event,
+    workflowFrom: displayOf(spec, item.from),
+    workflowTo: accepted ? displayOf(spec, item.to) : null,
   };
 }
 
-export function verifyFlow(model: Model, flow: ChartFlow, traversal: Traversal): WorkflowResult {
-  const label = (id: string) => model.states().find((state) => state.id === id)?.label ?? id;
-  const first = flow.steps[0];
-  if (first === undefined) {
-    return {
-      id: flow.id,
-      title: flow.title,
-      expect: flow.expect,
-      pass: false,
-      reason: 'flow has no edges',
-      trace: [],
-      finalState: null,
-      finalWorkflowState: null,
-      provedBy: 'replay',
-    };
-  }
-
-  let state = first.chartFrom;
-  let workflowState: string | null = first.workflowFrom;
-  const trace: TraceStep[] = [];
-  for (const step of flow.steps) {
-    if (state !== step.chartFrom) {
-      return {
-        id: flow.id,
-        title: flow.title,
-        expect: flow.expect,
-        pass: false,
-        reason: `step ${step.n} "${step.text}": previous step left the chart in ${label(state)}, not ${label(step.chartFrom)}`,
-        trace,
-        finalState: state,
-        finalWorkflowState: workflowState,
-        provedBy: 'replay',
-      };
-    }
-    if (!traversal.can(state, step.chartEvent)) {
-      const allowed = model.transitions().filter((edge) => edge.from === state).map((edge) => edge.event);
-      trace.push(traceOf(step, state, null, false));
-      const why = `step ${step.n} "${step.text}": ${label(state)} does not accept ${step.chartEvent} (workflow ${step.workflowEvent})` +
-        (allowed.length ? ` (it accepts ${allowed.join(', ')})` : ' (it is a final state)');
-      if (flow.expect === 'accepted') {
-        return {
-          id: flow.id,
-          title: flow.title,
-          expect: flow.expect,
-          pass: false,
-          reason: why,
-          trace,
-          finalState: state,
-          finalWorkflowState: step.workflowFrom,
-          provedBy: 'replay',
-        };
-      }
-      const atRightStep = flow.rejectAt === step.n;
-      return {
-        id: flow.id,
-        title: flow.title,
-        expect: flow.expect,
-        pass: atRightStep,
-        reason: atRightStep ? `correctly refused: ${why}` : `refused at the wrong step (expected step ${flow.rejectAt}): ${why}`,
-        trace,
-        finalState: state,
-        finalWorkflowState: step.workflowFrom,
-        provedBy: 'replay',
-      };
-    }
-    const next = traversal.step(state, step.chartEvent);
-    if (next === null) throw new Error(`${flow.id}: ${state} accepted ${step.chartEvent} but step returned no state`);
-    trace.push(traceOf(step, state, next, true));
-    if (next !== step.chartTo) {
-      return {
-        id: flow.id,
-        title: flow.title,
-        expect: flow.expect,
-        pass: false,
-        reason: `step ${step.n} "${step.text}": ${step.chartEvent} lands in ${label(next)}, expected ${label(step.chartTo)} (workflow ${step.workflowTo})`,
-        trace,
-        finalState: next,
-        finalWorkflowState: null,
-        provedBy: 'replay',
-      };
-    }
-    state = next;
-    workflowState = step.workflowTo;
-  }
-
-  const finalState = state;
-  if (flow.expect === 'rejected') {
-    const refused = flow.steps[(flow.rejectAt ?? 1) - 1];
-    return {
-      id: flow.id,
-      title: flow.title,
-      expect: flow.expect,
-      pass: false,
-      reason: `should have been refused at step ${flow.rejectAt} (${refused?.chartEvent ?? '?'}, workflow ${refused?.workflowEvent ?? '?'}) but the chart allows the whole sequence, ending in ${label(finalState)}`,
-      trace,
-      finalState,
-      finalWorkflowState: workflowState,
-      provedBy: 'replay',
-    };
-  }
-
-  if (first.chartFrom !== model.initial) {
-    return {
-      id: flow.id,
-      title: flow.title,
-      expect: flow.expect,
-      pass: true,
-      reason: `replay from ${label(first.chartFrom)} ends in ${label(finalState)}`,
-      trace,
-      finalState,
-      finalWorkflowState: workflowState,
-      provedBy: 'replay',
-    };
-  }
-
-  const events = flow.steps.map((step) => step.chartEvent);
-  const paths = traversal.pathsFromEvents(events);
-  const matched = paths.length === 1 ? paths[0] : undefined;
-  const graphEnd = matched?.state ?? null;
-  const graphEvents = matched?.events ?? [];
-  const expectedEnd = flow.steps[flow.steps.length - 1]?.chartTo ?? null;
-  const pass = graphEnd === finalState && graphEnd === expectedEnd && graphEvents.join() === events.join();
+function resultOf(
+  flow: ChartFlow,
+  pass: boolean,
+  reason: string,
+  trace: TraceStep[],
+  finalState: string | null,
+  finalWorkflowState: string | null,
+): WorkflowResult {
   return {
     id: flow.id,
     title: flow.title,
     expect: flow.expect,
     pass,
+    reason,
     trace,
     finalState,
-    finalWorkflowState: workflowState,
-    reason: pass
-      ? `path found by @xstate/graph getPathsFromEvents, ends in ${label(finalState)}`
-      : `all steps accepted but the graph proof does not confirm the ending ${label(expectedEnd ?? '?')} (replay ended in ${label(finalState)})`,
-    provedBy: '@xstate/graph getPathsFromEvents',
+    finalWorkflowState,
+    provedBy: 'next-state',
   };
 }
 
+export function verifyFlow(
+  spec: Spec,
+  flow: ChartFlow,
+  reached: ReadonlySet<ValuationId>,
+): WorkflowResult {
+  const first = flow.steps[0];
+  if (first === undefined) {
+    return resultOf(flow, false, 'flow has no edges', [], null, null);
+  }
+
+  if (!reached.has(first.from.id)) {
+    return resultOf(
+      flow,
+      false,
+      `start is not reachable from initial (${displayOf(spec, first.from)} ${first.from.id})`,
+      [],
+      displayOf(spec, first.from),
+      displayOf(spec, first.from),
+    );
+  }
+
+  let state = first.from;
+  const trace: TraceStep[] = [];
+  for (const item of flow.steps) {
+    if (state.id !== item.from.id) {
+      return resultOf(
+        flow,
+        false,
+        `step ${item.n} "${item.text}": previous step left ${displayOf(spec, state)}, not ${displayOf(spec, item.from)}`,
+        trace,
+        displayOf(spec, state),
+        displayOf(spec, state),
+      );
+    }
+    if (!can(spec, state, item.event)) {
+      const allowed = enabledEvents(spec, state);
+      trace.push(traceOf(item, spec, state, null, false));
+      const why = `step ${item.n} "${item.text}": ${displayOf(spec, state)} does not accept ${item.event}` +
+        (allowed.length ? ` (it accepts ${allowed.join(', ')})` : ' (no action is enabled)');
+      if (flow.expect === 'accepted') {
+        return resultOf(flow, false, why, trace, displayOf(spec, state), displayOf(spec, item.from));
+      }
+      const atRightStep = flow.rejectAt === item.n;
+      return resultOf(
+        flow,
+        atRightStep,
+        atRightStep ? `correctly refused: ${why}` : `refused at the wrong step (expected step ${flow.rejectAt}): ${why}`,
+        trace,
+        displayOf(spec, state),
+        displayOf(spec, item.from),
+      );
+    }
+    const next = step(spec, state, item.event);
+    if (next === null) throw new Error(`${flow.id}: ${state.id} accepted ${item.event} but step returned no valuation`);
+    trace.push(traceOf(item, spec, state, next, true));
+    if (next.id !== item.to.id) {
+      return resultOf(
+        flow,
+        false,
+        `step ${item.n} "${item.text}": ${item.event} lands in ${next.id}, expected ${item.to.id}`,
+        trace,
+        displayOf(spec, next),
+        null,
+      );
+    }
+    state = next;
+  }
+
+  const finalName = displayOf(spec, state);
+  if (flow.expect === 'rejected') {
+    const refused = flow.steps[(flow.rejectAt ?? 1) - 1];
+    return resultOf(
+      flow,
+      false,
+      `should have been refused at step ${flow.rejectAt} (${refused?.event ?? '?'}) but the spec allows the whole sequence, ending in ${finalName}`,
+      trace,
+      finalName,
+      finalName,
+    );
+  }
+
+  return resultOf(
+    flow,
+    true,
+    `next-state replay from ${displayOf(spec, first.from)} ends in ${finalName}`,
+    trace,
+    finalName,
+    finalName,
+  );
+}
+
+function enabledEvents(spec: Spec, state: Valuation): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const action of enabled(spec, state)) {
+    if (seen.has(action.event)) continue;
+    seen.add(action.event);
+    names.push(action.event);
+  }
+  return names;
+}
+
 export function unusedTransitions(model: Model, results: readonly WorkflowResult[]): string[] {
-  const usedEdges = new Set(results.flatMap((result) => result.trace.filter((step) => step.accepted).map((step) => `${step.from}|${step.event}`)));
+  const usedEdges = new Set(results.flatMap((result) => result.trace.filter((item) => item.accepted).map((item) => `${item.from}|${item.event}`)));
   const unused: string[] = [];
   for (const edge of model.transitions()) {
     if (!usedEdges.has(`${edge.from}|${edge.event}`)) unused.push(`${edge.from} --${edge.event}--> ${edge.to}`);
@@ -281,9 +267,9 @@ export function transitionCoverage(model: Model, results: readonly WorkflowResul
   const hits = new Map<string, { count: number; flows: string[] }>();
   for (const result of results) {
     const seen = new Set<string>();
-    for (const step of result.trace) {
-      if (!step.accepted || step.to === null) continue;
-      const key = `${step.from}|${step.event}|${step.to}`;
+    for (const item of result.trace) {
+      if (!item.accepted || item.to === null) continue;
+      const key = `${item.from}|${item.event}|${item.to}`;
       const hit = hits.get(key) ?? { count: 0, flows: [] };
       hit.count += 1;
       if (!seen.has(key)) {

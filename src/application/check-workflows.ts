@@ -1,5 +1,6 @@
 // Use case: schema and graph validity of a workflow set, including each named linked list.
-import { nodesInWalkOrder } from '../domain/workflow.js';
+import { patchScalars } from '../domain/spec-model.js';
+import { assignDisplay, nodesInWalkOrder } from '../domain/workflow.js';
 import {
   tagIssues,
   type Outcome,
@@ -53,8 +54,16 @@ export function checkWorkflows(file: string, workflows: WorkflowSetLoader): Outc
         event: step.event,
         to: step.to,
         text: step.text,
-        stateFrom: step.stateFrom,
-        stateTo: step.stateTo,
+        stateFrom: assignDisplay(step.assignFrom),
+        stateTo: assignDisplay(step.assignTo),
+      });
+    }
+    const nodes: WorkflowView['nodes'] = [];
+    for (const node of nodesInWalkOrder(workflow)) {
+      nodes.push({
+        id: node.id,
+        assign: patchScalars(node.assign),
+        state: assignDisplay(node.assign),
       });
     }
     const view: WorkflowView = {
@@ -62,7 +71,7 @@ export function checkWorkflows(file: string, workflows: WorkflowSetLoader): Outc
       title: workflow.title,
       expect: workflow.expect,
       start: workflow.start,
-      nodes: nodesInWalkOrder(workflow),
+      nodes,
       edges,
     };
     if (workflow.rejectAt !== undefined) view.rejectAt = workflow.rejectAt;

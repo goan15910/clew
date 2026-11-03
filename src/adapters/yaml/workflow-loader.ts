@@ -6,25 +6,27 @@ import {
   assembleWorkflowSet,
   EXPECTATION_MESSAGE,
   expectationHolds,
+  WORKFLOW_ASSIGN_MESSAGE,
   WORKFLOW_EVENT_MESSAGE,
   WORKFLOW_EVENT_PATTERN,
   WORKFLOW_ID_MESSAGE,
   WORKFLOW_ID_PATTERN,
-  WORKFLOW_STATE_MESSAGE,
-  WORKFLOW_STATE_PATTERN,
   WORKFLOW_WORD_MESSAGE,
   WORKFLOW_WORD_PATTERN,
   workflowSetIssues,
   type WorkflowSet,
   type WorkflowSetDraft,
 } from '../../domain/workflow.js';
+import type { Patch, Value } from '../../domain/valuation.js';
 import { locatedErrors, locatedFromIssues } from './issue-lines.js';
 import { readYaml } from './read-yaml.js';
 
 const IdSchema = z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE);
 const WordSchema = z.string().regex(WORKFLOW_WORD_PATTERN, WORKFLOW_WORD_MESSAGE);
-const StateSchema = z.string().regex(WORKFLOW_STATE_PATTERN, WORKFLOW_STATE_MESSAGE);
 const EventSchema = z.string().regex(WORKFLOW_EVENT_PATTERN, WORKFLOW_EVENT_MESSAGE);
+const ScalarSchema = z.union([z.boolean(), z.number(), z.string(), z.null()]);
+
+type YamlScalar = boolean | number | string | null;
 
 const WorkflowSchema = z.strictObject({
   id: IdSchema,
@@ -34,7 +36,10 @@ const WorkflowSchema = z.strictObject({
   rejectAt: z.number().int().positive().optional(),
   nodes: z.array(z.strictObject({
     id: WordSchema,
-    state: StateSchema,
+    assign: z.record(z.string(), ScalarSchema).refine(
+      (assign) => Object.keys(assign).length > 0,
+      'assign must name at least one variable',
+    ),
   })).min(2),
   edges: z.array(z.strictObject({
     from: WordSchema,
@@ -51,11 +56,28 @@ const WorkflowFileSchema = z.strictObject({
   workflows: z.array(WorkflowSchema).min(1),
 });
 
+function toValue(raw: YamlScalar): Value {
+  if (raw === null) return { t: 'null' };
+  if (typeof raw === 'boolean') return { t: 'bool', v: raw };
+  if (typeof raw === 'number') return { t: 'num', v: raw };
+  return { t: 'atom', v: raw };
+}
+
+function toPatch(raw: Record<string, YamlScalar>): Patch {
+  const patch: Record<string, Value> = {};
+  for (const key of Object.keys(raw)) {
+    const scalar = raw[key];
+    if (scalar === undefined) continue;
+    patch[key] = toValue(scalar);
+  }
+  return patch;
+}
+
 function toDraft(file: z.infer<typeof WorkflowFileSchema>): WorkflowSetDraft {
   const workflows: WorkflowSetDraft['workflows'][number][] = [];
   for (const workflow of file.workflows) {
-    const nodes: { id: string; state: string }[] = [];
-    for (const node of workflow.nodes) nodes.push({ id: node.id, state: node.state });
+    const nodes: { id: string; assign: Patch }[] = [];
+    for (const node of workflow.nodes) nodes.push({ id: node.id, assign: toPatch(node.assign) });
     const edges: { from: string; event: string; to: string; text: string }[] = [];
     for (const edge of workflow.edges) edges.push({ from: edge.from, event: edge.event, to: edge.to, text: edge.text });
     const draft: WorkflowSetDraft['workflows'][number] = {
@@ -88,6 +110,18 @@ function workflowHints(value: unknown): LocatedError[] {
       hints.push({
         path: '',
         message: 'workflows are named linked lists of nodes and edges; steps and end were removed (see docs/agent-cli.md)',
+      });
+    }
+    const stateNodes = workflows.some((workflow) => {
+      if (typeof workflow !== 'object' || workflow === null || !('nodes' in workflow)) return false;
+      const nodes = workflow.nodes;
+      if (!Array.isArray(nodes)) return false;
+      return nodes.some((node) => typeof node === 'object' && node !== null && 'state' in node && !('assign' in node));
+    });
+    if (stateNodes) {
+      hints.push({
+        path: 'workflows',
+        message: WORKFLOW_ASSIGN_MESSAGE,
       });
     }
   }

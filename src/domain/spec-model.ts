@@ -4,6 +4,7 @@ import type { Issue } from './issue.js';
 import {
   apply,
   eventName,
+  explore,
   holds,
   makeValuation,
   sameValue,
@@ -12,6 +13,7 @@ import {
   type EventName,
   type Patch,
   type Predicate,
+  type ReachGraph,
   type Valuation,
   type Value,
   type ValueType,
@@ -168,7 +170,7 @@ export function enabled(spec: Spec, state: Valuation): readonly Action[] {
   return actions;
 }
 
-export function can(spec: Spec, state: Valuation, event: EventName): boolean {
+export function can(spec: Spec, state: Valuation, event: string): boolean {
   for (const action of spec.actions) {
     if (action.event === event && holds(action.when, state)) return true;
   }
@@ -176,13 +178,49 @@ export function can(spec: Spec, state: Valuation, event: EventName): boolean {
 }
 
 /** First enabled action for `event`. Null if none. */
-export function step(spec: Spec, state: Valuation, event: EventName): Valuation | null {
+export function step(spec: Spec, state: Valuation, event: string): Valuation | null {
   for (const action of spec.actions) {
     if (action.event !== event) continue;
     if (!holds(action.when, state)) continue;
     return apply(state, action.assign);
   }
   return null;
+}
+
+export function nextStates(spec: Spec, state: Valuation): readonly { event: EventName; to: Valuation }[] {
+  const out: { event: EventName; to: Valuation }[] = [];
+  for (const action of enabled(spec, state)) {
+    out.push({ event: action.event, to: apply(state, action.assign) });
+  }
+  return out;
+}
+
+export function reachableFromInitial(spec: Spec, bound: number): ReachGraph {
+  return explore([spec.initial], (state) => nextStates(spec, state), bound);
+}
+
+export function valuationFromAssign(
+  spec: Spec,
+  assign: Patch,
+): { ok: true; valuation: Valuation } | { ok: false; message: string } {
+  const entries = new Map<VarId, Value>();
+  for (const decl of spec.vars) {
+    const value = assign[decl.id];
+    if (value === undefined) {
+      return { ok: false, message: `assign missing variable "${decl.id}"` };
+    }
+    entries.set(decl.id, value);
+  }
+  for (const key of Object.keys(assign)) {
+    if (!spec.vars.some((decl) => decl.id === key)) {
+      return { ok: false, message: `assign has unknown variable "${key}"` };
+    }
+  }
+  try {
+    return { ok: true, valuation: makeValuation(spec.vars, entries) };
+  } catch (error) {
+    return { ok: false, message: messageOf(error) };
+  }
 }
 
 export function labelOf(spec: Spec, state: Valuation): Label | undefined {
@@ -193,9 +231,26 @@ export function labelOf(spec: Spec, state: Valuation): Label | undefined {
   return hits.length === 1 ? hits[0] : undefined;
 }
 
+export function displayOf(spec: Spec, state: Valuation): string {
+  const label = labelOf(spec, state);
+  if (label?.id !== undefined) return label.id;
+  if (label !== undefined) return label.text;
+  return state.id;
+}
+
 export function jsonScalar(value: Value): boolean | number | string | null {
   if (value.t === 'null') return null;
   return value.v;
+}
+
+export function patchScalars(patch: Patch): Record<string, boolean | number | string | null> {
+  const out: Record<string, boolean | number | string | null> = {};
+  for (const key of Object.keys(patch)) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    out[key] = jsonScalar(value);
+  }
+  return out;
 }
 
 export function matchHolds(match: Patch, state: Valuation): boolean {
