@@ -67,14 +67,14 @@ sequenceDiagram
   participant F as rebuildFacts
   participant U as unfold
   participant M as emit
-  A->>E: list / merge / rename / promote / reject
-  E->>F: sentences + tagged + entities + previous facts
-  F-->>E: ActionFact + ConfigurationFact
-  Note over E,F: same store write; no stale-graph
-  A->>U: spec graph build
-  U-->>A: reachable valuations + path cover (flows overlay)
-  A->>M: spec emit --out workflows.yaml --chart spec.yaml
-  M-->>A: workflows with full assign maps + clew.spec.v1
+  A->>E: "list / merge / rename / promote / reject"
+  E->>F: "sentences + tagged + entities + previous facts"
+  F-->>E: "ActionFact + ConfigurationFact"
+  Note over E,F: "same store write, no stale-graph"
+  A->>U: "spec graph build"
+  U-->>A: "reachable valuations + path cover (flows overlay)"
+  A->>M: "spec emit --out workflows.yaml --chart spec.yaml"
+  M-->>A: "workflows with full assign maps + clew.spec.v1"
 ```
 
 ```mermaid
