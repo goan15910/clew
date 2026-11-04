@@ -282,6 +282,55 @@ describe('spec entities and facts', { concurrency: false }, () => {
     assert.equal(live.some((fact) => fact.kind === 'action' && Object.keys(fact.assign).includes('name')), false);
   });
 
+  test('a chrome button in its own sentence does not fold onto a nearby lifecycle object', () => {
+    const sentences = [
+      sentenceOf('s1', 'The customer submits an order.'),
+      sentenceOf('s2', 'The manager approves the order.'),
+      sentenceOf('s3', 'Ada opens the request form.'),
+    ];
+    const tagged = [
+      taggedOf('s1', [
+        tokenOf('s1.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s1.t2', 'submits', ['Action', 'Verb'], [13, 20]),
+        tokenOf('s1.t3', 'order', ['Object', 'Noun'], [24, 29]),
+      ]),
+      taggedOf('s2', [
+        tokenOf('s2.t1', 'manager', ['Actor', 'Noun'], [4, 11]),
+        tokenOf('s2.t2', 'approves', ['Action', 'Verb'], [12, 20]),
+        tokenOf('s2.t3', 'order', ['Object', 'Noun'], [25, 30]),
+      ]),
+      taggedOf('s3', [
+        tokenOf('s3.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s3.t2', 'clicks', ['Action', 'Verb'], [13, 19]),
+        tokenOf('s3.t3', 'apply', ['Object', 'Noun'], [24, 29]),
+        tokenOf('s3.t4', 'button', ['Object', 'Noun'], [30, 36]),
+      ]),
+    ];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('actor:manager', 'actor', 'manager'),
+      entity('action:submit', 'action', 'submit'),
+      entity('action:approve', 'action', 'approve'),
+      entity('action:click', 'action', 'click'),
+      entity('object:order', 'object', 'order'),
+      entity('object:apply', 'object', 'apply'),
+      entity('object:button', 'object', 'button'),
+    ];
+    entities[0]!.sources = ['s1.t1', 's3.t1'];
+    entities[1]!.sources = ['s2.t1'];
+    entities[2]!.sources = ['s1.t2'];
+    entities[3]!.sources = ['s2.t2'];
+    entities[4]!.sources = ['s3.t2'];
+    entities[5]!.sources = ['s1.t3', 's2.t3'];
+    entities[6]!.sources = ['s3.t3'];
+    entities[7]!.sources = ['s3.t4'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
+    const click = live.find((fact) => fact.event === 'CLICK');
+    assert.deepEqual(click?.assign, { apply: { t: 'atom', v: 'click' } });
+    assert.equal(live.some((fact) => fact.event === 'CLICK' && Object.keys(fact.assign).includes('order')), false);
+  });
+
   test('a later sentence that restates the same event and assign does not mint a second fact', () => {
     const sentences = [
       sentenceOf('s1', 'The customer selects a company.'),
