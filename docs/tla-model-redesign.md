@@ -2,11 +2,13 @@
 
 > **Status.** Design for stacked PRs. Do not merge until Jeff reviews.
 >
-> **Arena.** Cross-judge ([judge](bc-c2f16294-9b55-5fc7-a64e-00cf5a50bb94)) scored C1 29, C2 25, C3 22 and recommended C1. Shipping base stays **C2’s CLI surface** (`chart` / `workflows` / `spec`, separate files) already opened in #44–#45. Absorb C1’s pipeline and stack-green rules, and the judge’s deal-breaker fixes for C2.
+> **Arena.** Three architecture candidates (C1–C3) were judged offline. Cross-judge scored **C1 29 / C2 25 / C3 22** and recommended C1. Shipping base is still **C2’s CLI surface**. See [Arena](#arena) below.
 >
 > **Identity.** A state is one complete valuation of the closed variable set. Labels, workflow node ids, and fact ids are not identity. Equal valuations are the same state.
 >
 > **Offline corpus rule.** Private product specs stay offline. Never commit private corpus text or derived private tables.
+>
+> **Stack.** Ordered open PRs live in Project context (`docs/project-context.md` in the Agent Store), not in this public doc.
 
 ## Architecture
 
@@ -166,42 +168,48 @@ Fact shapes after entities (discriminated union; no `performs` join):
 | `adapters/yaml/spec-loader.ts` | Zod `clew.spec.v1` |
 | `adapters/spec-store/*` | schema 2, FactSchema, unlink `graph.json` |
 
-## Stacked PRs (open as ready, do not merge)
-
-```mermaid
-flowchart LR
-  P0["PR0 design doc"] --> P1["PR1 valuation kernel"]
-  P1 --> P2["PR2 Spec replaces Model"]
-  P2 --> P3["PR3 next-state verify"]
-  P3 --> P4["PR4 assignment facts + rebuildFacts"]
-  P4 --> P5["PR5 unfold + emit --chart"]
-  P5 --> P6["PR6 offline auto harness"]
-```
-
-| PR | Delivers | Check |
-|----|----------|-------|
-| **0** | This doc in repo `docs/tla-model-redesign.md` | Doc-only review |
-| **1** | `domain/valuation.ts` + unit tests | Same pairs → same id; `apply` leaves others equal |
-| **2** | `clew.spec.v1` loader; todo rewritten; reject location charts; keep verify green via labels on migrated chart | `chart check` + existing todo `verify` still pass |
-| **3** | Workflow full `assign`; verify via `step` + reachable-from-initial; XState view-only | `verify` round-trip; unreachable start fails; bad assign fails |
-| **4** | Fact schema v2 (ActionFact / ConfigurationFact); `rebuildFacts`; no `performs` join | Promote changes facts; no `pastParticiple` `to` |
-| **5** | Unfold, emit workflows + `--chart`, drop `graph.json`, delete `stale-graph` | emit → verify without hand location chart |
-| **6** | Synthetic always-on CI harness | init→emit on synthetic fixture; no private corpus |
-
 ## Results
 
-Public-safe pipeline summary only. Measured private offline figures stay in the Agent Store and are omitted from this public doc.
+Public-safe pipeline summary only. Measured private offline figures stay in the Agent Store and are omitted from this public doc. Jeff reviews the open stack; do not merge.
 
-## Results and reviewer guide
+## Arena
 
-Jeff reviews this stack open. Do not merge.
+Architecture arena produced three designs. A cross-family judge ([judge](bc-c2f16294-9b55-5fc7-a64e-00cf5a50bb94)) scored them against identity, action semantics, pipeline coherence, hexagonal fit, stackability, and offline-corpus testability.
 
-## Arena note
+```mermaid
+xychart-beta
+  title "Cross-judge totals"
+  x-axis [C1, C2, C3]
+  y-axis "score" 0 --> 30
+  bar [29, 25, 22]
+```
 
-Cross-judge recommended C1. Kept C2 product shape (separate chart/workflows/spec files and CLI nouns) because #44/#45 already ship on that surface and C3’s `clew behavior` bundle removes the independent chart oracle.
+| Candidate | Total | One-line shape |
+|-----------|------:|----------------|
+| **C1** | 29 | One valuation kernel; chart = TLA+ module; `modelFromFacts` ≡ loader draft; `explore`/`witness`; stack-green PR cut |
+| **C2** | 25 | Chart = `clew.spec.v1`; strict `valuationId`; separate `chart` / `workflows` / `spec` files and CLI nouns |
+| **C3** | 22 | Valuation-first behavior document; ActionFact / ConfigurationFact; merged behavior bundle + mega-PRs |
 
-Absorbed from C1: `explore`/`witness`, condition-as-bool vars, `modelFromFacts` ≡ loader draft, emit `--chart`, stack-green PR2 label trick, Init as a set when YAML lists multiple initials.
+### What each proposed
 
-Absorbed from judge vs C2: drop `performs` join; full valuations only on workflow nodes; verify reachable-from-initial; no persisted authoritative `graph.json`; committed baseline JSON counts.
+**C1 — one valuation kernel.** Pure `valuation.ts` (`Valuation`, `Predicate`, `Update`, `apply`, `explore`, `witness`). Chart is variables + init + actions + labels (no authored state list). Facts collapse toward action/status shapes; `modelFromFacts` and the YAML loader share one draft type; graph = `explore(model)`; emit can write `--chart`. Strongest stackability (each PR lands with product checks green; PR2 keeps todo verify green by turning old node states into labels).
 
-Absorbed from C3: ActionFact/ConfigurationFact; `NonEmptyAssignments`; stable attempt ids from fact id + source key. Rejected C3 mega-PRs, forbidden-as-pseudo-action, and agent-typed variables before auto propose.
+**C2 — chart is a TLA+ spec.** Strictest identity: labels never feed `step`/verify; workflow nodes carry full `assign` only. Product A/B stay separate files (`chart` / `workflows` / `spec`). `specFromFacts` matches the loader; unfold not persisted; `graph.json` deleted. Weaker stackability (admitted red windows / skipped verify in mid-stack). Kept a `performs`-style actor join the redesign exists to remove.
+
+**C3 — valuation-first behavior document.** Strong nominal `Valuation` branding; ActionFact (`allowed`/`forbidden`) + ConfigurationFact; `refreshFacts` on entity writes; stable attempt ids from fact id + source key. Costly: whole-product mega-PRs, single merged behavior document (emit verifies against itself — no independent chart oracle), and an auto path that needs agent-typed variables before it can run.
+
+### Cross-judge judgement
+
+Recommended base **C1** (29): one kernel/type for chart + facts + emit; invariants in constructors; only stack reviewable PR-by-PR with the product green; TLA+ fidelity where it matters (Init as a set, dead-ends legal, nondeterminism surfaced).
+
+C2 won identity purity and boundary cleanliness but kept the actor join and red stack windows. C3 had the most literal fact shape but failed stackability and removed the independent chart oracle.
+
+### Shipping decision (this redesign)
+
+Keep **C2’s CLI / file surface** (`chart` / `workflows` / `spec`) because #44/#45 already ship on it and C3’s unified behavior bundle is rejected.
+
+Absorb from **C1:** `explore`/`witness`, condition entities as boolean vars, `modelFromFacts` ≡ loader draft, `spec emit --chart`, stack-green PR2 label trick, Init as a set when YAML lists multiple initials.
+
+Absorb **judge fixes vs C2:** drop `performs` join; full valuations only on workflow nodes; verify reachable-from-initial; no persisted authoritative `graph.json`.
+
+Absorb from **C3:** ActionFact / ConfigurationFact; `NonEmptyAssignments`; stable attempt ids from fact id + source key. Reject C3 mega-PRs, forbidden-as-pseudo-action, and agent-typed variables before auto propose.
