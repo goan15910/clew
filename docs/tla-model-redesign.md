@@ -190,6 +190,15 @@ xychart-beta
 | **C2** | 25 | Chart = `clew.spec.v1`; strict `valuationId`; separate `chart` / `workflows` / `spec` files and CLI nouns |
 | **C3** | 22 | Valuation-first behavior document; ActionFact / ConfigurationFact; merged behavior bundle + mega-PRs |
 
+### Authorship (model / effort)
+
+| Role | Model (effort) | Agent |
+|------|----------------|-------|
+| C1 author | `fable-medium` | [bc-36b5dee7…](bc-36b5dee7-4dda-5584-90c8-0270ad85d5b6) (`arena-candidate-1-fable`) |
+| C2 author | `grok-xhigh-fast` | [bc-8a0b04db…](bc-8a0b04db-9e8e-5141-9cf6-c4714545ff43) (`arena-candidate-2-grok`) |
+| C3 author | `gpt-5.6-sol-high` | [bc-84a726d2…](bc-84a726d2-998a-5352-8643-52174178df0e) (`arena-candidate-3-gpt`) |
+| Cross-judge | Claude (cross-family; parent composer) | [bc-c2f16294…](bc-c2f16294-9b55-5fc7-a64e-00cf5a50bb94) — scored C1 29 / C2 25 / C3 22 |
+
 ### What each proposed
 
 **C1 — one valuation kernel.** Pure `valuation.ts` (`Valuation`, `Predicate`, `Update`, `apply`, `explore`, `witness`). Chart is variables + init + actions + labels (no authored state list). Facts collapse toward action/status shapes; `modelFromFacts` and the YAML loader share one draft type; graph = `explore(model)`; emit can write `--chart`. Strongest stackability (each PR lands with product checks green; PR2 keeps todo verify green by turning old node states into labels).
