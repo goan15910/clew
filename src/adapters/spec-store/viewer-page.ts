@@ -454,6 +454,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     <label>Span<select id="filter-span"><option value="">any</option></select></label>
     <label><input type="checkbox" id="filter-rejected">Show rejected entities</label>
     <label><input type="checkbox" id="filter-insignificant">Show insignificant spans</label>
+    <label><input type="checkbox" id="filter-multi-token">Multi-token spans only</label>
     <button type="button" id="filter-clear">Clear filters</button>
   </div>
 </div>
@@ -514,6 +515,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     span: document.getElementById("filter-span"),
     rejected: document.getElementById("filter-rejected"),
     insignificant: document.getElementById("filter-insignificant"),
+    multiToken: document.getElementById("filter-multi-token"),
     clear: document.getElementById("filter-clear"),
     facts: document.getElementById("panel-facts"),
     entities: document.getElementById("panel-entities"),
@@ -1282,11 +1284,10 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return span.firstTokenId !== span.lastTokenId;
   }
 
-  function uniqueSpanEntries(spans) {
+  function uniqueSpanEntries(spans, multiTokenOnly) {
     const map = new Map();
     for (const span of spans) {
-      // Span tab inventories multi-token covers only; 1:1 promotes stay out.
-      if (!isMultiTokenSpan(span)) continue;
+      if (multiTokenOnly && !isMultiTokenSpan(span)) continue;
       const key = spanEntryKey(span);
       let entry = map.get(key);
       if (!entry) {
@@ -1375,20 +1376,23 @@ details.lineage[open] > summary::before { content: "▾ "; }
 
   function renderSpans() {
     const showInsignificant = els.insignificant.checked;
-    const entries = uniqueSpanEntries(state.spans).filter(function (entry) {
+    const multiTokenOnly = els.multiToken.checked;
+    const entries = uniqueSpanEntries(state.spans, multiTokenOnly).filter(function (entry) {
       if (!showInsignificant && entry.insignificant) return false;
       if (spanFilterActive() && !spanMatches({ tags: entry.tags })) return false;
       const ids = entry.spans.map(function (span) { return span.id; });
       return matchesText([entry.surface, posLabel(entry.tags), ...(entry.tags || []), ...ids]);
     }).sort(compareSpanEntries);
     if (entries.length === 0) {
-      const multi = state.spans.filter(isMultiTokenSpan);
+      const listed = multiTokenOnly ? state.spans.filter(isMultiTokenSpan) : state.spans;
       let message = "No spans match these filters.";
-      if (multi.length === 0) {
-        message = state.spans.length + " live spans, all single-token; the Span tab lists multi-token spans only. " +
-          "Merge spans with clew spec spans merge --lexicon <file> (or --id … --tags …), then refresh.";
-      } else if (!showInsignificant && multi.every(function (span) { return span.insignificant === true; })) {
-        message = "Every multi-token span is insignificant; check Show insignificant spans to list them.";
+      if (state.spans.length === 0) {
+        message = "No live spans in this session.";
+      } else if (listed.length === 0) {
+        message = state.spans.length + " live spans, all single-token; uncheck Multi-token spans only to list them, " +
+          "or merge spans with clew spec spans merge --lexicon <file> (or --id … --tags …), then refresh.";
+      } else if (!showInsignificant && listed.every(function (span) { return span.insignificant === true; })) {
+        message = "Every listed span is insignificant; check Show insignificant spans to list them.";
       }
       els.spans.innerHTML = '<p class="empty">' + esc(message) + "</p>";
       return;
@@ -1606,7 +1610,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     render();
   }
 
-  for (const input of [els.text, els.kind, els.type, els.status, els.span, els.rejected, els.insignificant]) {
+  for (const input of [els.text, els.kind, els.type, els.status, els.span, els.rejected, els.insignificant, els.multiToken]) {
     input.addEventListener("input", filtersChanged);
     input.addEventListener("change", filtersChanged);
   }
@@ -1619,6 +1623,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     els.span.value = "";
     els.rejected.checked = false;
     els.insignificant.checked = false;
+    els.multiToken.checked = false;
     render();
   });
 
