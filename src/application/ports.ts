@@ -1,5 +1,6 @@
 // Ports the use cases need. Adapters implement these; the use cases do not import adapters.
 import type { Model } from '../domain/model.js';
+import type { Spec } from '../domain/spec-model.js';
 import type { BuildInfo } from '../domain/upgrade.js';
 import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
 import type { Traversal } from '../domain/traversal.js';
@@ -13,6 +14,10 @@ export type FileLoad<T> =
 
 export interface ModelLoader {
   load(file: string): FileLoad<Model>;
+}
+
+export interface SpecLoader {
+  load(file: string): FileLoad<Spec>;
 }
 
 export interface WorkflowSetLoader {

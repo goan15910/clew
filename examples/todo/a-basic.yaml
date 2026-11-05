@@ -1,68 +1,77 @@
 # Candidate a-basic. Weaker on purpose: delete is permanent, a task must be
 # started before it can be completed, and archive is allowed from In Progress.
+kind: clew.spec.v1
 id: todoTask
-initial: draft
-guards:
-  - { name: titleNotEmpty, reads: title }
-effects:
-  - { name: markListed, sets: listed }
-  - { name: clearListed, sets: listed }
-  - { name: stampStarted, sets: started_at }
-  - { name: stampCompleted, sets: completed_at }
-  - { name: clearCompleted, sets: completed_at }
-  - { name: setWakeAt, sets: wake_at }
-  - { name: clearWakeAt, sets: wake_at }
-  - { name: removeRow, sets: removed }
-states:
-  - id: draft
-    label: Draft
-    data:
-      title: string
-      listed: boolean
-  - id: todo
-    label: Todo
-    data:
-      title: string
-      listed: boolean
-      started_at: timestamp
-      completed_at: timestamp
-  - id: inProgress
-    label: In Progress
-    data:
-      title: string
-      started_at: timestamp
-      wake_at: timestamp
-  - id: snoozed
-    label: Snoozed
-    data:
-      title: string
-      wake_at: timestamp
-      listed: boolean
-  - id: done
-    label: Done
-    data:
-      title: string
-      completed_at: timestamp
-  - id: archived
-    label: Archived
-    final: true
-    data:
-      title: string
-      listed: boolean
-  - id: deleted
-    label: Deleted
-    final: true
-    data:
-      removed: boolean
-transitions:
-  - { from: draft, event: SUBMIT, to: todo, actor: user, guard: titleNotEmpty, effect: markListed }
-  - { from: draft, event: DELETE, to: deleted, actor: user, effect: removeRow }
-  - { from: todo, event: START, to: inProgress, actor: user, effect: stampStarted }
-  - { from: todo, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
-  - { from: todo, event: DELETE, to: deleted, actor: user, effect: removeRow }
-  - { from: inProgress, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
-  - { from: inProgress, event: COMPLETE, to: done, actor: user, effect: stampCompleted }
-  - { from: inProgress, event: ARCHIVE, to: archived, actor: user, effect: clearListed }
-  - { from: snoozed, event: RESUME, to: inProgress, actor: "user or timer", effect: clearWakeAt }
-  - { from: done, event: REOPEN, to: todo, actor: user, effect: clearCompleted }
-  - { from: done, event: ARCHIVE, to: archived, actor: user, effect: clearListed }
+vars:
+  - { id: phase, type: atom }
+  - { id: listed, type: boolean }
+  - { id: title, type: atom }
+  - { id: started_at, type: timestamp }
+  - { id: completed_at, type: timestamp }
+  - { id: wake_at, type: timestamp }
+  - { id: removed, type: boolean }
+initial:
+  phase: draft
+  listed: false
+  title: ""
+  started_at: null
+  completed_at: null
+  wake_at: null
+  removed: false
+actions:
+  - event: SUBMIT
+    actor: user
+    when:
+      op: and
+      of:
+        - { op: eq, var: phase, value: draft }
+        - { op: neq, var: title, value: "" }
+    assign: { phase: todo, listed: true }
+  - event: DELETE
+    actor: user
+    when: { op: eq, var: phase, value: draft }
+    assign: { phase: deleted, removed: true }
+  - event: START
+    actor: user
+    when: { op: eq, var: phase, value: todo }
+    assign: { phase: inProgress, started_at: set }
+  - event: SNOOZE
+    actor: user
+    when: { op: eq, var: phase, value: todo }
+    assign: { phase: snoozed, wake_at: set }
+  - event: DELETE
+    actor: user
+    when: { op: eq, var: phase, value: todo }
+    assign: { phase: deleted, removed: true }
+  - event: SNOOZE
+    actor: user
+    when: { op: eq, var: phase, value: inProgress }
+    assign: { phase: snoozed, wake_at: set }
+  - event: COMPLETE
+    actor: user
+    when: { op: eq, var: phase, value: inProgress }
+    assign: { phase: done, completed_at: set }
+  - event: ARCHIVE
+    actor: user
+    when: { op: eq, var: phase, value: inProgress }
+    assign: { phase: archived, listed: false }
+  - event: RESUME
+    actor: "user or timer"
+    when: { op: eq, var: phase, value: snoozed }
+    assign: { phase: inProgress, wake_at: null }
+  - event: REOPEN
+    actor: user
+    when: { op: eq, var: phase, value: done }
+    assign: { phase: todo, completed_at: null }
+  - event: ARCHIVE
+    actor: user
+    when: { op: eq, var: phase, value: done }
+    assign: { phase: archived, listed: false }
+labels:
+  - { id: draft, match: { phase: draft }, text: Draft }
+  - { id: todo, match: { phase: todo }, text: Todo }
+  - { id: inProgress, match: { phase: inProgress }, text: In Progress }
+  - { id: snoozed, match: { phase: snoozed }, text: Snoozed }
+  - { id: done, match: { phase: done }, text: Done }
+  - { id: archived, match: { phase: archived }, text: Archived, final: true }
+  - { id: deleted, match: { phase: deleted }, text: Deleted, final: true }

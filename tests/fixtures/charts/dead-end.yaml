@@ -1,24 +1,20 @@
-# Valid chart. stuck and island are not reachable from start.
-# Neither is final and neither has an outgoing transition, so both are dead ends.
+# Valid spec. stuck and island are labeled but never assigned, so the
+# location projection reports them unreachable and as dead ends.
+kind: clew.spec.v1
 id: deadEnd
-initial: start
-guards: []
-effects:
-  - { name: markDone, sets: done }
-states:
-  - id: start
-    label: Start
-    data: {}
-  - id: done
-    label: Done
-    final: true
-    data:
-      done: boolean
-  - id: stuck
-    label: Stuck
-    data: {}
-  - id: island
-    label: Island
-    data: {}
-transitions:
-  - { from: start, event: FINISH, to: done, actor: user, effect: markDone }
+vars:
+  - { id: phase, type: atom }
+  - { id: done, type: boolean }
+initial:
+  phase: start
+  done: false
+actions:
+  - event: FINISH
+    actor: user
+    when: { op: eq, var: phase, value: start }
+    assign: { phase: done, done: true }
+labels:
+  - { id: start, match: { phase: start }, text: Start }
+  - { id: done, match: { phase: done }, text: Done, final: true }
+  - { id: stuck, match: { phase: stuck }, text: Stuck }
+  - { id: island, match: { phase: island }, text: Island }

@@ -63,6 +63,7 @@ import { humanSummary } from './adapters/text/summary.js';
 import { xstateTraversalEngine } from './adapters/xstate/traversal-engine.js';
 import { locatedErrors } from './adapters/yaml/issue-lines.js';
 import { yamlModelLoader } from './adapters/yaml/model-loader.js';
+import { yamlSpecLoader } from './adapters/yaml/spec-loader.js';
 import { yamlWorkflowLoader } from './adapters/yaml/workflow-loader.js';
 import { yamlWorkflowWriter } from './adapters/yaml/workflow-writer.js';
 import { analyzeChart } from './application/analyze-chart.js';
@@ -524,7 +525,7 @@ setManual(chart
   .action((file, opts) => {
     const parsed = JsonFlag.safeParse(opts);
     if (!parsed.success) usage('chart.check', opts, parsed.error);
-    emit(checkChart(file, yamlModelLoader), parsed.data.json === true);
+    emit(checkChart(file, yamlSpecLoader), parsed.data.json === true);
   }), {
   examples: ['clew chart check examples/todo/b-full.yaml --json'],
   exitCodes: [

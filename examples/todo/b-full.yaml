@@ -1,75 +1,89 @@
 # Candidate b-full. Trash can be restored, a todo can be completed directly,
 # archive is only from Done, and an archived task can come back.
+kind: clew.spec.v1
 id: todoTask
-initial: draft
-guards:
-  - { name: titleNotEmpty, reads: title }
-  - { name: completedAtSet, reads: completed_at }
-effects:
-  - { name: markListed, sets: listed }
-  - { name: clearListed, sets: listed }
-  - { name: stampStarted, sets: started_at }
-  - { name: stampCompleted, sets: completed_at }
-  - { name: clearCompleted, sets: completed_at }
-  - { name: setWakeAt, sets: wake_at }
-  - { name: clearWakeAt, sets: wake_at }
-  - { name: stampDeleted, sets: deleted_at }
-  - { name: clearDeleted, sets: deleted_at }
-states:
-  - id: draft
-    label: Draft
-    data:
-      title: string
-      listed: boolean
-  - id: todo
-    label: Todo
-    data:
-      title: string
-      listed: boolean
-      started_at: timestamp
-      completed_at: timestamp
-      deleted_at: timestamp
-  - id: inProgress
-    label: In Progress
-    data:
-      title: string
-      started_at: timestamp
-      wake_at: timestamp
-  - id: snoozed
-    label: Snoozed
-    data:
-      title: string
-      wake_at: timestamp
-      listed: boolean
-  - id: done
-    label: Done
-    data:
-      title: string
-      completed_at: timestamp
-      listed: boolean
-  - id: archived
-    label: Archived
-    data:
-      title: string
-      listed: boolean
-      completed_at: timestamp
-  - id: deleted
-    label: Deleted
-    data:
-      title: string
-      deleted_at: timestamp
-      listed: boolean
-transitions:
-  - { from: draft, event: SUBMIT, to: todo, actor: user, guard: titleNotEmpty, effect: markListed }
-  - { from: draft, event: DELETE, to: deleted, actor: user, effect: stampDeleted }
-  - { from: todo, event: START, to: inProgress, actor: user, effect: stampStarted }
-  - { from: todo, event: COMPLETE, to: done, actor: user, effect: stampCompleted }
-  - { from: todo, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
-  - { from: todo, event: DELETE, to: deleted, actor: user, effect: stampDeleted }
-  - { from: inProgress, event: SNOOZE, to: snoozed, actor: user, effect: setWakeAt }
-  - { from: inProgress, event: COMPLETE, to: done, actor: user, effect: stampCompleted }
-  - { from: snoozed, event: RESUME, to: inProgress, actor: "user or timer", effect: clearWakeAt }
-  - { from: done, event: REOPEN, to: todo, actor: user, effect: clearCompleted }
-  - { from: done, event: ARCHIVE, to: archived, actor: user, guard: completedAtSet, effect: clearListed }
-  - { from: archived, event: UNARCHIVE, to: done, actor: user, effect: markListed }
-  - { from: deleted, event: RESTORE, to: todo, actor: user, effect: clearDeleted }
+vars:
+  - { id: phase, type: atom }
+  - { id: listed, type: boolean }
+  - { id: title, type: atom }
+  - { id: started_at, type: timestamp }
+  - { id: completed_at, type: timestamp }
+  - { id: wake_at, type: timestamp }
+  - { id: deleted_at, type: timestamp }
+initial:
+  phase: draft
+  listed: false
+  title: ""
+  started_at: null
+  completed_at: null
+  wake_at: null
+  deleted_at: null
+actions:
+  - event: SUBMIT
+    actor: user
+    when:
+      op: and
+      of:
+        - { op: eq, var: phase, value: draft }
+        - { op: neq, var: title, value: "" }
+    assign: { phase: todo, listed: true }
+  - event: DELETE
+    actor: user
+    when: { op: eq, var: phase, value: draft }
+    assign: { phase: deleted, deleted_at: set }
+  - event: START
+    actor: user
+    when: { op: eq, var: phase, value: todo }
+    assign: { phase: inProgress, started_at: set }
+  - event: COMPLETE
+    actor: user
+    when: { op: eq, var: phase, value: todo }
+    assign: { phase: done, completed_at: set }
+  - event: SNOOZE
+    actor: user
+    when: { op: eq, var: phase, value: todo }
+    assign: { phase: snoozed, wake_at: set }
+  - event: DELETE
+    actor: user
+    when: { op: eq, var: phase, value: todo }
+    assign: { phase: deleted, deleted_at: set }
+  - event: SNOOZE
+    actor: user
+    when: { op: eq, var: phase, value: inProgress }
+    assign: { phase: snoozed, wake_at: set }
+  - event: COMPLETE
+    actor: user
+    when: { op: eq, var: phase, value: inProgress }
+    assign: { phase: done, completed_at: set }
+  - event: RESUME
+    actor: "user or timer"
+    when: { op: eq, var: phase, value: snoozed }
+    assign: { phase: inProgress, wake_at: null }
+  - event: REOPEN
+    actor: user
+    when: { op: eq, var: phase, value: done }
+    assign: { phase: todo, completed_at: null }
+  - event: ARCHIVE
+    actor: user
+    when:
+      op: and
+      of:
+        - { op: eq, var: phase, value: done }
+        - { op: neq, var: completed_at, value: null }
+    assign: { phase: archived, listed: false }
+  - event: UNARCHIVE
+    actor: user
+    when: { op: eq, var: phase, value: archived }
+    assign: { phase: done, listed: true }
+  - event: RESTORE
+    actor: user
+    when: { op: eq, var: phase, value: deleted }
+    assign: { phase: todo, deleted_at: null }
+labels:
+  - { id: draft, match: { phase: draft }, text: Draft }
+  - { id: todo, match: { phase: todo }, text: Todo }
+  - { id: inProgress, match: { phase: inProgress }, text: In Progress }
+  - { id: snoozed, match: { phase: snoozed }, text: Snoozed }
+  - { id: done, match: { phase: done }, text: Done }
+  - { id: archived, match: { phase: archived }, text: Archived }
+  - { id: deleted, match: { phase: deleted }, text: Deleted }

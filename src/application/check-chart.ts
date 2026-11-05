@@ -1,18 +1,27 @@
-// Use case: schema and graph validity of one state chart. No workflows, no traversal.
-import type { Model } from '../domain/model.js';
+// Use case: schema and graph validity of one spec. No workflows, no traversal.
+import { jsonScalar, type Spec } from '../domain/spec-model.js';
 import { tagIssues, type ChartCheckDocument, type ChartSketch, type Outcome } from './documents.js';
-import type { ModelLoader } from './ports.js';
+import type { SpecLoader } from './ports.js';
 
-export function chartSketch(model: Model): ChartSketch {
-  const states: ChartSketch['states'] = [];
-  for (const state of model.states()) states.push({ id: state.id, label: state.label, final: state.final });
-  const transitions: ChartSketch['transitions'] = [];
-  for (const edge of model.transitions()) transitions.push({ from: edge.from, event: edge.event, to: edge.to });
-  return { id: model.id, initial: model.initial, states, transitions };
+export function chartSketch(spec: Spec): ChartSketch {
+  const vars: ChartSketch['vars'] = [];
+  for (const decl of spec.vars) vars.push({ id: decl.id, type: decl.type });
+  const initial: ChartSketch['initial'] = {};
+  for (const [id, value] of spec.initial.entries()) initial[id] = jsonScalar(value);
+  const actions: ChartSketch['actions'] = [];
+  for (const action of spec.actions) actions.push({ event: action.event, actor: action.actor });
+  const labels: ChartSketch['labels'] = [];
+  for (const label of spec.labels) {
+    const item: ChartSketch['labels'][number] = { text: label.text };
+    if (label.id !== undefined) item.id = label.id;
+    if (label.final === true) item.final = true;
+    labels.push(item);
+  }
+  return { id: spec.id, vars, initial, actions, labels };
 }
 
-export function checkChart(file: string, models: ModelLoader): Outcome<ChartCheckDocument> {
-  const loaded = models.load(file);
+export function checkChart(file: string, specs: SpecLoader): Outcome<ChartCheckDocument> {
+  const loaded = specs.load(file);
   if (!loaded.ok && loaded.fault === 'unreadable') {
     return {
       exit: 'invalid',
