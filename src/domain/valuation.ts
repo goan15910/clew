@@ -28,6 +28,8 @@ export interface Valuation {
 /** Primed vars only. Keys not present stay as they were. */
 export type Patch = Readonly<Record<string, Value>>;
 
+export type JsonScalar = boolean | number | string | null;
+
 export type Predicate =
   | { readonly op: 'true' }
   | { readonly op: 'eq'; readonly var: VarId; readonly value: Value }
@@ -174,6 +176,38 @@ export function holds(predicate: Predicate, state: Valuation): boolean {
 
 export function sameValuation(left: Valuation, right: Valuation): boolean {
   return left.id === right.id;
+}
+
+export function valueFromScalar(raw: JsonScalar): Value {
+  if (raw === null) return { t: 'null' };
+  if (typeof raw === 'boolean') return { t: 'bool', v: raw };
+  if (typeof raw === 'number') return { t: 'num', v: raw };
+  return { t: 'atom', v: raw };
+}
+
+export function scalarFromValue(value: Value): JsonScalar {
+  if (value.t === 'null') return null;
+  return value.v;
+}
+
+export function patchFromScalars(raw: Readonly<Record<string, JsonScalar>>): Patch {
+  const patch: Record<string, Value> = {};
+  for (const key of Object.keys(raw)) {
+    const scalar = raw[key];
+    if (scalar === undefined) continue;
+    patch[key] = valueFromScalar(scalar);
+  }
+  return patch;
+}
+
+export function scalarsFromPatch(patch: Patch): Record<string, JsonScalar> {
+  const out: Record<string, JsonScalar> = {};
+  for (const key of Object.keys(patch)) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    out[key] = scalarFromValue(value);
+  }
+  return out;
 }
 
 export function sameValue(left: Value, right: Value): boolean {

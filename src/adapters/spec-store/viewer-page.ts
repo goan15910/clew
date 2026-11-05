@@ -472,7 +472,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 <script>
 (function () {
   const KINDS = ["actor", "object", "action", "condition"];
-  const TYPES = ["performs", "transition", "guard", "initial", "final", "forbidden"];
+  const TYPES = ["action", "init", "terminal", "forbidden"];
   const state = {
     session: null,
     sentences: [],
@@ -840,16 +840,62 @@ details.lineage[open] > summary::before { content: "▾ "; }
     flush();
   }
 
+  function varNameForEntity(entity) {
+    if (entity.kind === "object" && entity.name) {
+      const name = String(entity.name).replace(/-/g, "_");
+      return /^[a-z][a-z0-9_]*$/.test(name) ? name : "";
+    }
+    if (entity.kind === "condition") {
+      const suffix = entity.id.indexOf("condition:") === 0 ? entity.id.slice("condition:".length) : entity.id;
+      const name = String(suffix).replace(/-/g, "_");
+      return /^[a-z][a-z0-9_]*$/.test(name) ? name : "";
+    }
+    return "";
+  }
+
+  function eventFromAction(entity) {
+    if (entity.kind !== "action" || !entity.name) return "";
+    const event = String(entity.name).replace(/-/g, "_").toUpperCase();
+    return /^[A-Z][A-Z0-9_]*$/.test(event) ? event : "";
+  }
+
+  function collectVars(node, names) {
+    if (!node || typeof node !== "object") return;
+    if (typeof node.var === "string") names[node.var] = true;
+    if (Array.isArray(node.of)) {
+      for (const child of node.of) collectVars(child, names);
+    } else if (node.of) collectVars(node.of, names);
+  }
+
+  function factKind(fact) {
+    return fact.kind || "";
+  }
+
+  function factCitedIds(fact) {
+    const ids = [];
+    if (fact.actor) ids.push(fact.actor);
+    const names = {};
+    collectVars(fact.when, names);
+    if (fact.assign) {
+      for (const key of Object.keys(fact.assign)) names[key] = true;
+    }
+    for (const entity of state.entities) {
+      const name = varNameForEntity(entity);
+      if (name && names[name] && ids.indexOf(entity.id) < 0) ids.push(entity.id);
+      const event = eventFromAction(entity);
+      if (event && fact.event === event && ids.indexOf(entity.id) < 0) ids.push(entity.id);
+    }
+    return ids;
+  }
+
   function factLineage(fact) {
     const entities = indexEntities();
     const rows = [];
-    const entityFields = ["actor", "action", "object", "condition"];
-    for (const field of entityFields) {
-      const id = fact[field];
-      if (!id) continue;
+    for (const id of factCitedIds(fact)) {
       const entity = entities.get(id);
       if (entity && !entityShown(entity)) continue;
       const label = entity ? (entity.name || entity.text || id) : id;
+      const field = entity ? entity.kind : "entity";
       rows.push({
         layer: "entity",
         text: field + " → " + id + " (" + label + ")",
@@ -915,12 +961,11 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const rows = [];
     appendSpanSources(rows, entity.sources);
     for (const fact of state.facts) {
-      const refs = [fact.actor, fact.action, fact.object, fact.condition];
-      if (refs.indexOf(entity.id) >= 0) {
+      if (factCitedIds(fact).indexOf(entity.id) >= 0) {
         rows.push({
           layer: "fact",
-          text: fact.id + " " + fact.type,
-          bits: [part("id", fact.id), part("type", fact.type)],
+          text: fact.id + " " + factKind(fact),
+          bits: [part("id", fact.id), part("type", factKind(fact))],
         });
       }
     }
@@ -962,8 +1007,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
         if (source === sentence.id || source.indexOf(sentence.id + ".") === 0) {
           rows.push({
             layer: "fact",
-            text: fact.id + " " + fact.type + " via " + source,
-            bits: [part("id", fact.id), part("type", fact.type), part("note", "via"), viaPart(source)],
+            text: fact.id + " " + factKind(fact) + " via " + source,
+            bits: [part("id", fact.id), part("type", factKind(fact)), part("note", "via"), viaPart(source)],
           });
           break;
         }
@@ -979,21 +1024,19 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const entities = indexEntities();
     const visible = state.facts.filter(function (fact) {
       if (fact.removed === true) return false;
-      if (type && fact.type !== type) return false;
+      if (type && factKind(fact) !== type) return false;
       if (status && fact.status !== status) return false;
       if (kind) {
-        const ids = [fact.actor, fact.action, fact.object, fact.condition];
         let hit = false;
-        for (const id of ids) {
-          const entity = id ? entities.get(id) : null;
+        for (const id of factCitedIds(fact)) {
+          const entity = entities.get(id);
           if (entity && entity.kind === kind) hit = true;
         }
         if (!hit) return false;
       }
       return matchesText([
-        fact.id, fact.type, fact.actor, fact.action, fact.object, fact.condition, fact.state, fact.from, fact.to, fact.note,
-        ...(fact.sources || []),
-      ]);
+        fact.id, factKind(fact), fact.event, fact.actor, JSON.stringify(fact.when || {}), JSON.stringify(fact.assign || {}), fact.note,
+      ].concat(fact.sources || []));
     });
     if (visible.length === 0) {
       els.facts.innerHTML = '<p class="empty">No facts match these filters.</p>';
@@ -1001,17 +1044,14 @@ details.lineage[open] > summary::before { content: "▾ "; }
     }
     renderPage("facts", els.facts, visible, function (fact) {
       const bits = [];
+      if (fact.event) bits.push("event " + fact.event);
       if (fact.actor) bits.push("actor " + fact.actor);
-      if (fact.action) bits.push("action " + fact.action);
-      if (fact.object) bits.push("object " + fact.object);
-      if (fact.from !== undefined) bits.push("from " + String(fact.from));
-      if (fact.to) bits.push("to " + fact.to);
-      if (fact.condition) bits.push("when " + fact.condition);
-      if (fact.state) bits.push("state " + fact.state);
+      if (fact.when) bits.push("when " + JSON.stringify(fact.when));
+      if (fact.assign) bits.push("assign " + JSON.stringify(fact.assign));
       return (
         '<article class="card">' +
         "<h2><span class=\\"id\\">" + esc(fact.id) + "</span>" +
-        pill(fact.type) + pill(fact.status, statusTone(fact.status)) +
+        pill(factKind(fact)) + pill(fact.status, statusTone(fact.status)) +
         pill(fact.origin) +
         "<span class=\\"pill\\">" + esc(String(fact.confidence)) + "</span></h2>" +
         '<p class="blurb">' + esc(bits.join(" · ") || "no roles") + "</p>" +

@@ -2,7 +2,7 @@
 import type { Entity, Fact, Finding, GraphTransition, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
 import { currentSentences, initFindings, staleFindings, tagFindings } from './spec.js';
 import { entityFindings } from './spec-entities.js';
-import { contradictionFindings, visibleFacts } from './spec-facts.js';
+import { contradictionFindings, entityUsesFact, visibleFacts } from './spec-facts.js';
 import { graphLayerFindings } from './spec-graph.js';
 
 export interface TraceLink {
@@ -90,8 +90,7 @@ export function specStatus(snapshot: SpecSnapshot): StatusResult {
 
 function traceFact(snapshot: SpecSnapshot, fact: Fact): TraceLink[] {
   const links: TraceLink[] = [factLink(fact)];
-  for (const ref of [fact.actor, fact.action, fact.object, fact.condition]) {
-    if (ref === undefined) continue;
+  for (const ref of factEntityIds(snapshot, fact)) {
     const entity = findEntity(snapshot.entities ?? [], ref);
     if (entity !== undefined) links.push(entityLink(entity));
   }
@@ -109,8 +108,7 @@ function traceFact(snapshot: SpecSnapshot, fact: Fact): TraceLink[] {
       links.push(sentenceLink(sentence));
     }
   }
-  for (const ref of [fact.actor, fact.action, fact.object, fact.condition]) {
-    if (ref === undefined) continue;
+  for (const ref of factEntityIds(snapshot, fact)) {
     const entity = findEntity(snapshot.entities ?? [], ref);
     if (entity === undefined) continue;
     for (const source of entity.sources) {
@@ -298,13 +296,13 @@ function factLayerFindings(snapshot: SpecSnapshot): Finding[] {
         refs: [fact.id],
       });
     }
-    if (fact.status === 'current' && fact.type === 'transition' && (fact.from === null || fact.from === undefined)) {
+    if (fact.status === 'current' && fact.kind === 'action' && Object.keys(fact.assign).length === 0) {
       findings.push({
-        id: `transition-without-from:${fact.id}`,
+        id: `empty-assign:${fact.id}`,
         kind: 'gap',
-        code: 'transition-without-from',
+        code: 'empty-assign',
         severity: 'warning',
-        message: `${fact.id} has no source state`,
+        message: `${fact.id} has an empty assign`,
         refs: [fact.id, ...fact.sources],
       });
     }
@@ -345,13 +343,44 @@ function hasTokens(snapshot: SpecSnapshot): boolean {
   return false;
 }
 
+function factEntityIds(snapshot: SpecSnapshot, fact: Fact): string[] {
+  const ids: string[] = [];
+  for (const entity of snapshot.entities ?? []) {
+    if (entityUsesFact(entity, fact)) ids.push(entity.id);
+  }
+  return ids;
+}
+
 function factsForState(facts: readonly Fact[], state: string): Fact[] {
   const matched: Fact[] = [];
   for (const fact of facts) {
     if (fact.removed === true) continue;
-    if (fact.from === state || fact.to === state || fact.state === state) matched.push(fact);
+    if (patchMentions(fact.assign, state) || predicateMentions(fact.when, state)) matched.push(fact);
   }
   return matched;
+}
+
+function patchMentions(patch: Fact['assign'], state: string): boolean {
+  if (patch === undefined) return false;
+  for (const key of Object.keys(patch)) {
+    const value = patch[key];
+    if (value !== undefined && value.t === 'atom' && value.v === state) return true;
+  }
+  return false;
+}
+
+function predicateMentions(predicate: Fact['when'], state: string): boolean {
+  if (predicate === undefined) return false;
+  if (predicate.op === 'eq' || predicate.op === 'neq') {
+    return predicate.value.t === 'atom' && predicate.value.v === state;
+  }
+  if (predicate.op === 'not') return predicateMentions(predicate.of, state);
+  if (predicate.op === 'and' || predicate.op === 'or') {
+    for (const child of predicate.of) {
+      if (predicateMentions(child, state)) return true;
+    }
+  }
+  return false;
 }
 
 function traceFlow(snapshot: SpecSnapshot, flow: SpecFlow): TraceLink[] {
@@ -424,7 +453,7 @@ function factLink(fact: Fact): TraceLink {
   const link: TraceLink = {
     layer: 'fact',
     id: fact.id,
-    type: fact.type,
+    type: fact.kind,
     status: fact.removed === true ? 'removed' : fact.status,
     origin: fact.origin,
     refs: fact.sources.slice(),

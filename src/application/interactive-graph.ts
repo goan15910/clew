@@ -300,11 +300,6 @@ function conditionText(snapshot: SpecSnapshot, guard: string | undefined): strin
   const entity = findEntity(snapshot.entities ?? [], guard);
   if (entity?.text) return entity.text;
   if (entity?.name) return entity.name;
-  for (const fact of snapshot.facts ?? []) {
-    if (fact.removed === true) continue;
-    if (fact.type !== 'guard') continue;
-    if (fact.condition === guard && fact.note) return fact.note;
-  }
   return guard;
 }
 

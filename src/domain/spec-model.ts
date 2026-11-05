@@ -8,6 +8,8 @@ import {
   holds,
   makeValuation,
   sameValue,
+  scalarFromValue,
+  scalarsFromPatch,
   valueOf,
   varId,
   type EventName,
@@ -239,18 +241,11 @@ export function displayOf(spec: Spec, state: Valuation): string {
 }
 
 export function jsonScalar(value: Value): boolean | number | string | null {
-  if (value.t === 'null') return null;
-  return value.v;
+  return scalarFromValue(value);
 }
 
 export function patchScalars(patch: Patch): Record<string, boolean | number | string | null> {
-  const out: Record<string, boolean | number | string | null> = {};
-  for (const key of Object.keys(patch)) {
-    const value = patch[key];
-    if (value === undefined) continue;
-    out[key] = jsonScalar(value);
-  }
-  return out;
+  return scalarsFromPatch(patch);
 }
 
 export function matchHolds(match: Patch, state: Valuation): boolean {

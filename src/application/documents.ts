@@ -1,7 +1,7 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
-import type { EntityKind, EntityReview, EntityStatus, FactType, Finding, FlowOrigin, SpecOrigin } from '../domain/spec.js';
+import type { EntityKind, EntityReview, EntityStatus, FactKind, Finding, FlowOrigin, SpecOrigin } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -308,14 +308,11 @@ export interface SpecEntitiesDocument {
 
 export interface SpecFactView {
   id: string;
-  type: FactType;
+  kind: FactKind;
+  event?: string;
   actor?: string;
-  action?: string;
-  object?: string;
-  from?: string | null;
-  to?: string;
-  condition?: string;
-  state?: string;
+  when?: Record<string, unknown>;
+  assign?: Record<string, boolean | number | string | null>;
   origin: SpecOrigin;
   confidence: number;
   sources: string[];

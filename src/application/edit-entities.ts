@@ -1,6 +1,7 @@
 // Use case: merge, rename, reject, or promote entities. The agent decides.
 import { hasBlocking, type EntityKind, type SpecSnapshot } from '../domain/spec.js';
 import { mergeEntities, promoteEntity, rejectEntity, renameEntity, type EntityChange } from '../domain/spec-entity-edit.js';
+import { rebuildFacts } from '../domain/spec-facts.js';
 import type { Outcome, SpecEntitiesDocument } from './documents.js';
 import { specInput } from './documents.js';
 import type { SpecStore } from './ports.js';
@@ -35,10 +36,17 @@ export function editEntities(command: EditEntitiesCommand, store: SpecStore): Ou
       return undefined;
     }
     if (change.blocked) return undefined;
+    const rebuilt = rebuildFacts(current.sentences, current.tagged, change.entities, change.facts);
+    for (const finding of rebuilt.findings) change.findings.push(finding);
+    const affected = changedFactIds(change.facts, rebuilt.facts);
+    for (const id of affected) {
+      if (!change.affected.includes(id)) change.affected.push(id);
+    }
+    change.facts = rebuilt.facts;
     const now = new Date().toISOString();
     const snapshot = copySnapshot(current, now);
     snapshot.entities = change.entities;
-    snapshot.facts = change.facts;
+    snapshot.facts = rebuilt.facts;
     const args: { session: string; id?: string; ids?: string[]; into?: string; name?: string; text?: string; kind?: string; reason?: string } = { session: current.id };
     if (command.action === 'merge') {
       args.into = command.into;
@@ -100,7 +108,19 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
     tagged: current.tagged,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
+  if (current.spans !== undefined) snapshot.spans = current.spans;
   return snapshot;
+}
+
+function changedFactIds(before: readonly { id: string; status: string }[], after: readonly { id: string; status: string }[]): string[] {
+  const previous = new Map<string, string>();
+  for (const fact of before) previous.set(fact.id, fact.status);
+  const ids: string[] = [];
+  for (const fact of after) {
+    const status = previous.get(fact.id);
+    if (status !== fact.status || status === undefined) ids.push(fact.id);
+  }
+  return ids;
 }
 
 function invalid(command: SpecEntitiesDocument['command'], fault: SpecEntitiesDocument['fault'], message: string): Outcome<SpecEntitiesDocument> {

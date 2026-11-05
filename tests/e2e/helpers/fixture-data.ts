@@ -13,7 +13,7 @@ export const VIEWS = ['facts', 'entities', 'sentences'] as const;
 export type View = (typeof VIEWS)[number];
 
 export const KINDS = ['', 'actor', 'object', 'action', 'condition'] as const;
-export const TYPES = ['', 'performs', 'transition', 'guard', 'initial', 'final', 'forbidden'] as const;
+export const TYPES = ['', 'action', 'init', 'terminal', 'forbidden'] as const;
 export const STATUSES = ['', 'current', 'stale'] as const;
 export const SEARCHES = ['', 'f1', 'customer', 's1', 'approve', 'zzzz-no-match'] as const;
 
@@ -42,14 +42,11 @@ interface Entity {
 
 interface Fact {
   id: string;
-  type: string;
+  kind: string;
+  event?: string;
   actor?: string;
-  action?: string;
-  object?: string;
-  condition?: string;
-  state?: string;
-  from?: string | null;
-  to?: string;
+  when?: Record<string, unknown>;
+  assign?: Record<string, unknown>;
   note?: string;
   sources?: string[];
   status: string;
@@ -235,32 +232,70 @@ function appendSpanSources(rows: Array<{ layer: string; text: string }>, sources
   flush();
 }
 
+function varNameForEntity(entity: Entity): string {
+  if (entity.kind === 'object' && entity.name) {
+    const name = entity.name.replace(/-/g, '_');
+    return /^[a-z][a-z0-9_]*$/.test(name) ? name : '';
+  }
+  if (entity.kind === 'condition') {
+    const suffix = entity.id.startsWith('condition:') ? entity.id.slice('condition:'.length) : entity.id;
+    const name = suffix.replace(/-/g, '_');
+    return /^[a-z][a-z0-9_]*$/.test(name) ? name : '';
+  }
+  return '';
+}
+
+function eventFromAction(entity: Entity): string {
+  if (entity.kind !== 'action' || !entity.name) return '';
+  const event = entity.name.replace(/-/g, '_').toUpperCase();
+  return /^[A-Z][A-Z0-9_]*$/.test(event) ? event : '';
+}
+
+function collectVars(node: unknown, names: Record<string, true>): void {
+  if (node === null || typeof node !== 'object') return;
+  const record = node as Record<string, unknown>;
+  if (typeof record.var === 'string') names[record.var] = true;
+  if (Array.isArray(record.of)) {
+    for (const child of record.of) collectVars(child, names);
+  } else if (record.of !== undefined) collectVars(record.of, names);
+}
+
+function factCitedIds(fact: Fact): string[] {
+  const ids: string[] = [];
+  if (fact.actor) ids.push(fact.actor);
+  const names: Record<string, true> = {};
+  collectVars(fact.when, names);
+  if (fact.assign) {
+    for (const key of Object.keys(fact.assign)) names[key] = true;
+  }
+  for (const entity of fixture.entities) {
+    const name = varNameForEntity(entity);
+    if (name && names[name] && !ids.includes(entity.id)) ids.push(entity.id);
+    const event = eventFromAction(entity);
+    if (event && fact.event === event && !ids.includes(entity.id)) ids.push(entity.id);
+  }
+  return ids;
+}
+
 export function expectedFactIds(filters: FixtureFilters): string[] {
   const entities = entityMap();
   return fixture.facts
     .filter((fact) => {
       if (fact.removed === true) return false;
-      if (filters.type && fact.type !== filters.type) return false;
+      if (filters.type && fact.kind !== filters.type) return false;
       if (filters.status && fact.status !== filters.status) return false;
       if (filters.kind) {
-        const ids = [fact.actor, fact.action, fact.object, fact.condition];
-        const hit = ids.some((id) => {
-          const entity = id ? entities.get(id) : undefined;
-          return entity?.kind === filters.kind;
-        });
+        const hit = factCitedIds(fact).some((id) => entities.get(id)?.kind === filters.kind);
         if (!hit) return false;
       }
       return matchesText(
         [
           fact.id,
-          fact.type,
+          fact.kind,
+          fact.event,
           fact.actor,
-          fact.action,
-          fact.object,
-          fact.condition,
-          fact.state,
-          fact.from === null ? undefined : fact.from,
-          fact.to,
+          JSON.stringify(fact.when ?? {}),
+          JSON.stringify(fact.assign ?? {}),
           fact.note,
           ...(fact.sources ?? []),
         ],
@@ -312,12 +347,11 @@ export function expectedFactLineage(factId: string): Array<{ layer: string; text
   if (!fact) return [];
   const entities = entityMap();
   const rows: Array<{ layer: string; text: string }> = [];
-  for (const field of ['actor', 'action', 'object', 'condition'] as const) {
-    const id = fact[field];
-    if (!id) continue;
+  for (const id of factCitedIds(fact)) {
     const entity = entities.get(id);
     if (entity && !entityShown(entity)) continue;
     const label = entity ? (entity.name || entity.text || id) : id;
+    const field = entity ? entity.kind : 'entity';
     rows.push({ layer: 'entity', text: `${field} → ${id} (${label})` });
     if (entity) appendSpanSources(rows, entity.sources ?? []);
   }
@@ -360,8 +394,7 @@ export function expectedEntityLineage(entityId: string): Array<{ layer: string; 
   const rows: Array<{ layer: string; text: string }> = [];
   appendSpanSources(rows, entity.sources ?? []);
   for (const fact of fixture.facts) {
-    const refs = [fact.actor, fact.action, fact.object, fact.condition];
-    if (refs.includes(entity.id)) rows.push({ layer: 'fact', text: `${fact.id} ${fact.type}` });
+    if (factCitedIds(fact).includes(entity.id)) rows.push({ layer: 'fact', text: `${fact.id} ${fact.kind}` });
   }
   return rows;
 }
@@ -381,7 +414,7 @@ export function expectedSentenceLineage(sentenceId: string): Array<{ layer: stri
   for (const fact of fixture.facts) {
     for (const source of fact.sources ?? []) {
       if (source === sentence.id || source.startsWith(`${sentence.id}.`)) {
-        rows.push({ layer: 'fact', text: `${fact.id} ${fact.type} via ${source}` });
+        rows.push({ layer: 'fact', text: `${fact.id} ${fact.kind} via ${source}` });
         break;
       }
     }

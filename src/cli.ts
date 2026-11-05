@@ -93,8 +93,9 @@ import { upgradeClew } from './application/upgrade-clew.js';
 import { viewChart, viewWorkflows } from './application/view-diagram.js';
 import { viewSpecSession } from './application/view-spec.js';
 import { assertManuals, findCommand, fullHelp, jsonNote, listCommands, sessionNote, setManual, specExits } from './cli/help.js';
-import type { FactDraft } from './domain/spec-facts.js';
-import { ENTITY_KINDS, FACT_TYPES, SPEC_ENTITY_ID_MESSAGE, SPEC_ENTITY_ID_PATTERN, SPEC_FACT_ID_MESSAGE, SPEC_FACT_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
+import { predicateFromScalars, type FactDraft } from './domain/spec-facts.js';
+import { ENTITY_KINDS, FACT_KINDS, SPEC_ENTITY_ID_MESSAGE, SPEC_ENTITY_ID_PATTERN, SPEC_FACT_ID_MESSAGE, SPEC_FACT_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
+import { patchFromScalars } from './domain/valuation.js';
 import { WORKFLOW_ID_MESSAGE, WORKFLOW_ID_PATTERN } from './domain/workflow.js';
 
 const EXIT_PASS = 0;
@@ -232,24 +233,21 @@ const SpecFactAddFlags = z.object({
   json: z.boolean().optional(),
   session: SessionOption,
   from: z.string().min(1).optional(),
-  type: z.enum(FACT_TYPES).optional(),
+  kind: z.enum(FACT_KINDS).optional(),
+  event: z.string().min(1).optional(),
   actor: z.string().min(1).optional(),
-  action: z.string().min(1).optional(),
-  object: z.string().min(1).optional(),
-  fromState: z.string().min(1).optional(),
-  toState: z.string().min(1).optional(),
-  condition: z.string().min(1).optional(),
-  state: z.string().min(1).optional(),
+  when: z.string().min(1).optional(),
+  assign: z.string().min(1).optional(),
   source: z.array(z.string().min(1)).optional(),
   note: z.string().optional(),
   confidence: z.union([z.number(), z.string()]).optional(),
 }).superRefine((value, context) => {
   if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
-  const flagged = value.type !== undefined || value.actor !== undefined || value.action !== undefined || value.object !== undefined
-    || value.fromState !== undefined || value.toState !== undefined || value.condition !== undefined || value.state !== undefined
+  const flagged = value.kind !== undefined || value.event !== undefined || value.actor !== undefined
+    || value.when !== undefined || value.assign !== undefined
     || (value.source !== undefined && value.source.length > 0) || value.note !== undefined || value.confidence !== undefined;
   if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
-  if (value.from === undefined && value.type === undefined) context.addIssue({ code: 'custom', message: 'add needs --type or --from', path: ['type'] });
+  if (value.from === undefined && value.kind === undefined) context.addIssue({ code: 'custom', message: 'add needs --kind or --from', path: ['kind'] });
   if (value.confidence !== undefined && !validConfidence(value.confidence)) {
     context.addIssue({ code: 'custom', message: 'confidence must be between 0 and 1', path: ['confidence'] });
   }
@@ -259,21 +257,18 @@ const SpecFactEditFlags = z.object({
   session: SessionOption,
   from: z.string().min(1).optional(),
   id: FactIdOption.optional(),
-  type: z.enum(FACT_TYPES).optional(),
+  kind: z.enum(FACT_KINDS).optional(),
+  event: z.string().min(1).optional(),
   actor: z.string().min(1).optional(),
-  action: z.string().min(1).optional(),
-  object: z.string().min(1).optional(),
-  fromState: z.string().min(1).optional(),
-  toState: z.string().min(1).optional(),
-  condition: z.string().min(1).optional(),
-  state: z.string().min(1).optional(),
+  when: z.string().min(1).optional(),
+  assign: z.string().min(1).optional(),
   source: z.array(z.string().min(1)).optional(),
   note: z.string().optional(),
   confidence: z.union([z.number(), z.string()]).optional(),
 }).superRefine((value, context) => {
   if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
-  const flagged = value.type !== undefined || value.actor !== undefined || value.action !== undefined || value.object !== undefined
-    || value.fromState !== undefined || value.toState !== undefined || value.condition !== undefined || value.state !== undefined
+  const flagged = value.kind !== undefined || value.event !== undefined || value.actor !== undefined
+    || value.when !== undefined || value.assign !== undefined
     || (value.source !== undefined && value.source.length > 0) || value.note !== undefined || value.confidence !== undefined;
   if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
   if (value.from === undefined && value.id === undefined) context.addIssue({ code: 'custom', message: 'edit needs --id or --from', path: ['id'] });
@@ -461,32 +456,49 @@ function confidenceOf(value: number | string | undefined): number | undefined {
 }
 
 function draftFromFlags(flags: {
-  type?: FactDraft['type'];
+  kind?: FactDraft['kind'];
+  event?: string;
   actor?: string;
-  action?: string;
-  object?: string;
-  fromState?: string;
-  toState?: string;
-  condition?: string;
-  state?: string;
+  when?: string;
+  assign?: string;
   source?: string[];
   note?: string;
   confidence?: number | string;
 }): FactDraft {
   const draft: FactDraft = {};
-  if (flags.type !== undefined) draft.type = flags.type;
+  if (flags.kind !== undefined) draft.kind = flags.kind;
+  if (flags.event !== undefined) draft.event = flags.event;
   if (flags.actor !== undefined) draft.actor = flags.actor;
-  if (flags.action !== undefined) draft.action = flags.action;
-  if (flags.object !== undefined) draft.object = flags.object;
-  if (flags.fromState !== undefined) draft.from = flags.fromState;
-  if (flags.toState !== undefined) draft.to = flags.toState;
-  if (flags.condition !== undefined) draft.condition = flags.condition;
-  if (flags.state !== undefined) draft.state = flags.state;
+  if (flags.when !== undefined) {
+    const when = predicateFromScalars(parseJsonFlag(flags.when));
+    if (when !== undefined) draft.when = when;
+  }
+  if (flags.assign !== undefined) {
+    const raw = parseJsonFlag(flags.assign);
+    if (raw !== undefined && typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+      const assign: Record<string, boolean | number | string | null> = {};
+      for (const key of Object.keys(raw)) {
+        const value = (raw as Record<string, unknown>)[key];
+        if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
+          assign[key] = value;
+        }
+      }
+      draft.assign = patchFromScalars(assign);
+    }
+  }
   if (flags.source !== undefined && flags.source.length > 0) draft.sources = flags.source.slice();
   if (flags.note !== undefined) draft.note = flags.note;
   const confidence = confidenceOf(flags.confidence);
   if (confidence !== undefined) draft.confidence = confidence;
   return draft;
+}
+
+function parseJsonFlag(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 const installed = packageVersion();
@@ -1017,14 +1029,11 @@ setManual(facts
   .command('add')
   .description('Add a fact from flags or a JSON file.')
   .option('--from <file>', 'JSON fact, or { "facts": [ ... ] }')
-  .option('--type <type>', 'performs, transition, guard, initial, final, or forbidden')
+  .option('--kind <kind>', 'action, init, terminal, or forbidden')
+  .option('--event <name>', 'UPPER_SNAKE event name')
   .option('--actor <id>', 'actor entity id')
-  .option('--action <id>', 'action entity id')
-  .option('--object <id>', 'object entity id')
-  .option('--from-state <state>', 'source state of a transition')
-  .option('--to-state <state>', 'target state of a transition')
-  .option('--condition <id>', 'condition entity id')
-  .option('--state <state>', 'state named by an initial or final fact')
+  .option('--when <json>', 'predicate JSON, for example {"op":"eq","var":"order","value":null}')
+  .option('--assign <json>', 'non-empty assign patch JSON, for example {"order":"submit"}')
   .option('--source <id>', 'provenance id (repeatable)', collectFlow, [] as string[])
   .option('--note <text>', 'note stored with the fact')
   .option('--confidence <number>', 'advisory confidence from 0 to 1')
@@ -1043,7 +1052,7 @@ setManual(facts
     }
     emit(editFacts({ action: 'add', sessionId: flags.session, drafts: [draftFromFlags(flags)] }, jsonSpecStore), flags.json === true);
   }), {
-  examples: ['clew spec facts add --type performs --actor actor:customer --action action:submit --object object:order --source s1 --json'],
+  examples: ['clew spec facts add --kind action --event SUBMIT --actor actor:customer --assign \'{"order":"submit"}\' --source s1 --json'],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
 });
@@ -1053,14 +1062,11 @@ setManual(facts
   .description('Edit a fact from flags or a JSON file.')
   .option('--id <id>', 'fact to edit, for example f3')
   .option('--from <file>', 'JSON object with the fields to change')
-  .option('--type <type>', 'performs, transition, guard, initial, final, or forbidden')
+  .option('--kind <kind>', 'action, init, terminal, or forbidden')
+  .option('--event <name>', 'UPPER_SNAKE event name')
   .option('--actor <id>', 'actor entity id')
-  .option('--action <id>', 'action entity id')
-  .option('--object <id>', 'object entity id')
-  .option('--from-state <state>', 'source state of a transition')
-  .option('--to-state <state>', 'target state of a transition')
-  .option('--condition <id>', 'condition entity id')
-  .option('--state <state>', 'state named by an initial or final fact')
+  .option('--when <json>', 'predicate JSON, for example {"op":"eq","var":"order","value":null}')
+  .option('--assign <json>', 'non-empty assign patch JSON, for example {"order":"submit"}')
   .option('--source <id>', 'provenance id (repeatable)', collectFlow, [] as string[])
   .option('--note <text>', 'note stored with the fact')
   .option('--confidence <number>', 'advisory confidence from 0 to 1')

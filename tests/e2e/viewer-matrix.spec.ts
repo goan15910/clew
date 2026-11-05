@@ -134,7 +134,7 @@ test.describe('lineage + click behaviors', () => {
   }
 
   test('tab selection updates aria and active panel; filters persist across tabs', async ({ page }) => {
-    const filters = { text: 'order', kind: 'object', type: 'transition', status: 'current' };
+    const filters = { text: 'order', kind: 'object', type: 'action', status: 'current' };
     await applyFilters(page, filters);
     for (const view of VIEWS) {
       await selectView(page, view);

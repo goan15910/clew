@@ -87,6 +87,8 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
     entities: current.entities,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
+  if (current.spans !== undefined) snapshot.spans = current.spans;
+  if (current.graph !== undefined) snapshot.graph = current.graph;
   return snapshot;
 }
 

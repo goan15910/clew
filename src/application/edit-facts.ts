@@ -1,12 +1,13 @@
 // Use case: add, edit, or remove facts. Patches are already plain objects.
 import { hasBlocking, type Fact, type Finding, type SpecSnapshot } from '../domain/spec.js';
-import { normalizeWord } from '../domain/spec-entities.js';
 import {
   applyFactPatch,
   buildFact,
   contradictionFindings,
   copyFact,
+  draftFrom,
   factSignature,
+  mergeDraft,
   validateFactDraft,
   type FactDraft,
 } from '../domain/spec-facts.js';
@@ -103,14 +104,14 @@ function addFacts(facts: readonly Fact[], entities: SpecSnapshot['entities'], dr
   const findings: Finding[] = [];
   const changed: string[] = [];
   for (const raw of drafts) {
-    const normalized = normalizeDraft(raw);
+    const normalized = { draft: raw, findings: [] as Finding[] };
     for (const finding of normalized.findings) findings.push(finding);
     const checked = validateFactDraft(normalized.draft, entities ?? []);
     if (checked.findings.some((finding) => finding.severity === 'blocking')) {
       for (const finding of checked.findings) findings.push(finding);
       return { findings, changed: [], removed: [], blocked: true };
     }
-    const signature = factSignature({ ...normalized.draft, type: normalized.draft.type ?? 'performs' });
+    const signature = factSignature(buildFact('f0', normalized.draft));
     const existing = findBySignature(next, signature);
     if (existing !== undefined && existing.removed !== true) {
       findings.push({
@@ -144,11 +145,10 @@ function addFacts(facts: readonly Fact[], entities: SpecSnapshot['entities'], dr
 function editOne(facts: readonly Fact[], entities: SpecSnapshot['entities'], id: string, draft: FactDraft): Applied {
   const current = findFact(facts, id);
   if (current === undefined || current.removed === true) return { findings: [], changed: [], removed: [], blocked: false, problem: `unknown fact "${id}"` };
-  const normalized = normalizeDraft(draft);
-  const merged = mergeDraft(draftFrom(current), normalized.draft);
+  const merged = mergeDraft(draftFrom(current), draft);
   if (draft.confidence === undefined) delete merged.confidence;
   const checked = validateFactDraft(merged, entities ?? []);
-  const findings = [...normalized.findings, ...checked.findings];
+  const findings = checked.findings.slice();
   if (findings.some((finding) => finding.severity === 'blocking')) return { findings, changed: [], removed: [], blocked: true };
   const patched = applyFactPatch(current, merged);
   const signature = factSignature(patched);
@@ -194,84 +194,6 @@ function removeFacts(facts: readonly Fact[], ids: readonly string[]): Applied {
   return { facts: next, findings: [], changed: [], removed: ids.slice(), blocked: false };
 }
 
-function normalizeDraft(draft: FactDraft): { draft: FactDraft; findings: Finding[] } {
-  const next: FactDraft = {};
-  if (draft.type !== undefined) next.type = draft.type;
-  if (draft.actor !== undefined) next.actor = draft.actor;
-  if (draft.action !== undefined) next.action = draft.action;
-  if (draft.object !== undefined) next.object = draft.object;
-  if (draft.condition !== undefined) next.condition = draft.condition;
-  if (draft.sources !== undefined) next.sources = draft.sources.slice();
-  if (draft.note !== undefined) next.note = draft.note;
-  if (draft.confidence !== undefined) next.confidence = draft.confidence;
-  const findings: Finding[] = [];
-  const from = normalizeState(draft.from, 'from', findings);
-  const to = normalizeState(draft.to, 'to', findings);
-  const state = normalizeState(draft.state, 'state', findings);
-  if (from !== undefined) next.from = from;
-  if (typeof to === 'string') next.to = to;
-  if (typeof state === 'string') next.state = state;
-  return { draft: next, findings };
-}
-
-function normalizeState(value: string | null | undefined, field: string, findings: Finding[]): string | null | undefined {
-  if (value === undefined || value === null) return value;
-  const normalized = normalizeWord(value);
-  if (normalized.word === undefined) return value;
-  if (normalized.changed) {
-    findings.push({
-      id: `normalized-name:${field}`,
-      kind: 'vocabulary',
-      code: 'normalized-name',
-      severity: 'info',
-      message: `${field} normalized to ${normalized.word}`,
-      refs: [],
-    });
-  }
-  return normalized.word;
-}
-
-function mergeDraft(base: FactDraft, patch: FactDraft): FactDraft {
-  const next: FactDraft = {
-    type: base.type,
-    sources: base.sources?.slice() ?? [],
-  };
-  if (base.actor !== undefined) next.actor = base.actor;
-  if (base.action !== undefined) next.action = base.action;
-  if (base.object !== undefined) next.object = base.object;
-  if (base.from !== undefined) next.from = base.from;
-  if (base.to !== undefined) next.to = base.to;
-  if (base.condition !== undefined) next.condition = base.condition;
-  if (base.state !== undefined) next.state = base.state;
-  if (base.note !== undefined) next.note = base.note;
-  if (base.confidence !== undefined) next.confidence = base.confidence;
-  if (patch.type !== undefined) next.type = patch.type;
-  if (patch.actor !== undefined) next.actor = patch.actor;
-  if (patch.action !== undefined) next.action = patch.action;
-  if (patch.object !== undefined) next.object = patch.object;
-  if (patch.from !== undefined) next.from = patch.from;
-  if (patch.to !== undefined) next.to = patch.to;
-  if (patch.condition !== undefined) next.condition = patch.condition;
-  if (patch.state !== undefined) next.state = patch.state;
-  if (patch.note !== undefined) next.note = patch.note;
-  if (patch.confidence !== undefined) next.confidence = patch.confidence;
-  if (patch.sources !== undefined) next.sources = patch.sources.slice();
-  return next;
-}
-
-function draftFrom(fact: Fact): FactDraft {
-  const draft: FactDraft = { type: fact.type, sources: fact.sources.slice(), confidence: fact.confidence };
-  if (fact.actor !== undefined) draft.actor = fact.actor;
-  if (fact.action !== undefined) draft.action = fact.action;
-  if (fact.object !== undefined) draft.object = fact.object;
-  if (fact.from !== undefined) draft.from = fact.from;
-  if (fact.to !== undefined) draft.to = fact.to;
-  if (fact.condition !== undefined) draft.condition = fact.condition;
-  if (fact.state !== undefined) draft.state = fact.state;
-  if (fact.note !== undefined) draft.note = fact.note;
-  return draft;
-}
-
 function findFact(facts: readonly Fact[], id: string): Fact | undefined {
   for (const fact of facts) {
     if (fact.id === id) return fact;
@@ -300,7 +222,9 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
     tagged: current.tagged,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
+  if (current.spans !== undefined) snapshot.spans = current.spans;
   if (current.entities !== undefined) snapshot.entities = current.entities;
+  if (current.graph !== undefined) snapshot.graph = current.graph;
   return snapshot;
 }
 

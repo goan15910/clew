@@ -99,10 +99,10 @@ describe('spec session list and remove', { concurrency: false }, () => {
       const afterRemove = json<SpecSessionListDocument>(clew(['spec', 'session', 'list', '--json'], dir));
       assert.equal(afterRemove.sessions[0]?.summary.facts, (facts.facts?.length ?? 0) - 1);
 
-      assert.equal(clew(['spec', 'facts', 'edit', '--id', 'f3', '--from-state', 'draft', '--json'], dir).status, 0);
-      assert.equal(clew(['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json'], dir).status, 0);
+      assert.equal(clew(['spec', 'facts', 'edit', '--id', 'f2', '--when', '{"op":"eq","var":"order","value":"draft"}', '--json'], dir).status, 0);
+      assert.equal(clew(['spec', 'facts', 'add', '--kind', 'init', '--assign', '{"order":"draft"}', '--json'], dir).status, 0);
       const built = clew(['spec', 'graph', 'build', '--json'], dir);
-      assert.equal(built.status, 1);
+      assert.equal(built.status, 0, built.stderr);
       assert.equal(built.stderr, '');
       const graph = json<SpecGraphDocument>(built);
       const afterBuild = json<SpecSessionListDocument>(clew(['spec', 'session', 'list', '--json'], dir));

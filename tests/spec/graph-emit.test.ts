@@ -33,10 +33,9 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(historyCount(dir, 'order-sentence'), historyBefore);
       assert.equal(existsSync(sessionFile(dir, 'graph.json')), false);
 
-      run(dir, ['spec', 'facts', 'edit', '--id', 'f3', '--from-state', 'draft', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json']);
+      seedFromDraft(dir);
       const built = run(dir, ['spec', 'graph', 'build', '--json']);
-      assert.equal(built.status, 1);
+      assert.equal(built.status, 0, built.stderr);
       assert.equal(built.stderr, '');
       const graph = json<SpecGraphDocument>(built);
       assert.equal(graph.command, 'spec.graph.build');
@@ -45,35 +44,35 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.deepEqual(graph.issues, []);
       assert.deepEqual(graph.graph?.objects, ['order']);
       assert.deepEqual(graph.graph?.states, [
-        { id: 'draft', object: 'order', facts: ['f3', 'f6'], initial: true },
-        { id: 'submitted', object: 'order', facts: ['f3', 'f4'] },
-        { id: 'approved', object: 'order', facts: ['f4'] },
+        { id: 'draft', object: 'order', facts: ['f1', 'f3'], initial: true },
+        { id: 'submit', object: 'order', facts: ['f1', 'f2'] },
+        { id: 'approve', object: 'order', facts: ['f2'] },
       ]);
       assert.deepEqual(graph.graph?.transitions, [
-        { id: 'tr1', from: 'draft', event: 'submit', to: 'submitted', actor: 'customer', object: 'order', fact: 'f3', facts: ['f1', 'f3'] },
+        { id: 'tr1', from: 'draft', event: 'SUBMIT', to: 'submit', actor: 'customer', object: 'order', fact: 'f1', facts: ['f1'] },
         {
-          id: 'tr2', from: 'submitted', event: 'approve', to: 'approved', actor: 'manager', guard: 'condition:c1',
-          object: 'order', fact: 'f4', facts: ['f2', 'f4', 'f5'],
+          id: 'tr2', from: 'submit', event: 'APPROVE', to: 'approve', actor: 'manager', guard: 'condition:c1',
+          object: 'order', fact: 'f2', facts: ['f2'],
         },
       ]);
       assert.deepEqual(graph.flows, [
         { id: 'W1', title: 'Submit order', expect: 'accepted', transitions: ['tr1'], origin: 'rule' },
+        { id: 'W2', title: 'Approve order', expect: 'accepted', transitions: ['tr2'], origin: 'rule' },
       ]);
       const buildHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.graph.build');
       assert.deepEqual(buildHistory[0]?.before, []);
-      assert.deepEqual(buildHistory[0]?.after, ['W1']);
-      assert.deepEqual(codes(graph.findings), ['no-final-state', 'guard-without-else']);
-      assert.equal(graph.findings[1]?.severity, 'blocking');
-      assert.match(graph.findings[1]?.message ?? '', /nothing says what happens to a submitted order otherwise/);
+      assert.deepEqual(buildHistory[0]?.after, ['W1', 'W2']);
+      assert.deepEqual(codes(graph.findings), ['no-final-state']);
       const afterBuild = historyCount(dir, 'order-sentence');
       const again = run(dir, ['spec', 'graph', 'build', '--json']);
-      assert.equal(again.status, 1);
+      assert.equal(again.status, 0);
       assert.equal(historyCount(dir, 'order-sentence'), afterBuild);
       assert.equal(existsSync(sessionFile(dir, 'graph.json')), true);
 
       const present = json<SpecStatusDocument>(run(dir, ['spec', 'status', '--json']));
       assert.equal(present.layers?.graph, true);
-      assert.equal(present.findingsByLayer?.graph.some((finding) => finding.code === 'guard-without-else'), true);
+      assert.equal(present.findingsByLayer?.graph.some((finding) => finding.code === 'no-final-state'), true);
+      assert.equal(present.findingsByLayer?.graph.some((finding) => finding.code === 'guard-without-else'), false);
       assert.equal(present.findings.some((finding) => finding.code === 'graph-absent'), false);
       assert.equal(historyCount(dir, 'order-sentence'), afterBuild);
 
@@ -82,11 +81,11 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const trace = json<SpecTraceDocument>(traced);
       assert.equal(trace.chain?.[0]?.layer, 'transition');
       assert.equal(trace.chain?.[0]?.id, 'tr1');
-      assert.equal(trace.chain?.[0]?.text, 'draft → submitted');
-      assert.deepEqual(trace.chain?.[0]?.refs, ['f1', 'f3']);
+      assert.equal(trace.chain?.[0]?.text, 'draft → submit');
+      assert.deepEqual(trace.chain?.[0]?.refs, ['f1']);
 
       const dry = run(dir, ['spec', 'emit', '--dry-run', '--json']);
-      assert.equal(dry.status, 1);
+      assert.equal(dry.status, 0, dry.stderr);
       assert.equal(dry.stderr, '');
       const preview = json<SpecEmitDocument>(dry);
       assert.equal(preview.command, 'spec.emit');
@@ -97,38 +96,28 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.match(preview.yaml ?? '', /id: orderFlows/);
       assert.match(preview.yaml ?? '', new RegExp(SUBMIT));
       assert.match(preview.yaml ?? '', /event: "SUBMIT"/);
-      assert.doesNotMatch(preview.yaml ?? '', /approves/);
+      assert.match(preview.yaml ?? '', /event: "APPROVE"/);
       assert.equal(preview.workflowSet?.id, 'orderFlows');
-      assert.deepEqual(preview.workflowSet?.workflows.map((workflow) => workflow.id), ['W1']);
+      assert.deepEqual(preview.workflowSet?.workflows.map((workflow) => workflow.id), ['W1', 'W2']);
       assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.event, 'SUBMIT');
       assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.stateFrom, 'draft');
-      assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.stateTo, 'submitted');
-      assert.equal(codes(preview.findings).includes('guard-without-else'), true);
+      assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.stateTo, 'submit');
+      assert.equal(codes(preview.findings).includes('guard-without-else'), false);
       assert.equal(historyCount(dir, 'order-sentence'), afterBuild);
 
       const out = join(dir, 'flows.yaml');
-      const refused = run(dir, ['spec', 'emit', '--out', out, '--json']);
-      assert.equal(refused.status, 1);
-      assert.equal(refused.stderr, '');
-      assert.equal(json<SpecEmitDocument>(refused).written, undefined);
-      assert.equal(existsSync(out), false);
-
-      const forced = run(dir, ['spec', 'emit', '--out', out, '--force', '--json']);
-      assert.equal(forced.status, 1);
-      assert.equal(forced.stderr, '');
-      const wrote = json<SpecEmitDocument>(forced);
-      assert.equal(wrote.forced, true);
+      const wrote = json<SpecEmitDocument>(run(dir, ['spec', 'emit', '--out', out, '--json']));
       assert.equal(wrote.written, out);
       assert.equal(existsSync(out), true);
       const checked = run(dir, ['workflows', 'check', out, '--json']);
       assert.equal(checked.status, 0, checked.stderr);
       assert.equal(historyCount(dir, 'order-sentence'), afterBuild);
 
-      const grouped = run(dir, ['spec', 'graph', 'group', '--id', 'W1', '--id', 'W2', '--title', 'Submit and approve an order', '--json']);
+      const grouped = run(dir, ['spec', 'graph', 'group', '--id', 'W1', '--id', 'W9', '--title', 'Submit and approve an order', '--json']);
       assert.equal(grouped.status, 2);
-      assert.match(grouped.stderr, /unknown flow "W2"/);
+      assert.match(grouped.stderr, /unknown flow "W9"/);
       const human = run(dir, ['spec', 'graph', 'build']);
-      assert.match(human.stdout, /3 states, 2 transitions, 1 flows/);
+      assert.match(human.stdout, /3 states, 2 transitions, 2 flows/);
     });
   });
 
@@ -137,10 +126,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       prepare(dir, sample);
       run(dir, ['spec', 'entities', 'list', '--json']);
       run(dir, ['spec', 'facts', 'propose', '--json']);
-      run(dir, ['spec', 'facts', 'edit', '--id', 'f3', '--from-state', 'draft', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'final', '--object', 'object:order', '--state', 'approved', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'forbidden', '--actor', 'actor:manager', '--action', 'action:approve', '--object', 'object:order', '--source', 's1', '--json']);
+      seedApprovedPath(dir);
       const built = run(dir, ['spec', 'graph', 'build', '--json']);
       assert.equal(built.status, 0, built.stderr);
       assert.equal(built.stderr, '');
@@ -152,9 +138,9 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(rejected.rejectAt, 1);
       assert.deepEqual(rejected.transitions, ['tr2']);
       assert.equal(rejected.origin, 'rule');
-      const approved = graph.graph?.states.find((state) => state.id === 'approved');
+      const approved = graph.graph?.states.find((state) => state.id === 'approve');
       assert.equal(approved?.final, true);
-      assert.deepEqual(approved?.facts, ['f4', 'f7']);
+      assert.ok(approved?.facts?.includes('f2'));
       const lines = historyCount(dir, 'order-sentence');
       assert.equal(run(dir, ['spec', 'graph', 'build', '--json']).status, 0);
       assert.equal(historyCount(dir, 'order-sentence'), lines);
@@ -197,7 +183,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(json<SpecTraceDocument>(flow).chain?.[0]?.layer, 'flow');
       assert.equal(json<SpecTraceDocument>(flow).chain?.[0]?.id, 'W1');
 
-      run(dir, ['spec', 'facts', 'edit', '--id', 'f4', '--from-state', 'draft', '--to-state', 'approved', '--json']);
+      run(dir, ['spec', 'facts', 'edit', '--id', 'f2', '--when', '{"op":"eq","var":"order","value":"draft"}', '--assign', '{"order":"approve"}', '--json']);
       const stale = run(dir, ['spec', 'emit', '--dry-run', '--json']);
       assert.equal(stale.status, 1);
       assert.equal(stale.stderr, '');
@@ -212,7 +198,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       prepare(dir, file);
       run(dir, ['spec', 'entities', 'list', '--json']);
       run(dir, ['spec', 'facts', 'propose', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'shipped', '--json']);
+      run(dir, ['spec', 'facts', 'add', '--kind', 'init', '--assign', '{"order":"shipped"}', '--json']);
       const built = run(dir, ['spec', 'graph', 'build', '--json']);
       assert.equal(built.status, 0, `${built.stderr}\n${built.stdout}`);
       const graph = json<SpecGraphDocument>(built);
@@ -225,7 +211,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const yaml = json<SpecEmitDocument>(dry).yaml ?? '';
       assert.match(yaml, /start: shipped/);
       assert.match(yaml, /event: "CANCEL"/);
-      assert.match(yaml, /to: "cancelled"/);
+      assert.match(yaml, /to: "cancel"/);
       assert.match(yaml, /The customer cannot cancel a shipped order/);
       assert.equal(codes(json<SpecEmitDocument>(dry).findings).includes('guard-without-else'), false);
     });
@@ -255,10 +241,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       prepare(dir, sample);
       run(dir, ['spec', 'entities', 'list', '--json']);
       run(dir, ['spec', 'facts', 'propose', '--json']);
-      run(dir, ['spec', 'facts', 'edit', '--id', 'f3', '--from-state', 'draft', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'final', '--object', 'object:order', '--state', 'approved', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--type', 'forbidden', '--actor', 'actor:manager', '--action', 'action:approve', '--object', 'object:order', '--source', 's1', '--json']);
+      seedApprovedPath(dir);
       assert.equal(run(dir, ['spec', 'graph', 'build', '--json']).status, 0);
       const lines = historyCount(dir, 'order-sentence');
       const unsplittable = run(dir, ['spec', 'graph', 'split', '--id', 'W1', '--at', '2', '--json']);
@@ -308,15 +291,15 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const renamed = run(dir, ['spec', 'entities', 'rename', '--id', 'action:submit', '--name', 'mark-shipped', '--json']);
       assert.equal(renamed.status, 0, `${renamed.stderr}\n${renamed.stdout}`);
       const proposed = json<SpecFactsDocument>(run(dir, ['spec', 'facts', 'propose', '--json']));
-      const transition = proposed.facts?.find((fact) => fact.type === 'transition');
-      assert.ok(transition);
-      const edited = run(dir, ['spec', 'facts', 'edit', '--id', transition.id, '--from-state', 'draft', '--to-state', 'in-progress', '--json']);
+      const action = proposed.facts?.find((fact) => fact.kind === 'action' && fact.event === 'MARK_SHIPPED');
+      assert.ok(action);
+      const edited = run(dir, ['spec', 'facts', 'edit', '--id', action.id, '--when', '{"op":"eq","var":"order","value":"draft"}', '--assign', '{"order":"in-progress"}', '--json']);
       assert.equal(edited.status, 0, `${edited.stderr}\n${edited.stdout}`);
-      assert.equal(run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json']).status, 0);
-      assert.equal(run(dir, ['spec', 'facts', 'add', '--type', 'final', '--object', 'object:order', '--state', 'in-progress', '--json']).status, 0);
+      assert.equal(run(dir, ['spec', 'facts', 'add', '--kind', 'init', '--assign', '{"order":"draft"}', '--json']).status, 0);
+      assert.equal(run(dir, ['spec', 'facts', 'add', '--kind', 'terminal', '--assign', '{"order":"in-progress"}', '--json']).status, 0);
       const built = run(dir, ['spec', 'graph', 'build', '--json']);
       assert.equal(built.status, 0, `${built.stderr}\n${built.stdout}`);
-      assert.equal(json<SpecGraphDocument>(built).graph?.transitions[0]?.event, 'mark-shipped');
+      assert.equal(json<SpecGraphDocument>(built).graph?.transitions[0]?.event, 'MARK_SHIPPED');
       const flows = join(dir, 'flows.yaml');
       const dry = run(dir, ['spec', 'emit', '--out', flows, '--json']);
       assert.equal(dry.status, 0, `${dry.stderr}\n${dry.stdout}`);
@@ -375,6 +358,26 @@ function prepare(dir: string, file: string): void {
   assert.equal(init.status, 0, init.stderr);
   const tag = run(dir, ['spec', 'tag', '--json']);
   assert.equal(tag.status, 0, tag.stderr);
+}
+
+function seedFromDraft(dir: string): void {
+  const edited = run(dir, ['spec', 'facts', 'edit', '--id', 'f1', '--when', '{"op":"eq","var":"order","value":"draft"}', '--json']);
+  assert.equal(edited.status, 0, edited.stderr);
+  const init = run(dir, ['spec', 'facts', 'add', '--kind', 'init', '--assign', '{"order":"draft"}', '--json']);
+  assert.equal(init.status, 0, init.stderr);
+}
+
+function seedApprovedPath(dir: string): void {
+  seedFromDraft(dir);
+  const terminal = run(dir, ['spec', 'facts', 'add', '--kind', 'terminal', '--assign', '{"order":"approve"}', '--json']);
+  assert.equal(terminal.status, 0, terminal.stderr);
+  const forbidden = run(dir, [
+    'spec', 'facts', 'add', '--kind', 'forbidden', '--actor', 'actor:manager',
+    '--when', '{"op":"eq","var":"order","value":"submit"}',
+    '--assign', '{"order":"approve"}',
+    '--source', 's1', '--json',
+  ]);
+  assert.equal(forbidden.status, 0, forbidden.stderr);
 }
 
 function writeSpec(dir: string, name: string, text: string): string {

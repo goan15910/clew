@@ -1,7 +1,8 @@
 // Sentences, tokens, and findings for a spec session.
 // Pure data and rules. No tagger, no files, no Zod.
+import type { Patch, Predicate } from './valuation.js';
 
-export const SPEC_SCHEMA_VERSION = 1 as const;
+export const SPEC_SCHEMA_VERSION = 2 as const;
 
 export const SPEC_SESSION_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const SPEC_SESSION_ID_MESSAGE = 'session ids start with a letter and then use letters, digits, underscores, or hyphens';
@@ -13,7 +14,7 @@ export type SpecItemStatus = 'current' | 'stale';
 export type EntityKind = 'actor' | 'object' | 'action' | 'condition';
 export type EntityReview = 'candidate' | 'confirmed' | 'rejected';
 export type EntityStatus = EntityReview | 'stale';
-export type FactType = 'performs' | 'transition' | 'guard' | 'initial' | 'final' | 'forbidden';
+export type FactKind = 'action' | 'init' | 'terminal' | 'forbidden';
 export type FindingKind = 'gap' | 'conflict' | 'stale' | 'vocabulary' | 'coverage';
 export type FindingSeverity = 'blocking' | 'warning' | 'info';
 
@@ -21,7 +22,7 @@ export const SPEC_ENTITY_ID_PATTERN = /^(actor|object|action|condition):[a-z][a-
 export const SPEC_ENTITY_ID_MESSAGE = 'entity ids look like actor:customer or condition:c1';
 export const SPEC_FACT_ID_PATTERN = /^f[1-9][0-9]*$/;
 export const SPEC_FACT_ID_MESSAGE = 'fact ids look like f1';
-export const FACT_TYPES = ['performs', 'transition', 'guard', 'initial', 'final', 'forbidden'] as const;
+export const FACT_KINDS = ['action', 'init', 'terminal', 'forbidden'] as const;
 export const ENTITY_KINDS = ['actor', 'object', 'action', 'condition'] as const;
 
 export interface Finding {
@@ -110,16 +111,8 @@ export interface Entity {
   note?: string;
 }
 
-export interface Fact {
+interface FactMeta {
   id: string;
-  type: FactType;
-  actor?: string;
-  action?: string;
-  object?: string;
-  from?: string | null;
-  to?: string;
-  condition?: string;
-  state?: string;
   origin: SpecOrigin;
   confidence: number;
   sources: string[];
@@ -128,6 +121,25 @@ export interface Fact {
   /** Agent removed this fact. Propose must not recreate its signature. */
   removed?: boolean;
 }
+
+/** One guarded assign. Actor lives here. `assign` is non-empty. */
+export interface ActionFact extends FactMeta {
+  kind: 'action';
+  event: string;
+  actor: string;
+  when: Predicate;
+  assign: Patch;
+}
+
+/** Init, terminal, or forbidden over a predicate or attempted assign. */
+export interface ConfigurationFact extends FactMeta {
+  kind: 'init' | 'terminal' | 'forbidden';
+  actor?: string;
+  when?: Predicate;
+  assign?: Patch;
+}
+
+export type Fact = ActionFact | ConfigurationFact;
 
 export interface SpecSnapshot {
   schemaVersion: typeof SPEC_SCHEMA_VERSION;
@@ -147,7 +159,7 @@ export interface SpecSnapshot {
 
 export type FlowOrigin = 'rule' | 'agent';
 
-/** One state of one object. `facts` are the initial, final, and transition facts that name it. */
+/** One state of one object. `facts` are the init, terminal, and action facts that name it. */
 export interface GraphState {
   id: string;
   object: string;
@@ -156,7 +168,7 @@ export interface GraphState {
   facts: string[];
 }
 
-/** One edge assembled from a transition fact. `fact` is that fact's id. */
+/** One overlay edge assembled from an action fact. `fact` is that fact's id. */
 export interface GraphTransition {
   id: string;
   from: string;

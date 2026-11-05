@@ -9,7 +9,8 @@ import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import type { SpecEntitiesDocument, SpecFactsDocument, SpecStatusDocument, SpecTagDocument, SpecTraceDocument } from '../../src/application/documents.js';
 import { contradictionFindings } from '../../src/domain/spec-facts.js';
 import { entityFindings, pastParticiple } from '../../src/domain/spec-entities.js';
-import type { Entity, Fact, FactType } from '../../src/domain/spec.js';
+import type { Entity, Fact } from '../../src/domain/spec.js';
+import { varId, type Patch, type Predicate } from '../../src/domain/valuation.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -63,40 +64,30 @@ describe('spec entities and facts', { concurrency: false }, () => {
       const facts = json<SpecFactsDocument>(proposed);
       assert.equal(facts.command, 'spec.facts.propose');
       assert.equal(facts.ok, true);
-      assert.equal(facts.facts?.length, 5);
-      assert.deepEqual(facts.facts?.[0], {
-        id: 'f1', type: 'performs', actor: 'actor:customer', action: 'action:submit',
-        origin: 'rule', confidence: 0.9, sources: ['s1'], status: 'current',
-      });
-      assert.equal(facts.facts?.[1]?.id, 'f2');
-      assert.equal(facts.facts?.[1]?.actor, 'actor:manager');
-      const submit = byId(facts.facts ?? [], 'f3');
-      assert.equal(submit.type, 'transition');
-      assert.equal(submit.from, null);
-      assert.equal(submit.to, 'submitted');
+      assert.equal(facts.facts?.length, 2);
+      const submit = byId(facts.facts ?? [], 'f1');
+      assert.equal(submit.kind, 'action');
+      assert.equal(submit.event, 'SUBMIT');
+      assert.equal(submit.actor, 'actor:customer');
+      assert.deepEqual(submit.assign, { order: 'submit' });
+      assert.deepEqual(submit.when, { op: 'eq', var: 'order', value: null });
       assert.equal(submit.confidence, 0.5);
-      assert.deepEqual(submit.sources, ['s1.t4', 's1.t6']);
-      const approve = byId(facts.facts ?? [], 'f4');
-      assert.equal(approve.from, 'submitted');
-      assert.equal(approve.to, 'approved');
+      const approve = byId(facts.facts ?? [], 'f2');
+      assert.equal(approve.kind, 'action');
+      assert.equal(approve.event, 'APPROVE');
+      assert.equal(approve.actor, 'actor:manager');
+      assert.deepEqual(approve.assign, { order: 'approve' });
       assert.equal(approve.confidence, 0.6);
-      assert.equal(approve.note, 'from inferred from the When-clause order');
-      const guard = byId(facts.facts ?? [], 'f5');
-      assert.equal(guard.type, 'guard');
-      assert.equal(guard.condition, 'condition:c1');
-      assert.equal(guard.confidence, 0.8);
-      assert.deepEqual(guard.sources, ['s1.t12']);
-      assert.deepEqual(codes(facts.findings), ['transition-without-from', 'unused-entity']);
-      assert.equal(historyCount(dir, 'order-sentence'), 4);
-      const proposedHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.facts.propose');
-      assert.deepEqual(proposedHistory[0]?.before, []);
-      assert.deepEqual(proposedHistory[0]?.after, ['f1', 'f2', 'f3', 'f4', 'f5']);
+      assert.equal(approve.note, 'when inferred from the When-clause order');
+      assert.equal(approve.when?.op, 'and');
+      assert.deepEqual(codes(facts.findings), ['unused-entity']);
+      assert.equal(historyCount(dir, 'order-sentence'), 3);
       run(dir, ['spec', 'entities', 'list', '--json']);
       run(dir, ['spec', 'facts', 'propose', '--json']);
-      assert.equal(historyCount(dir, 'order-sentence'), 4);
+      assert.equal(historyCount(dir, 'order-sentence'), 3);
       const one = run(dir, ['spec', 'facts', 'propose', '--sentence', 's1', '--json']);
       assert.equal(one.status, 0);
-      assert.equal(json<SpecFactsDocument>(one).facts?.length, 5);
+      assert.equal(json<SpecFactsDocument>(one).facts?.length, 2);
     });
   });
 
@@ -111,26 +102,27 @@ describe('spec entities and facts', { concurrency: false }, () => {
     assert.equal(pastParticiple('approve'), 'approved');
   });
 
-  test('a forbidden fact next to a transition is not a second warning', () => {
-    const transition = liveFact('f1', 'transition', { object: 'object:order', action: 'action:approve', from: 'submitted', to: 'approved' });
-    const forbidden = liveFact('f2', 'forbidden', { object: 'object:order', action: 'action:approve' });
-    assert.deepEqual(contradictionFindings([transition, forbidden]), []);
-    const other = liveFact('f3', 'transition', { object: 'object:order', action: 'action:approve', from: 'submitted', to: 'rejected' });
-    const warnings = contradictionFindings([transition, other]);
+  test('a forbidden fact next to an action is not a second warning', () => {
+    const when: Predicate = { op: 'eq', var: varId('order'), value: { t: 'atom', v: 'submit' } };
+    const action = liveAction('f1', 'APPROVE', 'actor:manager', when, { order: { t: 'atom', v: 'approve' } });
+    const forbidden = liveForbidden('f2', 'actor:manager', when, { order: { t: 'atom', v: 'approve' } });
+    assert.deepEqual(contradictionFindings([action, forbidden]), []);
+    const other = liveAction('f3', 'APPROVE', 'actor:manager', when, { order: { t: 'atom', v: 'reject' } });
+    const warnings = contradictionFindings([action, other]);
     assert.equal(warnings.length, 1);
     assert.equal(warnings[0]?.code, 'contradicting-facts');
-    assert.match(warnings[0]?.message ?? '', /disagreeing transitions/);
+    assert.match(warnings[0]?.message ?? '', /disagreeing action/);
   });
 
-  test('ships becomes shipped, and a noun that is not tagged Actor stays an object', () => {
+  test('assign uses the action lemma, not a past participle, and a noun that is not tagged Actor stays an object', () => {
     withData((dir) => {
-      const file = writeSpec(dir, 'ship.md', 'The warehouse ships the order.\n');
+      const file = writeSpec(dir, 'ship.md', 'The customer ships the order.\n');
       prepare(dir, file);
       run(dir, ['spec', 'entities', 'list', '--json']);
       const proposed = run(dir, ['spec', 'facts', 'propose', '--json']);
       assert.equal(proposed.status, 0, proposed.stderr);
-      const transition = json<SpecFactsDocument>(proposed).facts?.find((fact) => fact.type === 'transition');
-      assert.equal(transition?.to, 'shipped');
+      const ship = json<SpecFactsDocument>(proposed).facts?.find((fact) => fact.kind === 'action' && fact.event === 'SHIP');
+      assert.equal(ship?.assign?.order, 'ship');
     });
     withData((dir) => {
       const file = writeSpec(dir, 'shipper.md', 'The shipper picks up the parcel.\n');
@@ -156,29 +148,28 @@ describe('spec entities and facts', { concurrency: false }, () => {
       assert.equal(total.status, 'rejected');
       assert.equal(total.origin, 'tagger');
       assert.equal(total.note, 'agent: a data field, not a thing with states');
-      const edited = run(dir, ['spec', 'facts', 'edit', '--id', 'f3', '--from-state', 'draft', '--note', 'agent supplied draft', '--json']);
-      assert.equal(edited.status, 0);
-      const f3 = byId(json<SpecFactsDocument>(edited).facts ?? [], 'f3');
-      assert.equal(f3.from, 'draft');
-      assert.equal(f3.origin, 'agent');
-      assert.equal(f3.confidence, 1);
-      assert.equal(f3.to, 'submitted');
+      const edited = run(dir, ['spec', 'facts', 'edit', '--id', 'f1', '--when', '{"op":"eq","var":"order","value":"draft"}', '--note', 'agent supplied draft', '--json']);
+      assert.equal(edited.status, 0, edited.stderr);
+      const f1 = byId(json<SpecFactsDocument>(edited).facts ?? [], 'f1');
+      assert.deepEqual(f1.when, { op: 'eq', var: 'order', value: 'draft' });
+      assert.equal(f1.origin, 'agent');
+      assert.equal(f1.confidence, 1);
+      assert.deepEqual(f1.assign, { order: 'submit' });
       const again = run(dir, ['spec', 'facts', 'propose', '--json']);
       assert.equal(again.status, 0);
       const codesAgain = codes(json<SpecFactsDocument>(again).findings);
       assert.equal(codesAgain.includes('agent-fact'), true);
-      assert.equal(codesAgain.includes('transition-without-from'), false);
       assert.equal(codesAgain.includes('unused-entity'), false);
-      assert.equal(byId(json<SpecFactsDocument>(again).facts ?? [], 'f3').from, 'draft');
-      const added = run(dir, ['spec', 'facts', 'add', '--type', 'initial', '--object', 'object:order', '--state', 'draft', '--json']);
+      assert.deepEqual(byId(json<SpecFactsDocument>(again).facts ?? [], 'f1').when, { op: 'eq', var: 'order', value: 'draft' });
+      const added = run(dir, ['spec', 'facts', 'add', '--kind', 'init', '--assign', '{"order":"draft"}', '--json']);
       assert.equal(added.status, 0);
-      const f6 = byId(json<SpecFactsDocument>(added).facts ?? [], 'f6');
-      assert.equal(f6.type, 'initial');
-      assert.equal(f6.state, 'draft');
-      assert.equal(f6.origin, 'agent');
-      assert.equal(f6.confidence, 1);
-      assert.deepEqual(f6.sources, []);
-      const traced = run(dir, ['spec', 'trace', 'f6', '--json']);
+      const f3 = byId(json<SpecFactsDocument>(added).facts ?? [], 'f3');
+      assert.equal(f3.kind, 'init');
+      assert.deepEqual(f3.assign, { order: 'draft' });
+      assert.equal(f3.origin, 'agent');
+      assert.equal(f3.confidence, 1);
+      assert.deepEqual(f3.sources, []);
+      const traced = run(dir, ['spec', 'trace', 'f3', '--json']);
       assert.equal(traced.status, 0);
       assert.equal(traced.stderr, '');
       const trace = json<SpecTraceDocument>(traced);
@@ -187,29 +178,37 @@ describe('spec entities and facts', { concurrency: false }, () => {
       assert.equal(trace.chain?.some((link) => link.layer === 'entity' && link.id === 'object:order'), true);
       assert.equal(trace.chain?.some((link) => link.layer === 'sentence' && link.id === 's1'), true);
       assert.deepEqual(codes(trace.findings), ['orphan']);
-      const state = run(dir, ['spec', 'trace', 'submitted', '--json']);
+      const state = run(dir, ['spec', 'trace', 'submit', '--json']);
       const stateDoc = json<SpecTraceDocument>(state);
       assert.equal(stateDoc.chain?.[0]?.layer, 'state');
-      assert.equal(stateDoc.chain?.some((link) => link.id === 'f3'), true);
-      assert.equal(stateDoc.chain?.some((link) => link.id === 'f4'), true);
-      const duplicate = run(dir, ['spec', 'facts', 'add', '--type', 'performs', '--actor', 'actor:customer', '--action', 'action:submit', '--json']);
+      assert.equal(stateDoc.chain?.some((link) => link.id === 'f1'), true);
+      assert.equal(stateDoc.chain?.some((link) => link.id === 'f2'), true);
+      const duplicate = run(dir, ['spec', 'facts', 'add', '--kind', 'action', '--event', 'SUBMIT', '--actor', 'actor:customer', '--when', '{"op":"eq","var":"order","value":"draft"}', '--assign', '{"order":"submit"}', '--json']);
       assert.equal(duplicate.status, 1);
       assert.equal(duplicate.stderr, '');
       assert.equal(json<SpecFactsDocument>(duplicate).findings[0]?.code, 'contradicting-facts');
       const beforeRemove = historyCount(dir, 'order-sentence');
-      const removed = run(dir, ['spec', 'facts', 'remove', '--id', 'f5', '--json']);
+      const removed = run(dir, ['spec', 'facts', 'remove', '--id', 'f2', '--json']);
       assert.equal(removed.status, 0);
-      assert.equal(json<SpecFactsDocument>(removed).facts?.some((fact) => fact.type === 'guard'), false);
-      assert.deepEqual(json<SpecFactsDocument>(removed).removed, ['f5']);
+      assert.equal(json<SpecFactsDocument>(removed).facts?.some((fact) => fact.event === 'APPROVE'), false);
+      assert.deepEqual(json<SpecFactsDocument>(removed).removed, ['f2']);
       const kept = run(dir, ['spec', 'facts', 'propose', '--json']);
-      assert.equal(json<SpecFactsDocument>(kept).facts?.some((fact) => fact.type === 'guard'), false);
-      const patch = join(dir, 'guard.json');
-      writeFileSync(patch, `${JSON.stringify({ type: 'guard', action: 'action:approve', condition: 'condition:c1', sources: ['s1.t12'] })}\n`);
+      assert.equal(json<SpecFactsDocument>(kept).facts?.some((fact) => fact.event === 'APPROVE'), false);
+      const patch = join(dir, 'approve.json');
+      writeFileSync(patch, `${JSON.stringify({
+        kind: 'action',
+        event: 'APPROVE',
+        actor: 'actor:manager',
+        when: { op: 'and', of: [{ op: 'eq', var: 'order', value: 'submit' }, { op: 'eq', var: 'c1', value: true }] },
+        assign: { order: 'approve' },
+        sources: ['s1.t9', 's1.t11'],
+      })}\n`);
       const revived = run(dir, ['spec', 'facts', 'add', '--from', patch, '--json']);
       assert.equal(revived.status, 0, revived.stderr);
-      const guard = byId(json<SpecFactsDocument>(revived).facts ?? [], 'f5');
-      assert.equal(guard.type, 'guard');
-      assert.equal(guard.status, 'current');
+      const approve = byId(json<SpecFactsDocument>(revived).facts ?? [], 'f2');
+      assert.equal(approve.kind, 'action');
+      assert.equal(approve.event, 'APPROVE');
+      assert.equal(approve.status, 'current');
       assert.equal(historyCount(dir, 'order-sentence') > beforeRemove, true);
       const beforeStatus = historyCount(dir, 'order-sentence');
       const status = run(dir, ['spec', 'status', '--json']);
@@ -283,12 +282,14 @@ describe('spec entities and facts', { concurrency: false }, () => {
       assert.equal(doc.changed?.[0], 'object:receipt');
       assert.equal(byId(doc.entities ?? [], 'object:receipt').origin, 'agent');
       const facts = run(dir, ['spec', 'facts', 'propose', '--json']);
-      assert.equal(json<SpecFactsDocument>(facts).facts?.some((fact) => fact.object === 'object:bill'), false);
+      assert.equal(JSON.stringify(json<SpecFactsDocument>(facts).facts).includes('object:bill'), false);
     });
     withData((dir) => {
       const file = writeSpec(dir, 'ship.md', 'The warehouse ships the order.\n');
       prepare(dir, file);
       run(dir, ['spec', 'entities', 'list', '--json']);
+      const before = json<SpecFactsDocument>(run(dir, ['spec', 'facts', 'propose', '--json']));
+      assert.equal(before.facts?.some((fact) => fact.actor === 'actor:warehouse'), false);
       const promoted = run(dir, ['spec', 'entities', 'promote', '--id', 'object:warehouse', '--kind', 'actor', '--json']);
       assert.equal(promoted.status, 0, promoted.stderr);
       const doc = json<SpecEntitiesDocument>(promoted);
@@ -297,6 +298,11 @@ describe('spec entities and facts', { concurrency: false }, () => {
       assert.equal(warehouse.status, 'confirmed');
       assert.equal(warehouse.origin, 'agent');
       assert.equal(doc.entities?.some((item) => item.id === 'object:warehouse'), false);
+      const after = json<SpecFactsDocument>(run(dir, ['spec', 'facts', 'propose', '--json']));
+      const ship = after.facts?.find((fact) => fact.kind === 'action' && fact.event === 'SHIP');
+      assert.equal(ship?.actor, 'actor:warehouse');
+      assert.equal(ship?.assign?.order, 'ship');
+      assert.equal(doc.affected?.includes(ship?.id ?? ''), true);
     });
   });
 
@@ -310,10 +316,9 @@ describe('spec entities and facts', { concurrency: false }, () => {
       ]);
       const proposed = run(dir, ['spec', 'facts', 'propose', '--json']);
       const facts = json<SpecFactsDocument>(proposed).facts ?? [];
-      assert.equal(facts.some((fact) => fact.type === 'performs' && fact.actor === 'actor:manager' && fact.action === 'action:cancel'), true);
-      const transition = facts.find((fact) => fact.type === 'transition');
-      assert.equal(transition?.object, 'object:order');
-      assert.equal(transition?.to, 'cancelled');
+      const cancel = facts.find((fact) => fact.kind === 'action' && fact.event === 'CANCEL');
+      assert.equal(cancel?.actor, 'actor:manager');
+      assert.deepEqual(cancel?.assign, { order: 'cancel' });
     });
     withData((dir) => {
       const file = writeSpec(dir, 'cannot.md', 'The customer cannot cancel a shipped order.\n');
@@ -323,9 +328,11 @@ describe('spec entities and facts', { concurrency: false }, () => {
       assert.deepEqual(ids, ['actor:customer', 'object:order', 'action:cancel']);
       const proposed = run(dir, ['spec', 'facts', 'propose', '--json']);
       const facts = json<SpecFactsDocument>(proposed).facts ?? [];
-      assert.equal(facts.some((fact) => fact.type === 'performs'), true);
-      assert.equal(facts.some((fact) => fact.type === 'forbidden' && fact.confidence === 0.7), true);
-      assert.equal(facts.some((fact) => fact.type === 'transition'), false);
+      assert.equal(facts.some((fact) => fact.kind === 'action'), false);
+      assert.equal(facts.some((fact) => fact.kind === 'forbidden' && fact.confidence === 0.7), true);
+      const forbidden = facts.find((fact) => fact.kind === 'forbidden');
+      assert.equal(forbidden?.actor, 'actor:customer');
+      assert.deepEqual(forbidden?.assign, { order: 'cancel' });
     });
   });
 
@@ -368,15 +375,15 @@ describe('spec entities and facts', { concurrency: false }, () => {
       const noEntities = run(dir, ['spec', 'facts', 'propose', '--json']);
       assert.equal(noEntities.status, 2);
       assert.match(noEntities.stderr, /entities/);
-      run(dir, ['spec', 'entities', 'list', '--json']);
       const absent = run(dir, ['spec', 'status', '--json']);
       assert.equal(absent.status, 0, absent.stderr);
       assert.equal(json<SpecStatusDocument>(absent).findings.some((finding) => finding.code === 'facts-absent'), true);
+      run(dir, ['spec', 'entities', 'list', '--json']);
       const stdin = run(dir, ['spec', 'facts', 'add', '--from', '-', '--json']);
       assert.equal(stdin.status, 2);
       assert.match(stdin.stderr, /stdin/);
       assert.equal(json<SpecFactsDocument>(stdin).fault, 'usage');
-      const unknown = run(dir, ['spec', 'facts', 'add', '--type', 'performs', '--actor', 'actor:missing', '--action', 'action:submit', '--json']);
+      const unknown = run(dir, ['spec', 'facts', 'add', '--kind', 'action', '--event', 'SUBMIT', '--actor', 'actor:missing', '--assign', '{"order":"submit"}', '--json']);
       assert.equal(unknown.status, 1);
       assert.equal(unknown.stderr, '');
       assert.equal(json<SpecFactsDocument>(unknown).ok, true);
@@ -428,8 +435,33 @@ function historyEntries(dir: string, session: string): { command: string; before
   return entries;
 }
 
-function liveFact(id: string, type: FactType, fields: Partial<Fact>): Fact {
-  return { id, type, origin: 'rule', confidence: 1, sources: [], status: 'current', ...fields };
+function liveAction(id: string, event: string, actor: string, when: Predicate, assign: Patch): Fact {
+  return {
+    id,
+    kind: 'action',
+    event,
+    actor,
+    when,
+    assign,
+    origin: 'rule',
+    confidence: 1,
+    sources: [],
+    status: 'current',
+  };
+}
+
+function liveForbidden(id: string, actor: string, when: Predicate, assign: Patch): Fact {
+  return {
+    id,
+    kind: 'forbidden',
+    actor,
+    when,
+    assign,
+    origin: 'rule',
+    confidence: 1,
+    sources: [],
+    status: 'current',
+  };
 }
 
 function codes(findings: { code: string }[]): string[] {

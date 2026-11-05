@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "objects": [
     "order",
     "package"
@@ -10,22 +10,22 @@
       "object": "order",
       "initial": true,
       "facts": [
-        "f6"
+        "f3"
       ]
     },
     {
-      "id": "submitted",
+      "id": "submit",
       "object": "order",
       "facts": [
         "f4"
       ]
     },
     {
-      "id": "approved",
+      "id": "approve",
       "object": "order",
       "facts": [
         "f4",
-        "f7"
+        "f10"
       ],
       "final": true
     }
@@ -34,10 +34,10 @@
     {
       "id": "tr2",
       "from": "draft",
-      "event": "submit",
-      "to": "submitted",
+      "event": "SUBMIT",
+      "to": "submit",
       "object": "order",
-      "fact": "f3",
+      "fact": "f1",
       "facts": [
         "f1",
         "f3"
@@ -46,15 +46,14 @@
     },
     {
       "id": "tr1",
-      "from": "submitted",
-      "event": "approve",
-      "to": "approved",
+      "from": "submit",
+      "event": "APPROVE",
+      "to": "approve",
       "object": "order",
       "fact": "f4",
       "facts": [
         "f2",
-        "f4",
-        "f5"
+        "f4"
       ],
       "actor": "manager",
       "guard": "condition:c1"
