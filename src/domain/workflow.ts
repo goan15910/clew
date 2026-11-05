@@ -1,17 +1,16 @@
 // A workflow set is a meta-graph: many named sub-graphs, each a linked list.
 // Cross-field invariants are checked here. Zod does not belong in this layer.
 import type { Issue } from './issue.js';
+import type { Patch, Value } from './valuation.js';
 
 export const WORKFLOW_WORD_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 export const WORKFLOW_WORD_MESSAGE = 'workflow names are lowercase words or kebab-case';
-/** Chart state ids are camelCase. Kebab-case still loads; verify requires the exact chart id. */
-export const WORKFLOW_STATE_PATTERN = /^[a-z][A-Za-z0-9]*(-[a-z0-9]+)*$/;
-export const WORKFLOW_STATE_MESSAGE = 'state names are camelCase chart ids, or lowercase kebab-case';
 /** Chart events are UPPER_SNAKE_CASE. Kebab-case still loads; verify replays the exact event string. */
 export const WORKFLOW_EVENT_PATTERN = /^(?:[A-Z][A-Z0-9_]*|[a-z][a-z0-9]*(-[a-z0-9]+)*)$/;
 export const WORKFLOW_EVENT_MESSAGE = 'event names are UPPER_SNAKE_CASE chart events, or lowercase kebab-case';
 export const WORKFLOW_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const WORKFLOW_ID_MESSAGE = 'ids start with a letter and then use letters, digits, underscores, or hyphens';
+export const WORKFLOW_ASSIGN_MESSAGE = 'workflow nodes use assign (a full valuation map); state was removed';
 
 /** `accepted` must not set `rejectAt`. `rejected` must set it. The step it names is checked once the list is a chain. */
 export const EXPECTATION_MESSAGE = 'accepted must not set rejectAt; rejected needs rejectAt';
@@ -25,7 +24,7 @@ export function expectationHolds(workflow: {
 
 export interface WorkflowNodeDraft {
   id: string;
-  state: string;
+  assign: Patch;
 }
 
 export interface WorkflowEdgeDraft {
@@ -57,8 +56,8 @@ export interface ChainStep {
   to: string;
   event: string;
   text: string;
-  stateFrom: string;
-  stateTo: string;
+  assignFrom: Patch;
+  assignTo: Patch;
 }
 
 export interface LinkedWorkflow {
@@ -81,10 +80,32 @@ interface ChainBuild {
   chain: ChainStep[];
 }
 
+export function copyPatch(assign: Patch): Patch {
+  const copy: Record<string, Value> = {};
+  for (const key of Object.keys(assign)) {
+    const value = assign[key];
+    if (value === undefined) continue;
+    copy[key] = value;
+  }
+  return copy;
+}
+
+/** Display name for a visit: the phase atom when present, otherwise a single atom value. */
+export function assignDisplay(assign: Patch): string {
+  const phase = assign.phase;
+  if (phase !== undefined && phase.t === 'atom') return phase.v;
+  const keys = Object.keys(assign);
+  if (keys.length === 1) {
+    const value = assign[keys[0]!];
+    if (value !== undefined && value.t === 'atom') return value.v;
+  }
+  return keys.slice().sort().join(',');
+}
+
 function buildChain(workflow: WorkflowDraft, workflowIndex: number): ChainBuild {
   const issues: Issue[] = [];
   const label = `workflow ${workflow.id}`;
-  const nodes = new Map<string, { state: string }>();
+  const nodes = new Map<string, Patch>();
   for (let index = 0; index < workflow.nodes.length; index += 1) {
     const node = workflow.nodes[index]!;
     if (nodes.has(node.id)) {
@@ -94,7 +115,13 @@ function buildChain(workflow: WorkflowDraft, workflowIndex: number): ChainBuild 
       });
       continue;
     }
-    nodes.set(node.id, { state: node.state });
+    if (Object.keys(node.assign).length === 0) {
+      issues.push({
+        path: ['workflows', workflowIndex, 'nodes', index, 'assign'],
+        message: `${label}: node "${node.id}" assign must not be empty`,
+      });
+    }
+    nodes.set(node.id, node.assign);
   }
   if (!nodes.has(workflow.start)) {
     issues.push({
@@ -183,17 +210,17 @@ function buildChain(workflow: WorkflowDraft, workflowIndex: number): ChainBuild 
     }
     seen.add(cursor);
     const edge = edgeByFrom.get(cursor);
-    const fromNode = nodes.get(edge?.from ?? '');
-    const toNode = nodes.get(edge?.to ?? '');
-    if (edge === undefined || fromNode === undefined || toNode === undefined) break;
+    const fromAssign = nodes.get(edge?.from ?? '');
+    const toAssign = nodes.get(edge?.to ?? '');
+    if (edge === undefined || fromAssign === undefined || toAssign === undefined) break;
     chain.push({
       n,
       from: edge.from,
       to: edge.to,
       event: edge.event,
       text: edge.text,
-      stateFrom: fromNode.state,
-      stateTo: toNode.state,
+      assignFrom: copyPatch(fromAssign),
+      assignTo: copyPatch(toAssign),
     });
     n += 1;
     cursor = edge.to;
@@ -238,13 +265,15 @@ export function workflowSetIssues(draft: WorkflowSetDraft): Issue[] {
 /** Node ids in linked-list order: the head, then each edge's target. */
 export function nodesInWalkOrder(workflow: LinkedWorkflow): WorkflowNodeDraft[] {
   const byId = new Map<string, WorkflowNodeDraft>();
-  for (const node of workflow.nodes) byId.set(node.id, { id: node.id, state: node.state });
+  for (const node of workflow.nodes) {
+    byId.set(node.id, { id: node.id, assign: copyPatch(node.assign) });
+  }
   const ordered: WorkflowNodeDraft[] = [];
   const head = byId.get(workflow.start);
   if (head !== undefined) ordered.push(head);
   for (const step of workflow.chain) {
     const node = byId.get(step.to);
-    if (node !== undefined) ordered.push({ id: node.id, state: node.state });
+    if (node !== undefined) ordered.push({ id: node.id, assign: copyPatch(node.assign) });
   }
   return ordered;
 }
@@ -260,7 +289,7 @@ export function assembleWorkflowSet(draft: WorkflowSetDraft): WorkflowSet {
     const workflow = draft.workflows[index]!;
     const built = buildChain(workflow, index);
     const nodes: WorkflowNodeDraft[] = [];
-    for (const node of workflow.nodes) nodes.push({ id: node.id, state: node.state });
+    for (const node of workflow.nodes) nodes.push({ id: node.id, assign: copyPatch(node.assign) });
     const linked: LinkedWorkflow = {
       id: workflow.id,
       title: workflow.title,

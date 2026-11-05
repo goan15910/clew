@@ -2,7 +2,7 @@
 import { chartEventName, chartStateId, type Effect, type Model, type State, type Transition } from './model.js';
 import type { DraftGraph, GraphState, GraphTransition } from './spec.js';
 import type { WorkflowResult, TraceStep } from './verification.js';
-import type { WorkflowDraft, WorkflowSetDraft } from './workflow.js';
+import { assignDisplay, type WorkflowDraft, type WorkflowSetDraft } from './workflow.js';
 
 /** A draft transition has no effect. The chart model still requires one. */
 const NO_EFFECT: Effect = { name: 'none', sets: '' };
@@ -81,7 +81,7 @@ function chainOf(workflow: WorkflowDraft): WorkflowResult {
 
 function nodeState(workflow: WorkflowDraft, id: string): string {
   for (const node of workflow.nodes) {
-    if (node.id === id) return node.state;
+    if (node.id === id) return assignDisplay(node.assign);
   }
   return id;
 }

@@ -1,10 +1,10 @@
-// Temporary Model view of a Spec so analyze/verify keep compiling until PR3.
-// Labels name the old location ids. A control atom (usually phase) supplies from/to.
+// Label-flat Model for chart analyze/view and verify coverage diagrams.
+// Verify itself uses Spec.step; this projection is not a proof.
 import { chartStateId, type FieldType, type Guard, type Model, type State, type Transition } from '../../domain/model.js';
 import { matchHolds, type Label, type Spec } from '../../domain/spec-model.js';
 import type { Patch, Predicate, ValueType, VarId } from '../../domain/valuation.js';
 
-export function locationModelFromSpec(spec: Spec): Model {
+export function specViewModel(spec: Spec): Model {
   const states: State[] = [];
   const seen = new Set<string>();
   const data = fieldsOf(spec);

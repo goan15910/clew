@@ -322,7 +322,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(dry.status, 0, `${dry.stderr}\n${dry.stdout}`);
       const yaml = readFileSync(flows, 'utf8');
       assert.match(yaml, /id: "in-progress"/);
-      assert.match(yaml, /state: "inProgress"/);
+      assert.match(yaml, /phase: "inProgress"/);
       assert.match(yaml, /event: "MARK_SHIPPED"/);
       assert.doesNotMatch(yaml, /event: "mark-shipped"/);
       const chart = join(dir, 'chart.yaml');
@@ -331,17 +331,13 @@ describe('spec graph and emit', { concurrency: false }, () => {
         'id: parcel',
         'vars:',
         '  - { id: phase, type: atom }',
-        '  - { id: title, type: atom }',
-        '  - { id: shipped, type: boolean }',
         'initial:',
         '  phase: draft',
-        '  title: ""',
-        '  shipped: false',
         'actions:',
         '  - event: MARK_SHIPPED',
         '    actor: customer',
         '    when: { op: eq, var: phase, value: draft }',
-        '    assign: { phase: inProgress, shipped: true }',
+        '    assign: { phase: inProgress }',
         'labels:',
         '  - { id: draft, match: { phase: draft }, text: Draft }',
         '  - { id: inProgress, match: { phase: inProgress }, text: In Progress, final: true }',

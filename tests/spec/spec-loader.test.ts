@@ -35,7 +35,7 @@ describe('clew.spec.v1 loader', () => {
     assert.equal(loaded.errors.some((error) => error.message.includes('clew.spec.v1')), true);
   });
 
-  test('projects labels so verify still sees location ids', () => {
+  test('projects labels so analyze and view still see location ids', () => {
     const loaded = yamlModelLoader.load(join(root, 'examples/todo/b-full.yaml'));
     assert.equal(loaded.ok, true);
     if (!loaded.ok) return;

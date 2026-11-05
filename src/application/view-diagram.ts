@@ -2,7 +2,7 @@
 import type { Model, State } from '../domain/model.js';
 import { SPEC_SCHEMA_VERSION, type SpecSnapshot } from '../domain/spec.js';
 import type { TraceStep, WorkflowResult } from '../domain/verification.js';
-import type { LinkedWorkflow, WorkflowSet } from '../domain/workflow.js';
+import { assignDisplay, type LinkedWorkflow, type WorkflowSet } from '../domain/workflow.js';
 import {
   tagIssues,
   type DiagramViewChart,
@@ -45,8 +45,8 @@ export function linkedWorkflowResult(workflow: LinkedWorkflow): WorkflowResult {
       n: step.n,
       text: step.text,
       event: step.event,
-      from: step.stateFrom,
-      to: refused ? null : step.stateTo,
+      from: assignDisplay(step.assignFrom),
+      to: refused ? null : assignDisplay(step.assignTo),
       accepted: !refused,
       workflowEvent: step.event,
       workflowFrom: step.from,
@@ -75,9 +75,10 @@ export function labelModelFromWorkflows(set: WorkflowSet): Model {
   const seen = new Set<string>();
   for (const workflow of set.workflows) {
     for (const node of workflow.nodes) {
-      if (seen.has(node.state)) continue;
-      seen.add(node.state);
-      states.push({ id: node.state, label: node.state, final: false, data: [] });
+      const id = assignDisplay(node.assign);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      states.push({ id, label: id, final: false, data: [] });
     }
   }
   const first = states[0];

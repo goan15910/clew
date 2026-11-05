@@ -60,10 +60,10 @@ export interface DiagramRenderer {
 }
 
 export interface VerifyPorts {
+  specs: SpecLoader;
   models: ModelLoader;
   workflows: WorkflowSetLoader;
   selections: SelectionLoader;
-  engine: TraversalEngine;
   reports: ReportWriter;
   diagrams: DiagramRenderer;
 }

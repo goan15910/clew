@@ -1,5 +1,5 @@
-# States editing and closed are not on the chart. Verify exits 2 with a name gap.
-# The event is also absent; that would fail only this flow if the states matched.
+# Assign maps omit `done`, which the gap chart requires. Verify exits 2 with a name gap.
+# The event is also absent; that would fail only this flow if the assign maps were total.
 id: gapFlows
 workflows:
   - id: W1
@@ -7,7 +7,7 @@ workflows:
     expect: accepted
     start: a
     nodes:
-      - { id: a, state: editing }
-      - { id: b, state: closed }
+      - { id: a, assign: { phase: editing } }
+      - { id: b, assign: { phase: closed } }
     edges:
       - { from: a, event: submit, to: b, text: "Go" }

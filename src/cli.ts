@@ -102,10 +102,10 @@ const EXIT_FAILED = 1;
 const EXIT_INVALID = 2;
 
 const verifyPorts: VerifyPorts = {
+  specs: yamlSpecLoader,
   models: yamlModelLoader,
   workflows: yamlWorkflowLoader,
   selections: jsonSelectionLoader,
-  engine: xstateTraversalEngine,
   reports: fileReportWriter,
   diagrams: graphvizDiagramRenderer,
 };
@@ -650,7 +650,7 @@ setManual(workflows
 
 setManual(program
   .command('verify')
-  .description('Prove each selected flow against a chart. State and event names must match exactly.')
+  .description('Prove each selected flow against a spec by next-state replay.')
   .argument('<chart>', 'YAML state chart')
   .argument('<workflows>', 'YAML workflow set')
   .option('--flow <id>', 'named sub-graph to verify (repeatable)', collectFlow, [] as string[])
@@ -683,11 +683,11 @@ setManual(program
   exitCodes: [
     { code: 0, meaning: 'every selected flow passed' },
     { code: 1, meaning: 'a selected flow failed' },
-    { code: 2, meaning: 'the input is unreadable, the arguments are wrong, a workflow state is not on the chart, or the selection names a missing flow' },
+    { code: 2, meaning: 'the input is unreadable, the arguments are wrong, a node assign is not a total valuation, or the selection names a missing flow' },
   ],
   notes: [
     jsonNote,
-    '--heatmap and --replay need --out. A workflow state that is not on the chart exits 2. An event the chart never declares fails only that flow.',
+    '--heatmap and --replay need --out. A node assign that is not a total valuation of the spec vars exits 2. An event the spec never enables fails only that flow. An accepted flow must start at a valuation reachable from initial.',
   ],
 });
 

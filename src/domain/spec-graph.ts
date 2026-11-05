@@ -19,9 +19,12 @@ import type {
 } from './spec.js';
 import { pastParticiple } from './spec-entities.js';
 import { visibleFacts } from './spec-facts.js';
+import type { Patch } from './valuation.js';
 import {
+  assignDisplay,
   WORKFLOW_ID_PATTERN,
   WORKFLOW_WORD_PATTERN,
+  type WorkflowNodeDraft,
   type WorkflowSetDraft,
 } from './workflow.js';
 
@@ -506,7 +509,7 @@ function flowDraft(
   }
   if (transitions.length === 0) return { problem: `${flow.id} has no transitions` };
   if (!chainObjects(transitions)) return { problem: `${flow.id} is not a linear path` };
-  const nodes: { id: string; state: string }[] = [];
+  const nodes: WorkflowNodeDraft[] = [];
   const used = new Set<string>();
   const first = transitions[0];
   if (first === undefined) return { problem: `${flow.id} has no transitions` };
@@ -515,7 +518,7 @@ function flowDraft(
   let cursor = start;
   for (const transition of transitions) {
     const current = nodes[nodes.length - 1];
-    if (current === undefined || current.state !== chartStateId(transition.from)) return { problem: `${flow.id} breaks at ${transition.id}` };
+    if (current === undefined || assignDisplay(current.assign) !== chartStateId(transition.from)) return { problem: `${flow.id} breaks at ${transition.id}` };
     const to = addNode(nodes, used, transition.to);
     edges.push({
       from: cursor,
@@ -567,8 +570,8 @@ function syntheticRejected(
     start: initial.id,
     rejectAt: flow.rejectAt ?? 1,
     nodes: [
-      { id: initial.id, state: chartStateId(initial.id) },
-      { id: to, state: chartStateId(to) },
+      { id: initial.id, assign: phaseAssign(chartStateId(initial.id)) },
+      { id: to, assign: phaseAssign(chartStateId(to)) },
     ],
     edges: [{ from: initial.id, event: chartEventName(event), to, text }],
   };
@@ -1024,18 +1027,22 @@ function ensureState(states: GraphState[], object: string, id: string): GraphSta
   return state;
 }
 
-function addNode(nodes: { id: string; state: string }[], used: Set<string>, state: string): string {
+function phaseAssign(phase: string): Patch {
+  return { phase: { t: 'atom', v: phase } };
+}
+
+function addNode(nodes: WorkflowNodeDraft[], used: Set<string>, state: string): string {
   const chartState = chartStateId(state);
   if (!used.has(state)) {
     used.add(state);
-    nodes.push({ id: state, state: chartState });
+    nodes.push({ id: state, assign: phaseAssign(chartState) });
     return state;
   }
   let number = 2;
   while (used.has(`${state}-${number}`)) number += 1;
   const id = `${state}-${number}`;
   used.add(id);
-  nodes.push({ id, state: chartState });
+  nodes.push({ id, assign: phaseAssign(chartState) });
   return id;
 }
 

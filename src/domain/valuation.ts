@@ -48,6 +48,8 @@ export interface ReachGraph {
   readonly truncated: boolean;
 }
 
+export const DEFAULT_REACH_BOUND = 5000;
+
 const VAR_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 const EVENT_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 

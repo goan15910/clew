@@ -9,15 +9,15 @@ vars:
   - { id: started_at, type: timestamp }
   - { id: completed_at, type: timestamp }
   - { id: wake_at, type: timestamp }
-  - { id: removed, type: boolean }
+  - { id: deleted_at, type: timestamp }
 initial:
   phase: draft
   listed: false
-  title: ""
+  title: task
   started_at: null
   completed_at: null
   wake_at: null
-  removed: false
+  deleted_at: null
 actions:
   - event: SUBMIT
     actor: user
@@ -30,7 +30,7 @@ actions:
   - event: DELETE
     actor: user
     when: { op: eq, var: phase, value: draft }
-    assign: { phase: deleted, removed: true }
+    assign: { phase: deleted, deleted_at: set }
   - event: START
     actor: user
     when: { op: eq, var: phase, value: todo }
@@ -42,7 +42,7 @@ actions:
   - event: DELETE
     actor: user
     when: { op: eq, var: phase, value: todo }
-    assign: { phase: deleted, removed: true }
+    assign: { phase: deleted, deleted_at: set }
   - event: SNOOZE
     actor: user
     when: { op: eq, var: phase, value: inProgress }

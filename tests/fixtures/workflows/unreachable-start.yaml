@@ -1,0 +1,14 @@
+# Start valuation differs from initial only in title. Nothing assigns title, so it is unreachable.
+id: unreachableStart
+workflows:
+  - id: W1
+    title: Submit from an unreachable titled draft
+    expect: accepted
+    start: edit
+    nodes:
+      - id: edit
+        assign: { phase: draft, listed: false, title: other, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+      - id: listed
+        assign: { phase: todo, listed: true, title: other, started_at: null, completed_at: null, wake_at: null, deleted_at: null }
+    edges:
+      - { from: edit, event: SUBMIT, to: listed, text: "Add the draft" }

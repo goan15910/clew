@@ -6,9 +6,9 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: editing }
-      - { id: listed, state: open }
-      - { id: gone, state: gone }
+      - { id: edit, assign: { phase: editing } }
+      - { id: listed, assign: { phase: open } }
+      - { id: gone, assign: { phase: gone } }
     edges:
       - { from: edit, event: submit, to: listed, text: "Add it" }
       - { from: edit, event: delete, to: gone, text: "Delete it" }
@@ -17,7 +17,7 @@ workflows:
     expect: accepted
     start: edit
     nodes:
-      - { id: edit, state: editing }
-      - { id: listed, state: open }
+      - { id: edit, assign: { phase: editing } }
+      - { id: listed, assign: { phase: open } }
     edges:
       - { from: edit, event: submit, to: listed, text: "Add it" }
