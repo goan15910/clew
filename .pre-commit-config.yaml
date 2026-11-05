@@ -1,0 +1,9 @@
+# Optional local hook. CI runs the same check via npm run check:private-corpus.
+repos:
+  - repo: local
+    hooks:
+      - id: private-corpus-guard
+        name: private-corpus guard
+        entry: node scripts/check-private-corpus-guard.mjs
+        language: system
+        pass_filenames: false

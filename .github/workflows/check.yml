@@ -32,4 +32,5 @@ jobs:
       - run: npm run check:dependencies
       - run: npm run check:imports
       - run: npm run test:architecture
+      - run: npm run check:private-corpus
       - run: npm run test:spec
