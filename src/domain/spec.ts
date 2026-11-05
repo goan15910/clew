@@ -2,7 +2,7 @@
 // Pure data and rules. No tagger, no files, no Zod.
 import type { Patch, Predicate } from './valuation.js';
 
-export const SPEC_SCHEMA_VERSION = 3 as const;
+export const SPEC_SCHEMA_VERSION = 4 as const;
 
 export const SPEC_SESSION_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const SPEC_SESSION_ID_MESSAGE = 'session ids start with a letter and then use letters, digits, underscores, or hyphens';
@@ -37,23 +37,45 @@ export interface Finding {
   refs: string[];
 }
 
-export interface Sentence {
-  id: string;
-  text: string;
-  span: [number, number];
-  hash: string;
-  section: string;
-  origin: 'rule';
-  status: SpecItemStatus;
-  sources: string[];
+/** Who wrote a revision when Clew itself changed the record (re-init, dropped refinements). */
+export const CLEW_AUTHOR = 'clew';
+
+/** One write to a revised record. `value` is what the write left in `latest`. */
+export interface Revision<T> {
+  at: string;
+  who: string;
+  reason: string;
+  finding?: string;
+  comment?: string;
+  value: T;
 }
 
-export interface SentenceDraft {
+/** Text, file span, hash, and heading path of one version of a sentence. */
+export interface SentenceText {
   text: string;
   span: [number, number];
   hash: string;
   section: string;
 }
+
+/**
+ * The spec file is a seed. `original` is what the file said (null for an added sentence).
+ * `latest` is the text the pipeline reads (null for a deleted sentence, kept as a tombstone).
+ * Ids are never reused.
+ */
+export interface Sentence {
+  id: string;
+  original: SentenceText | null;
+  latest: SentenceText | null;
+  history: Revision<SentenceText | null>[];
+}
+
+/** A sentence with a latest version, as every later layer reads it. */
+export interface LiveSentence extends SentenceText {
+  id: string;
+}
+
+export type SentenceDraft = SentenceText;
 
 /** Compromise clause cover relative to the sentence text. */
 export interface ClauseBound {
@@ -229,6 +251,9 @@ export interface DraftGraph {
 export type SpecCommandName =
   | 'spec.init'
   | 'spec.tag'
+  | 'spec.sentences.add'
+  | 'spec.sentences.edit'
+  | 'spec.sentences.delete'
   | 'spec.spans.merge'
   | 'spec.spans.check'
   | 'spec.entities.list'
@@ -263,6 +288,9 @@ export interface SpecHistoryArgs {
   tags?: string[];
   entity?: string;
   link?: string;
+  finding?: string;
+  by?: string;
+  after?: string;
 }
 
 export interface SpecHistoryEntry {
@@ -305,18 +333,38 @@ export function hasBlocking(findings: readonly Finding[]): boolean {
   return false;
 }
 
-export function currentSentences(sentences: readonly Sentence[]): Sentence[] {
-  const current: Sentence[] = [];
+export function liveSentences(sentences: readonly Sentence[]): LiveSentence[] {
+  const live: LiveSentence[] = [];
   for (const sentence of sentences) {
-    if (sentence.status === 'current') current.push(sentence);
+    if (sentence.latest !== null) live.push(liveSentence(sentence.id, sentence.latest));
   }
-  return current;
+  return live;
+}
+
+export function liveSentence(id: string, text: SentenceText): LiveSentence {
+  return { id, text: text.text, span: [text.span[0], text.span[1]], hash: text.hash, section: text.section };
 }
 
 export function sentenceIds(sentences: readonly Sentence[]): string[] {
   const ids: string[] = [];
-  for (const sentence of currentSentences(sentences)) ids.push(sentence.id);
+  for (const sentence of liveSentences(sentences)) ids.push(sentence.id);
   return ids;
+}
+
+export type SentenceState = 'original' | 'edited' | 'added' | 'deleted';
+
+export function sentenceState(sentence: Sentence): SentenceState {
+  if (sentence.latest === null) return 'deleted';
+  if (sentence.original === null) return 'added';
+  return sentence.latest.hash === sentence.original.hash ? 'original' : 'edited';
+}
+
+/** True when an agent or a human wrote this sentence, not only `spec init`. */
+export function sentenceRevised(sentence: Sentence): boolean {
+  for (const revision of sentence.history) {
+    if (revision.who !== CLEW_AUTHOR) return true;
+  }
+  return false;
 }
 
 const NON_LATIN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Devanagari}\p{Script=Thai}\p{Script=Greek}]/u;
@@ -328,7 +376,7 @@ export function suspectsNonEnglish(text: string): boolean {
 
 export function initFindings(sentences: readonly Sentence[], emptySpans: readonly [number, number][]): Finding[] {
   const findings: Finding[] = [];
-  const current = currentSentences(sentences);
+  const current = liveSentences(sentences);
   if (current.length === 0) {
     findings.push({
       id: 'no-sentences',
@@ -380,18 +428,37 @@ export function initFindings(sentences: readonly Sentence[], emptySpans: readonl
   return findings;
 }
 
-export function staleFindings(sentences: readonly Sentence[]): Finding[] {
+export const REMOVED_SENTENCE = 'removed-sentence';
+export const ORIGINAL_CHANGED = 'original-changed';
+
+/**
+ * Open re-init findings. Clew records each one as the finding id of its own revision,
+ * so it stays open until an agent or human writes the sentence again.
+ */
+export function sentenceFindings(sentences: readonly Sentence[]): Finding[] {
   const findings: Finding[] = [];
   for (const sentence of sentences) {
-    if (sentence.status !== 'stale') continue;
-    findings.push({
-      id: `stale:${sentence.id}`,
-      kind: 'stale',
-      code: 'stale-sentence',
-      severity: 'warning',
-      message: `${sentence.id} is stale because that sentence changed or was removed`,
-      refs: [sentence.id],
-    });
+    const last = sentence.history[sentence.history.length - 1];
+    if (last === undefined || last.who !== CLEW_AUTHOR || last.finding === undefined) continue;
+    if (last.finding === `${REMOVED_SENTENCE}:${sentence.id}`) {
+      findings.push({
+        id: last.finding,
+        kind: 'stale',
+        code: REMOVED_SENTENCE,
+        severity: 'warning',
+        message: `${sentence.id} left the spec file and is now a tombstone`,
+        refs: [sentence.id],
+      });
+    } else if (last.finding === `${ORIGINAL_CHANGED}:${sentence.id}`) {
+      findings.push({
+        id: last.finding,
+        kind: 'conflict',
+        code: ORIGINAL_CHANGED,
+        severity: 'warning',
+        message: `${sentence.id} was edited, and its original left the spec file; review the edit`,
+        refs: [sentence.id],
+      });
+    }
   }
   return findings;
 }
@@ -462,7 +529,7 @@ export function taggerVersionFinding(previous: { name: string; version: string }
   };
 }
 
-export function tokensFromTagging(sentence: Sentence, tagging: PosTagging): Token[] {
+export function tokensFromTagging(sentence: LiveSentence, tagging: PosTagging): Token[] {
   const clauseBounds = locateClauseBounds(sentence.text, tagging.clauses);
   const tokens: Token[] = [];
   let index = 1;
@@ -539,91 +606,114 @@ export function hasAgentTokens(tagged: TaggedSentence | undefined): boolean {
 }
 
 /**
- * Match drafts to stored sentences by hash. Unchanged text keeps its id.
- * A sentence that disappeared becomes stale and is kept. Token spans shift
- * when the same text moves in the file.
+ * Match file sentences to stored originals by hash. A matched id keeps its history.
+ * An unrevised sentence follows its original. A revised one keeps its latest; when its
+ * original left the file, that is an `original-changed` conflict. An unrevised sentence
+ * that left the file becomes a tombstone. New text gets a fresh id; ids are never reused.
  */
 export function applySpecText(
   previousSentences: readonly Sentence[],
   previousTagged: readonly TaggedSentence[],
   drafts: readonly SentenceDraft[],
+  at: string,
 ): { sentences: Sentence[]; tagged: TaggedSentence[] } {
-  const pools = new Map<string, { current: Sentence[]; stale: Sentence[] }>();
+  const pools = new Map<string, Sentence[]>();
   for (const sentence of previousSentences) {
-    let pool = pools.get(sentence.hash);
-    if (pool === undefined) {
-      pool = { current: [], stale: [] };
-      pools.set(sentence.hash, pool);
-    }
-    if (sentence.status === 'current') pool.current.push(sentence);
-    else pool.stale.push(sentence);
+    if (sentence.original === null) continue;
+    const pool = pools.get(sentence.original.hash) ?? [];
+    pool.push(sentence);
+    pools.set(sentence.original.hash, pool);
   }
   const used = new Set<string>();
   for (const sentence of previousSentences) used.add(sentence.id);
-  const revived = new Set<string>();
-  const current: Sentence[] = [];
+  const matched = new Set<string>();
+  const ordered: Sentence[] = [];
   for (const draft of drafts) {
-    const pool = pools.get(draft.hash) ?? { current: [], stale: [] };
-    let previous: Sentence | undefined;
-    while (previous === undefined && pool.current.length > 0) {
-      const candidate = pool.current.shift();
-      if (candidate !== undefined && !revived.has(candidate.id)) previous = candidate;
-    }
-    while (previous === undefined && pool.stale.length > 0) {
-      const candidate = pool.stale.shift();
-      if (candidate !== undefined && !revived.has(candidate.id)) previous = candidate;
-    }
-    const id = previous === undefined ? freshSentenceId(used) : previous.id;
-    used.add(id);
-    revived.add(id);
-    const sources: string[] = [];
-    if (previous !== undefined) {
-      for (const source of previous.sources) sources.push(source);
-    }
-    current.push({
-      id,
-      text: draft.text,
-      span: [draft.span[0], draft.span[1]],
-      hash: draft.hash,
-      section: draft.section,
-      origin: 'rule',
-      status: 'current',
-      sources,
-    });
-  }
-  const stale: Sentence[] = [];
-  for (const sentence of previousSentences) {
-    if (revived.has(sentence.id)) continue;
-    const sources: string[] = [];
-    for (const source of sentence.sources) sources.push(source);
-    stale.push({
-      id: sentence.id,
-      text: sentence.text,
-      span: [sentence.span[0], sentence.span[1]],
-      hash: sentence.hash,
-      section: sentence.section,
-      origin: 'rule',
-      status: 'stale',
-      sources,
-    });
-  }
-  const sentences = [...current, ...stale];
-  const nextById = new Map<string, Sentence>();
-  const previousById = new Map<string, Sentence>();
-  for (const sentence of sentences) nextById.set(sentence.id, sentence);
-  for (const sentence of previousSentences) previousById.set(sentence.id, sentence);
-  const tagged: TaggedSentence[] = [];
-  for (const item of previousTagged) {
-    const next = nextById.get(item.id);
-    const prev = previousById.get(item.id);
-    if (next === undefined || next.status === 'stale') {
-      tagged.push(retarget(item, 'stale', 0));
+    const previous = pools.get(draft.hash)?.shift();
+    if (previous === undefined) {
+      const id = freshSentenceId(used);
+      used.add(id);
+      ordered.push({ id, original: copyText(draft), latest: copyText(draft), history: [] });
       continue;
     }
-    const delta = prev === undefined ? 0 : next.span[0] - prev.span[0];
-    tagged.push(retarget(item, 'current', delta));
+    matched.add(previous.id);
+    ordered.push(reseed(previous, draft, at));
   }
-  return { sentences, tagged };
+  for (let index = 0; index < previousSentences.length; index += 1) {
+    const previous = previousSentences[index];
+    if (previous === undefined || matched.has(previous.id)) continue;
+    const kept = orphaned(previous, at);
+    const before = previousSentences[index - 1];
+    const slot = before === undefined ? -1 : ordered.findIndex((item) => item.id === before.id);
+    ordered.splice(slot + 1, 0, kept);
+  }
+  const previousById = new Map<string, Sentence>();
+  for (const sentence of previousSentences) previousById.set(sentence.id, sentence);
+  const nextById = new Map<string, Sentence>();
+  for (const sentence of ordered) nextById.set(sentence.id, sentence);
+  const tagged: TaggedSentence[] = [];
+  for (const item of previousTagged) {
+    const next = nextById.get(item.id)?.latest ?? null;
+    const prev = previousById.get(item.id)?.latest ?? null;
+    if (next === null || prev === null) continue;
+    if (next.hash !== prev.hash) continue;
+    tagged.push(retarget(item, next.span[0] - prev.span[0]));
+  }
+  return { sentences: ordered, tagged };
+}
+
+function reseed(previous: Sentence, draft: SentenceDraft, at: string): Sentence {
+  const history = previous.history.slice();
+  if (sentenceRevised(previous)) {
+    return { id: previous.id, original: copyText(draft), latest: previous.latest === null ? null : copyText(previous.latest), history };
+  }
+  if (previous.latest === null) {
+    history.push({ at, who: CLEW_AUTHOR, reason: 'the sentence is back in the spec file', value: copyText(draft) });
+  }
+  return { id: previous.id, original: copyText(draft), latest: copyText(draft), history };
+}
+
+function orphaned(previous: Sentence, at: string): Sentence {
+  const history = previous.history.slice();
+  const original = previous.original === null ? null : copyText(previous.original);
+  const latest = previous.latest === null ? null : copyText(previous.latest);
+  if (original === null || latest === null) return { id: previous.id, original, latest, history };
+  if (!sentenceRevised(previous)) {
+    history.push({ at, who: CLEW_AUTHOR, reason: 'the sentence left the spec file', finding: `${REMOVED_SENTENCE}:${previous.id}`, value: null });
+    return { id: previous.id, original, latest: null, history };
+  }
+  const finding = `${ORIGINAL_CHANGED}:${previous.id}`;
+  if (history[history.length - 1]?.finding !== finding) {
+    history.push({ at, who: CLEW_AUTHOR, reason: 'the original left the spec file under an edit', finding, value: copyText(latest) });
+  }
+  return { id: previous.id, original, latest, history };
+}
+
+export function copyText(text: SentenceText): SentenceText {
+  return { text: text.text, span: [text.span[0], text.span[1]], hash: text.hash, section: text.section };
+}
+
+export function copySentence(sentence: Sentence): Sentence {
+  const history: Revision<SentenceText | null>[] = [];
+  for (const revision of sentence.history) history.push(copyRevision(revision));
+  return {
+    id: sentence.id,
+    original: sentence.original === null ? null : copyText(sentence.original),
+    latest: sentence.latest === null ? null : copyText(sentence.latest),
+    history,
+  };
+}
+
+function copyRevision(revision: Revision<SentenceText | null>): Revision<SentenceText | null> {
+  const copy: Revision<SentenceText | null> = {
+    at: revision.at,
+    who: revision.who,
+    reason: revision.reason,
+    value: revision.value === null ? null : copyText(revision.value),
+  };
+  if (revision.finding !== undefined) copy.finding = revision.finding;
+  if (revision.comment !== undefined) copy.comment = revision.comment;
+  return copy;
 }
 
 export function sameSentences(left: readonly Sentence[], right: readonly Sentence[]): boolean {
@@ -632,12 +722,16 @@ export function sameSentences(left: readonly Sentence[], right: readonly Sentenc
     const a = left[index];
     const b = right[index];
     if (a === undefined || b === undefined) return false;
-    if (a.id !== b.id || a.text !== b.text || a.hash !== b.hash || a.section !== b.section) return false;
-    if (a.status !== b.status || a.origin !== b.origin) return false;
-    if (a.span[0] !== b.span[0] || a.span[1] !== b.span[1]) return false;
-    if (!sameStrings(a.sources, b.sources)) return false;
+    if (a.id !== b.id || !sameText(a.original, b.original) || !sameText(a.latest, b.latest)) return false;
+    if (a.history.length !== b.history.length) return false;
   }
   return true;
+}
+
+function sameText(left: SentenceText | null, right: SentenceText | null): boolean {
+  if (left === null || right === null) return left === right;
+  return left.text === right.text && left.hash === right.hash && left.section === right.section
+    && left.span[0] === right.span[0] && left.span[1] === right.span[1];
 }
 
 export function sameTagged(left: readonly TaggedSentence[], right: readonly TaggedSentence[]): boolean {
@@ -685,7 +779,7 @@ function freshSentenceId(used: ReadonlySet<string>): string {
   return `s${number}`;
 }
 
-function retarget(item: TaggedSentence, status: SpecItemStatus, delta: number): TaggedSentence {
+function retarget(item: TaggedSentence, delta: number): TaggedSentence {
   const clauses: string[] = [];
   for (const clause of item.clauses) clauses.push(clause);
   const tokens: Token[] = [];
@@ -700,7 +794,7 @@ function retarget(item: TaggedSentence, status: SpecItemStatus, delta: number): 
       tags,
       span: [token.span[0] + delta, token.span[1] + delta],
       origin: token.origin,
-      status,
+      status: token.status,
       sources,
     };
     if (token.skipped === true) next.skipped = true;
@@ -710,7 +804,7 @@ function retarget(item: TaggedSentence, status: SpecItemStatus, delta: number): 
     }
     tokens.push(next);
   }
-  return { id: item.id, status, clauses, tokens };
+  return { id: item.id, status: item.status, clauses, tokens };
 }
 
 const ABBREVIATIONS = new Set([

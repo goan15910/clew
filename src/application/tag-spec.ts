@@ -4,19 +4,22 @@ import { reconcileFacts, sameFacts } from '../domain/spec-facts.js';
 import { replaceSentenceSpans, sameSpans, validatePartition } from '../domain/spec-spans.js';
 import { markSkippedTokens } from '../domain/spec-stop-words.js';
 import {
-  currentSentences,
+  liveSentences,
   hasAgentTokens,
   hasBlocking,
   sameTagged,
-  staleFindings,
+  sentenceFindings,
   tagFindings,
   taggerVersionFinding,
   taggingDiffers,
   tokensFromTagging,
   type Finding,
+  type PosTagging,
+  type LiveSentence,
   type Sentence,
   type SpecSnapshot,
   type TaggedSentence,
+  type Token,
 } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecTagDocument } from './documents.js';
 import type { PosTaggerPort, SpecStore } from './ports.js';
@@ -35,7 +38,7 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
   let findings: Finding[] = [];
   const result = store.update(resolved.id, { create: false }, (current) => {
     if (current === undefined) return undefined;
-    const live = currentSentences(current.sentences);
+    const live = liveSentences(current.sentences);
     if (command.sentenceId !== undefined && !includesId(live, command.sentenceId)) {
       unknownSentence = true;
       return undefined;
@@ -46,9 +49,7 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     const produced: Finding[] = [];
     for (const sentence of live) {
       if (command.sentenceId !== undefined && sentence.id !== command.sentenceId) continue;
-      const tagging = tagger.tag(sentence.text);
-      // Mark stop words on tokens before 1:1 span promotion (merge glue stays in the partition).
-      const tokens = markSkippedTokens(tokensFromTagging(sentence, tagging));
+      const { tagging, tokens } = tagTokens(sentence, tagger);
       const previous = existing.get(sentence.id);
       if (hasAgentTokens(previous) && previous !== undefined) {
         if (taggingDiffers(previous, tagging.clauses, tokens)) {
@@ -71,7 +72,7 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     }
     const versionFinding = taggerVersionFinding(current.tagger, { name: tagger.name, version: tagger.version });
     if (versionFinding !== undefined) produced.push(versionFinding);
-    for (const finding of staleFindings(current.sentences)) produced.push(finding);
+    for (const finding of sentenceFindings(current.sentences)) produced.push(finding);
     findings = produced;
     const tagged = mergeTagged(current.sentences, current.tagged, replacements);
     const replacedSentenceIds = new Set<string>();
@@ -90,8 +91,8 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       findings = produced;
       return undefined;
     }
-    const entities = current.entities === undefined ? undefined : reconcileEntities(current.sentences, spans, current.entities);
-    const facts = current.facts === undefined ? undefined : reconcileFacts(current.sentences, spans, entities ?? [], current.facts);
+    const entities = current.entities === undefined ? undefined : reconcileEntities(liveSentences(current.sentences), spans, current.entities);
+    const facts = current.facts === undefined ? undefined : reconcileFacts(liveSentences(current.sentences), spans, entities ?? [], current.facts);
     const taggerSame = current.tagger !== undefined && current.tagger.name === tagger.name && current.tagger.version === tagger.version;
     if (
       sameTagged(current.tagged, tagged)
@@ -166,7 +167,13 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
   };
 }
 
-function includesId(sentences: readonly Sentence[], id: string): boolean {
+/** Tag one live sentence. Stop words are marked before 1:1 span promotion; they stay as merge glue. */
+export function tagTokens(sentence: LiveSentence, tagger: PosTaggerPort): { tagging: PosTagging; tokens: Token[] } {
+  const tagging = tagger.tag(sentence.text);
+  return { tagging, tokens: markSkippedTokens(tokensFromTagging(sentence, tagging)) };
+}
+
+function includesId(sentences: readonly LiveSentence[], id: string): boolean {
   for (const sentence of sentences) {
     if (sentence.id === id) return true;
   }
@@ -196,9 +203,9 @@ function mergeTagged(
   return tagged;
 }
 
-function targeted(snapshot: SpecSnapshot, sentenceId: string | undefined): Sentence[] {
-  const sentences: Sentence[] = [];
-  for (const sentence of currentSentences(snapshot.sentences)) {
+function targeted(snapshot: SpecSnapshot, sentenceId: string | undefined): LiveSentence[] {
+  const sentences: LiveSentence[] = [];
+  for (const sentence of liveSentences(snapshot.sentences)) {
     if (sentenceId === undefined || sentence.id === sentenceId) sentences.push(sentence);
   }
   return sentences;

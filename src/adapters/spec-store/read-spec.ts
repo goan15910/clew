@@ -1,8 +1,8 @@
-// Read a Markdown spec from a file. Clew never reads stdin.
+// Read a Markdown spec from a file, or write an exported one. Clew never reads stdin.
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { SpecTextSource } from '../../application/ports.js';
+import type { SpecTextSink, SpecTextSource } from '../../application/ports.js';
 
 export function sha256Prefixed(text: string): string {
   return `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -20,4 +20,16 @@ export const specTextSource: SpecTextSource = {
     }
   },
   hash: sha256Prefixed,
+};
+
+export const specTextSink: SpecTextSink = {
+  write(file, text) {
+    try {
+      writeFileSync(file, text);
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, message: `cannot write ${file}: ${message}` };
+    }
+  },
 };

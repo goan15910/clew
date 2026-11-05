@@ -129,7 +129,7 @@ describe('spec show', { concurrency: false }, () => {
       ],
     };
     const staleSentence = liveSentence('s2', 'order');
-    staleSentence.status = 'stale';
+    staleSentence.latest = null;
     const staleRow: TaggedSentence = {
       id: 's2',
       status: 'stale',
@@ -246,7 +246,7 @@ describe('spec show', { concurrency: false }, () => {
       const sentence = bare.sentences?.[0];
       assert.ok(sentence);
       assert.equal(sentence.id, 's1');
-      assert.equal(sentence.status, 'current');
+      assert.equal(sentence.state, 'original');
       assert.equal(sentence.section, json<SpecInitDocument>(init).sentences?.[0]?.section);
       assert.deepEqual(sentence.workflows, []);
       run(dir, ['spec', 'tag', '--json']);
@@ -303,16 +303,8 @@ function taggedText(document: SpecTagDocument, id: string): string | undefined {
 }
 
 function liveSentence(id: string, text: string): Sentence {
-  return {
-    id,
-    text,
-    span: [0, text.length],
-    hash: 'sha256:test',
-    section: 'Spec',
-    origin: 'rule',
-    status: 'current',
-    sources: [],
-  };
+  const version = { text, span: [0, text.length] as [number, number], hash: 'sha256:test', section: 'Spec' };
+  return { id, original: version, latest: { ...version }, history: [] };
 }
 
 function token(id: string, text: string, tags: string[], status: Token['status'] = 'current'): Token {

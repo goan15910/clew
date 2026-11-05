@@ -10,7 +10,7 @@ import type { SpecEntitiesDocument, SpecFactsDocument, SpecStatusDocument, SpecT
 import { contradictionFindings, proposeFacts } from '../../src/domain/spec-facts.js';
 import { entityFindings, pastParticiple } from '../../src/domain/spec-entities.js';
 import { promoteTokensToSpans, spanIdFor } from '../../src/domain/spec-spans.js';
-import type { ActionFact, Entity, Fact, LiveSpan, Sentence, TaggedSentence, Token } from '../../src/domain/spec.js';
+import type { ActionFact, Entity, Fact, LiveSentence, LiveSpan, TaggedSentence, Token } from '../../src/domain/spec.js';
 import { varId, type Patch, type Predicate } from '../../src/domain/valuation.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -512,7 +512,7 @@ describe('spec entities and facts', { concurrency: false }, () => {
       assert.equal(coverage.layers?.graph, false);
       assert.equal(coverage.layers?.facts, true);
       const human = run(dir, ['spec', 'status']);
-      assert.match(human.stdout, /1 mapped, 0 pending, 0 stale/);
+      assert.match(human.stdout, /1 mapped, 0 pending, 0 deleted/);
       assert.equal(historyCount(dir, 'order-sentence'), beforeStatus);
     });
   });
@@ -701,17 +701,8 @@ function entity(id: string, kind: Entity['kind'], name: string): Entity {
   return { id, kind, name, sources: [spanIdFor('s1.t1', 's1.t1')], origin: 'tagger', status: 'candidate' };
 }
 
-function sentenceOf(id: string, text: string): Sentence {
-  return {
-    id,
-    text,
-    span: [0, text.length],
-    hash: id,
-    section: '',
-    origin: 'rule',
-    status: 'current',
-    sources: [],
-  };
+function sentenceOf(id: string, text: string): LiveSentence {
+  return { id, text, span: [0, text.length], hash: id, section: '' };
 }
 
 function taggedOf(id: string, tokens: Token[]): TaggedSentence {

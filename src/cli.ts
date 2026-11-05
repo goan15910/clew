@@ -43,7 +43,7 @@ import { loadAddedFacts, loadFactEdit, loadRemovedFacts } from './adapters/spec-
 import { loadGroupPatch, loadSplitPatch } from './adapters/spec-store/flow-patch.js';
 import { jsonSpecStore } from './adapters/spec-store/json-file-store.js';
 import { loadSpanLexicon } from './adapters/spec-store/lexicon-loader.js';
-import { specTextSource } from './adapters/spec-store/read-spec.js';
+import { specTextSink, specTextSource } from './adapters/spec-store/read-spec.js';
 import {
   jsonSpecSessionViewer,
   openViewerUrl,
@@ -76,7 +76,9 @@ import { compareResults } from './application/compare-results.js';
 import { editEntities } from './application/edit-entities.js';
 import { editFacts } from './application/edit-facts.js';
 import { editGraph } from './application/edit-graph.js';
+import { editSentence } from './application/edit-sentences.js';
 import { emitSpec } from './application/emit-spec.js';
+import { exportSpec } from './application/export-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listEntities } from './application/list-entities.js';
 import { listSpecSessions } from './application/list-spec-sessions.js';
@@ -157,6 +159,29 @@ const SpecTagFlags = z.object({
   session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
   sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
 });
+const RevisionFlags = {
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+  reason: z.string({ error: '--reason is required' }).trim().min(1, '--reason must not be empty'),
+  finding: z.string().min(1).optional(),
+  comment: z.string().min(1).optional(),
+  by: z.string().min(1).optional(),
+};
+const SentenceIdOption = z.string({ error: '--id is required' }).regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE);
+const SpecSentenceAddFlags = z.object({
+  ...RevisionFlags,
+  text: z.string({ error: '--text is required' }).min(1),
+  after: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
+});
+const SpecSentenceEditFlags = z.object({ ...RevisionFlags, id: SentenceIdOption, text: z.string({ error: '--text is required' }).min(1) });
+const SpecSentenceDeleteFlags = z.object({ ...RevisionFlags, id: SentenceIdOption });
+const SpecExportFlags = z.object({
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+  version: z.enum(['original', 'latest']).default('latest'),
+  out: z.string().min(1).optional(),
+  dryRun: z.boolean().optional(),
+}).refine((flags) => (flags.out !== undefined) !== (flags.dryRun === true), { message: 'pass exactly one of --out and --dry-run' });
 const SPAN_ID = /^sp:s[1-9][0-9]*\.t[1-9][0-9]*\.\.s[1-9][0-9]*\.t[1-9][0-9]*$/;
 const SpecSpansMergeFlags = z.object({
   json: z.boolean().optional(),
@@ -361,6 +386,14 @@ const VerifyFlags = z.object({
     context.addIssue({ code: 'custom', message: '--heatmap and --replay need --out', path: ['out'] });
   }
 });
+
+function revisionFields(data: { reason: string; finding?: string; comment?: string; by?: string }): { reason: string; finding?: string; comment?: string; by?: string } {
+  const fields: { reason: string; finding?: string; comment?: string; by?: string } = { reason: data.reason };
+  if (data.finding !== undefined) fields.finding = data.finding;
+  if (data.comment !== undefined) fields.comment = data.comment;
+  if (data.by !== undefined) fields.by = data.by;
+  return fields;
+}
 
 function askedJson(opts: unknown): boolean {
   return typeof opts === 'object' && opts !== null && 'json' in opts && opts.json === true;
@@ -809,6 +842,90 @@ setManual(spec
   examples: ['clew spec tag --json'],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
+});
+
+const sentences = spec.command('sentences').description('Add, edit, or delete spec sentences. Every write needs a reason.').helpCommand(false);
+
+const revisionNote = 'Every write records --by (default agent), --reason, and optional --finding and --comment in the sentence history.';
+
+setManual(sentences
+  .command('add')
+  .description('Add a sentence that the spec file does not have.')
+  .option('--text <sentence>', 'one sentence of plain English')
+  .option('--after <id>', 'place it after this sentence; defaults to the end')
+  .option('--reason <text>', 'why the sentence is added')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSentenceAddFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.sentences.add', opts, parsed.error);
+    emit(editSentence({ action: 'add', sessionId: parsed.data.session, ...revisionFields(parsed.data), text: parsed.data.text, after: parsed.data.after }, jsonSpecStore, compromiseTagger, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec sentences add --text "The clerk files the form." --after s2 --reason "missing step" --json'],
+  exitCodes: specExits,
+  notes: [revisionNote, jsonNote, sessionNote],
+});
+
+setManual(sentences
+  .command('edit')
+  .description('Replace the latest text of a sentence and rebuild what was derived from it.')
+  .option('--id <id>', 'sentence to edit')
+  .option('--text <sentence>', 'one sentence of plain English')
+  .option('--reason <text>', 'why the text changes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSentenceEditFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.sentences.edit', opts, parsed.error);
+    emit(editSentence({ action: 'edit', sessionId: parsed.data.session, ...revisionFields(parsed.data), id: parsed.data.id, text: parsed.data.text }, jsonSpecStore, compromiseTagger, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec sentences edit --id s3 --text "The clerk files the form." --reason "the verb was wrong" --json'],
+  exitCodes: specExits,
+  notes: [revisionNote, jsonNote, sessionNote],
+});
+
+setManual(sentences
+  .command('delete')
+  .description('Delete a sentence. It stays as a tombstone and its id is never reused.')
+  .option('--id <id>', 'sentence to delete')
+  .option('--reason <text>', 'why the sentence goes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSentenceDeleteFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.sentences.delete', opts, parsed.error);
+    emit(editSentence({ action: 'delete', sessionId: parsed.data.session, ...revisionFields(parsed.data), id: parsed.data.id }, jsonSpecStore, compromiseTagger, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec sentences delete --id s4 --reason "duplicate of s2" --json'],
+  exitCodes: specExits,
+  notes: [revisionNote, jsonNote, sessionNote],
+});
+
+setManual(spec
+  .command('export')
+  .description('Write the original or the latest sentences as Markdown.')
+  .option('--version <version>', 'original or latest; defaults to latest')
+  .option('--out <file>', 'Markdown file to write')
+  .option('--dry-run', 'print the Markdown in the JSON document and write nothing')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecExportFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.export', opts, parsed.error);
+    emit(exportSpec({ sessionId: parsed.data.session, version: parsed.data.version, out: parsed.data.out }, jsonSpecStore, specTextSink), parsed.data.json === true);
+  }), {
+  examples: ['clew spec export --version latest --out spec.md --json'],
+  exitCodes: specExits,
+  notes: ['Each sentence is its own paragraph under its section headings, so clew spec init reads the export back as the same sentences.', jsonNote, sessionNote],
 });
 
 const spans = spec.command('spans').description('Live span partition: lexicon merge and conflict check.').helpCommand(false);

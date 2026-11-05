@@ -8,7 +8,7 @@ import type {
   EntityReview,
   Finding,
   LiveSpan,
-  Sentence,
+  LiveSentence,
 } from './spec.js';
 
 const AUXILIARY = new Set(['Copula', 'Auxiliary', 'Modal']);
@@ -83,7 +83,7 @@ export function pastParticiple(lemma: string, surface?: string): string {
 
 interface PlacedSpan {
   span: LiveSpan;
-  sentence: Sentence;
+  sentence: LiveSentence;
   ordinal: number;
 }
 
@@ -93,7 +93,7 @@ export interface DerivedEntities {
 }
 
 export function deriveEntities(
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   spans: readonly LiveSpan[],
   existing: readonly Entity[],
 ): DerivedEntities {
@@ -143,14 +143,14 @@ export function entityFindings(entities: readonly Entity[]): Finding[] {
 }
 
 export function reconcileEntities(
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   spans: readonly LiveSpan[],
   entities: readonly Entity[],
 ): Entity[] {
   const current = new Set<string>();
   const bySentence = new Set<string>();
   for (const sentence of sentences) {
-    if (sentence.status === 'current') bySentence.add(sentence.id);
+    bySentence.add(sentence.id);
   }
   for (const span of spans) {
     const sentenceId = sentenceIdOf(span.firstTokenId);
@@ -263,7 +263,7 @@ function extractConditions(placed: readonly PlacedSpan[]): Entity[] {
   let number = 1;
   for (const [sentenceId, spans] of bySentence) {
     const sentence = spans[0]?.sentence;
-    if (sentence === undefined || sentence.status !== 'current') continue;
+    if (sentence === undefined) continue;
     for (let index = 0; index < spans.length; index += 1) {
       const placedSpan = spans[index];
       if (placedSpan === undefined || !isConditionMarker(placedSpan.span, index, spans.map((item) => item.span))) continue;
@@ -507,8 +507,8 @@ function agentConflict(id: string): Finding {
   };
 }
 
-function placeSpans(sentences: readonly Sentence[], spans: readonly LiveSpan[]): PlacedSpan[] {
-  const byId = new Map<string, Sentence>();
+function placeSpans(sentences: readonly LiveSentence[], spans: readonly LiveSpan[]): PlacedSpan[] {
+  const byId = new Map<string, LiveSentence>();
   for (const sentence of sentences) byId.set(sentence.id, sentence);
   const placed: PlacedSpan[] = [];
   let ordinal = 0;
@@ -516,7 +516,7 @@ function placeSpans(sentences: readonly Sentence[], spans: readonly LiveSpan[]):
     const sentenceId = sentenceIdOf(span.firstTokenId);
     if (sentenceId === undefined) continue;
     const sentence = byId.get(sentenceId);
-    if (sentence === undefined || sentence.status !== 'current') continue;
+    if (sentence === undefined) continue;
     ordinal += 1;
     placed.push({ span, sentence, ordinal });
   }

@@ -188,7 +188,7 @@ testcases:
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status"
     assertions:
     - result.code ShouldEqual 0
-    - 'result.systemout ShouldContainSubstring "1 mapped, 0 pending, 0 stale"'
+    - 'result.systemout ShouldContainSubstring "1 mapped, 0 pending, 0 deleted"'
 
 - name: cross-kind merge is a blocking finding
   steps:

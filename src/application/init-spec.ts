@@ -7,16 +7,16 @@ import {
   SPEC_SCHEMA_VERSION,
   SPEC_SESSION_ID_PATTERN,
   applySpecText,
-  currentSentences,
   hasBlocking,
   initFindings,
   sameSentences,
   sameTagged,
   sentenceIds,
   splitSpec,
-  staleFindings,
+  sentenceFindings,
   type SentenceDraft,
   type SpecSnapshot,
+  liveSentences,
 } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecInitDocument, type SpecSentenceView } from './documents.js';
 import type { SpecStore, SpecTextSource } from './ports.js';
@@ -41,11 +41,11 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
   }
   const id = allocateSessionId(read.spec.path, command.sessionId);
   const result = store.update(id, { create: true }, (current) => {
-    const applied = applySpecText(current?.sentences ?? [], current?.tagged ?? [], drafts);
-    const spans = retainValidSpans(current?.spans, applied.tagged);
-    const entities = current?.entities === undefined ? undefined : reconcileEntities(applied.sentences, spans ?? [], current.entities);
-    const facts = current?.facts === undefined ? undefined : reconcileFacts(applied.sentences, spans ?? [], entities ?? [], current.facts);
     const now = new Date().toISOString();
+    const applied = applySpecText(current?.sentences ?? [], current?.tagged ?? [], drafts, now);
+    const spans = retainValidSpans(current?.spans, applied.tagged);
+    const entities = current?.entities === undefined ? undefined : reconcileEntities(liveSentences(applied.sentences), spans ?? [], current.entities);
+    const facts = current?.facts === undefined ? undefined : reconcileFacts(liveSentences(applied.sentences), spans ?? [], entities ?? [], current.facts);
     const snapshot: SpecSnapshot = {
       schemaVersion: SPEC_SCHEMA_VERSION,
       id,
@@ -87,7 +87,7 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
     const fault = result.fault === 'missing' ? 'session' : result.fault;
     return invalid(command.file, fault, result.message);
   }
-  const findings = [...initFindings(result.snapshot.sentences, split.emptySpans), ...staleFindings(result.snapshot.sentences)];
+  const findings = [...initFindings(result.snapshot.sentences, split.emptySpans), ...sentenceFindings(result.snapshot.sentences)];
   return {
     exit: hasBlocking(findings) ? 'fail' : 'pass',
     document: {
@@ -105,7 +105,7 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
 
 function sentenceViews(sentences: SpecSnapshot['sentences']): SpecSentenceView[] {
   const views: SpecSentenceView[] = [];
-  for (const sentence of currentSentences(sentences)) {
+  for (const sentence of liveSentences(sentences)) {
     views.push({
       id: sentence.id,
       text: sentence.text,

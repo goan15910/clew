@@ -386,6 +386,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
 .gloss-span.skipped.match { opacity: 0.85; }
 .line-span.skipped { opacity: 0.55; color: var(--muted); }
 .empty { color: var(--muted); padding: 1.5rem 0; }
+.original { color: var(--muted); margin: 0 0 0.5rem; font-style: italic; }
 .graph-image { display: block; max-width: 100%; height: auto; margin: 0.5rem 0 0; border: 1px solid var(--line); }
 #panel-graph h2 { font-size: 1.05rem; margin: 0.2rem 0 0.6rem; }
 .graph-skipped { color: var(--muted); margin: 0.5rem 0 0; padding-left: 1.2rem; }
@@ -550,10 +551,27 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function statusTone(status) {
-    if (status === "current" || status === "confirmed") return "ok";
-    if (status === "stale" || status === "candidate") return "warn";
-    if (status === "rejected") return "bad";
+    if (status === "current" || status === "confirmed" || status === "original") return "ok";
+    if (status === "stale" || status === "candidate" || status === "edited" || status === "added") return "warn";
+    if (status === "rejected" || status === "deleted") return "bad";
     return "";
+  }
+
+  function sentenceView(record) {
+    const shown = record.latest || record.original || { text: "", span: null, section: "" };
+    const revised = (record.history || []).some(function (entry) { return entry.who !== "clew"; });
+    const state = record.latest === null ? "deleted"
+      : record.original === null ? "added"
+      : revised && record.latest.hash !== record.original.hash ? "edited"
+      : "original";
+    return {
+      id: record.id,
+      text: shown.text,
+      span: shown.span,
+      section: shown.section,
+      state: state,
+      original: state === "edited" ? record.original.text : null,
+    };
   }
 
   let selected = new URLSearchParams(location.search).get("session");
@@ -1258,7 +1276,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const surfaces = spans.map(function (span) { return span.surface; });
       const ids = spans.map(function (span) { return span.id; });
       if (spanFilterActive() && !spans.some(spanMatches)) return false;
-      return matchesText([sentence.id, sentence.text, sentence.section, sentence.status, ...surfaces, ...ids]);
+      return matchesText([sentence.id, sentence.text, sentence.original, sentence.section, sentence.state, ...surfaces, ...ids]);
     });
     if (visible.length === 0) {
       els.sentences.innerHTML = '<p class="empty">No sentences match these filters.</p>';
@@ -1268,7 +1286,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
       return (
         '<article class="card">' +
         "<h2><span class=\\"id\\">" + esc(sentence.id) + "</span>" +
-        pill(sentence.section) + pill(sentence.status, statusTone(sentence.status)) + "</h2>" +
+        pill(sentence.section) + pill(sentence.state, statusTone(sentence.state)) + "</h2>" +
+        (sentence.original ? '<p class="original">was: ' + esc(sentence.original) + "</p>" : "") +
         glossHtml(sentence, spansForSentence(sentence.id)) +
         sentenceLineage(sentence) +
         "</article>"
@@ -1682,7 +1701,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       if (!session) throw new Error("session.json is missing");
       state.session = session;
       const sentencesFile = await loadJson("sentences.json");
-      state.sentences = (sentencesFile && sentencesFile.sentences) || [];
+      state.sentences = ((sentencesFile && sentencesFile.sentences) || []).map(sentenceView);
       const tokensFile = await loadJson("tokens.json");
       state.tagged = (tokensFile && tokensFile.sentences) || [];
       const spansFile = await loadJson("spans.json");

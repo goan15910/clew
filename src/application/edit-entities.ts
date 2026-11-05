@@ -1,5 +1,5 @@
 // Use case: merge, rename, reject, or promote entities. The agent decides.
-import { hasBlocking, type EntityKind, type SpecSnapshot } from '../domain/spec.js';
+import { hasBlocking, type EntityKind, type SpecSnapshot, liveSentences } from '../domain/spec.js';
 import { mergeEntities, promoteEntity, rejectEntity, renameEntity, type EntityChange } from '../domain/spec-entity-edit.js';
 import { rebuildFacts } from '../domain/spec-facts.js';
 import { overlayGraph } from '../domain/spec-graph.js';
@@ -37,7 +37,7 @@ export function editEntities(command: EditEntitiesCommand, store: SpecStore): Ou
       return undefined;
     }
     if (change.blocked) return undefined;
-    const rebuilt = rebuildFacts(current.sentences, current.spans ?? [], change.entities, change.facts);
+    const rebuilt = rebuildFacts(liveSentences(current.sentences), current.spans ?? [], change.entities, change.facts);
     for (const finding of rebuilt.findings) change.findings.push(finding);
     const affected = changedFactIds(change.facts, rebuilt.facts);
     for (const id of affected) {

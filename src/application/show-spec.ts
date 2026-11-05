@@ -1,4 +1,4 @@
-import { currentSentences, type SpecSnapshot } from '../domain/spec.js';
+import { liveSentences, type SpecSnapshot } from '../domain/spec.js';
 import { sentenceWorkflows, uniqueTokens } from '../domain/spec-query.js';
 import type { Outcome, SpecFault, SpecShowDocument, SpecShowLayer } from './documents.js';
 import { specInput } from './documents.js';
@@ -73,7 +73,7 @@ function shown(layer: SpecShowLayer, snapshot: SpecSnapshot): SpecShowDocument {
     case 'sentences':
       return { ...base, command: 'spec.show.sentences', sentences: sentenceContextViews(snapshot.sentences, sentenceWorkflows(snapshot)) };
     case 'tagged':
-      return { ...base, command: 'spec.show.tagged', sentences: taggedViews(currentSentences(snapshot.sentences), snapshot.tagged) };
+      return { ...base, command: 'spec.show.tagged', sentences: taggedViews(liveSentences(snapshot.sentences), snapshot.tagged) };
     case 'tokens':
       return { ...base, command: 'spec.show.tokens', tokens: uniqueTokenViews(uniqueTokens(snapshot.sentences, snapshot.tagged)) };
     case 'spans':

@@ -17,7 +17,9 @@ import {
   type GraphState,
   type GraphTransition,
   type LiveSpan,
+  copySentence,
   type Sentence,
+  type SentenceText,
   type SpecFlow,
   type SpecHistoryEntry,
   type SpecSnapshot,
@@ -35,15 +37,27 @@ const HASH = /^sha256:[0-9a-f]{64}$/;
 const TOKEN_ID = /^s[1-9][0-9]*\.t[1-9][0-9]*$/;
 const SPAN_ID = /^sp:s[1-9][0-9]*\.t[1-9][0-9]*\.\.s[1-9][0-9]*\.t[1-9][0-9]*$/;
 
-const SentenceSchema = z.strictObject({
-  id: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE),
+const SentenceTextSchema = z.strictObject({
   text: z.string(),
   span: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]),
   hash: z.string().regex(HASH, 'hash must be sha256:<hex>'),
   section: z.string(),
-  origin: z.literal('rule'),
-  status: z.enum(['current', 'stale']),
-  sources: z.array(z.string()),
+}).refine((text) => text.span[1] >= text.span[0], 'span ends before it starts');
+
+const SentenceRevisionSchema = z.strictObject({
+  at: z.string().min(1),
+  who: z.string().min(1),
+  reason: z.string().min(1),
+  finding: z.string().min(1).optional(),
+  comment: z.string().min(1).optional(),
+  value: SentenceTextSchema.nullable(),
+});
+
+const SentenceSchema = z.strictObject({
+  id: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE),
+  original: SentenceTextSchema.nullable(),
+  latest: SentenceTextSchema.nullable(),
+  history: z.array(SentenceRevisionSchema),
 });
 
 const ClauseBoundSchema = z.strictObject({
@@ -304,20 +318,29 @@ function zodFault(file: string, error: z.ZodError): { fault: 'schema'; message: 
   return { fault: 'schema', message: `invalid spec store JSON in ${where}: ${first.message}` };
 }
 
-function toSentence(raw: z.infer<typeof SentenceSchema>): Sentence | undefined {
-  if (raw.span[1] < raw.span[0]) return undefined;
-  const sources: string[] = [];
-  for (const source of raw.sources) sources.push(source);
+function toSentence(raw: z.infer<typeof SentenceSchema>): Sentence {
+  const history: Sentence['history'] = [];
+  for (const revision of raw.history) {
+    const entry: Sentence['history'][number] = {
+      at: revision.at,
+      who: revision.who,
+      reason: revision.reason,
+      value: revision.value === null ? null : toSentenceText(revision.value),
+    };
+    if (revision.finding !== undefined) entry.finding = revision.finding;
+    if (revision.comment !== undefined) entry.comment = revision.comment;
+    history.push(entry);
+  }
   return {
     id: raw.id,
-    text: raw.text,
-    span: [raw.span[0], raw.span[1]],
-    hash: raw.hash,
-    section: raw.section,
-    origin: 'rule',
-    status: raw.status,
-    sources,
+    original: raw.original === null ? null : toSentenceText(raw.original),
+    latest: raw.latest === null ? null : toSentenceText(raw.latest),
+    history,
   };
+}
+
+function toSentenceText(raw: z.infer<typeof SentenceTextSchema>): SentenceText {
+  return { text: raw.text, span: [raw.span[0], raw.span[1]], hash: raw.hash, section: raw.section };
 }
 
 function toToken(raw: z.infer<typeof TokenSchema>): Token | undefined {
@@ -405,11 +428,7 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
   const sentencesParsed = SentencesFileSchema.safeParse(sentencesRead.value);
   if (!sentencesParsed.success) return { ok: false, ...zodFault(sentencesFile, sentencesParsed.error) };
   const sentences: Sentence[] = [];
-  for (const raw of sentencesParsed.data.sentences) {
-    const sentence = toSentence(raw);
-    if (sentence === undefined) return { ok: false, fault: 'schema', message: `invalid spec store JSON in ${basename(sentencesFile)}: span ends before it starts` };
-    sentences.push(sentence);
-  }
+  for (const raw of sentencesParsed.data.sentences) sentences.push(toSentence(raw));
 
   const tokensFile = join(dir, 'tokens.json');
   let tagged: TaggedSentence[] = [];
@@ -659,18 +678,7 @@ function overlayRecord(schemaVersion: number, flows: readonly SpecFlow[]): z.inf
 }
 
 function sentenceRecord(sentence: Sentence): z.infer<typeof SentenceSchema> {
-  const sources: string[] = [];
-  for (const source of sentence.sources) sources.push(source);
-  return {
-    id: sentence.id,
-    text: sentence.text,
-    span: [sentence.span[0], sentence.span[1]],
-    hash: sentence.hash,
-    section: sentence.section,
-    origin: 'rule',
-    status: sentence.status,
-    sources,
-  };
+  return copySentence(sentence);
 }
 
 function tokenRecord(token: Token): z.infer<typeof TokenSchema> {
@@ -843,6 +851,9 @@ function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; 
   if (entry.args.tags !== undefined) args.tags = entry.args.tags.slice();
   if (entry.args.entity !== undefined) args.entity = entry.args.entity;
   if (entry.args.link !== undefined) args.link = entry.args.link;
+  if (entry.args.finding !== undefined) args.finding = entry.args.finding;
+  if (entry.args.by !== undefined) args.by = entry.args.by;
+  if (entry.args.after !== undefined) args.after = entry.args.after;
   const before: string[] = [];
   for (const id of entry.before) before.push(id);
   const after: string[] = [];
@@ -937,7 +948,7 @@ function confinedToSession(root: string, dir: string, id: string): boolean {
 function liveCounts(snapshot: SpecSnapshot): { sentences: number; facts: number; flows: number } {
   let sentences = 0;
   for (const sentence of snapshot.sentences) {
-    if (sentence.status === 'current') sentences += 1;
+    if (sentence.latest !== null) sentences += 1;
   }
   let facts = 0;
   for (const fact of snapshot.facts ?? []) {

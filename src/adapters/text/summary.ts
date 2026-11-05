@@ -58,6 +58,19 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
+  if (document.command === 'spec.sentences.add' || document.command === 'spec.sentences.edit' || document.command === 'spec.sentences.delete') {
+    if (document.fault !== undefined || document.session === undefined || document.sentence === undefined) return '';
+    const sentence = document.sentence;
+    const text = sentence.latest?.text ?? sentence.original?.text ?? '';
+    const lines = [`session ${document.session}: ${sentence.id} (${sentence.state}) ${text}`];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.export') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const where = document.written === undefined ? '' : ` to ${document.written}`;
+    return `session ${document.session}: exported ${document.sentences ?? 0} ${document.version ?? 'latest'} sentences${where}`;
+  }
   if (document.command === 'spec.tag') {
     if (document.fault !== undefined || document.session === undefined) return '';
     const tagger = document.tagger === undefined ? '' : ` (${document.tagger.name} ${document.tagger.version})`;
@@ -134,7 +147,7 @@ export function humanSummary(document: CommandDocument): string {
   if (document.command === 'spec.status') {
     if (document.fault !== undefined || document.session === undefined || document.coverage === undefined) return '';
     const sentences = document.coverage.sentences;
-    const lines = [`session ${document.session}: ${sentences.mapped.length} mapped, ${sentences.pending.length} pending, ${sentences.stale.length} stale`];
+    const lines = [`session ${document.session}: ${sentences.mapped.length} mapped, ${sentences.pending.length} pending, ${sentences.deleted.length} deleted`];
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
@@ -200,8 +213,8 @@ function showSummary(document: SpecShowDocument): string {
       const lines = [`session ${document.session}: ${countPhrase(sentences.length, 'sentence', 'sentences')}`];
       for (const sentence of sentences) {
         const flows = sentence.workflows.map((flow) => flow.id).join(' ');
-        const stale = sentence.status === 'stale' ? ' (stale)' : '';
-        lines.push(`  ${sentence.id}${stale} [${sentence.section}] ${sentence.text}${flows === '' ? '' : `  <- ${flows}`}`);
+        const state = sentence.state === 'original' ? '' : ` (${sentence.state})`;
+        lines.push(`  ${sentence.id}${state} [${sentence.section}] ${sentence.text}${flows === '' ? '' : `  <- ${flows}`}`);
       }
       return lines.join('\n');
     }

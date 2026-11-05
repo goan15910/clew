@@ -1,7 +1,7 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
-import type { EntityKind, EntityReview, EntityStatus, FactKind, Finding, FlowOrigin, SpecOrigin } from '../domain/spec.js';
+import type { EntityKind, EntityReview, EntityStatus, FactKind, Finding, FlowOrigin, Revision, SentenceState, SentenceText, SpecOrigin } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -198,7 +198,9 @@ export interface SpecSentenceContextView {
   id: string;
   text: string;
   section: string;
-  status: 'current' | 'stale';
+  state: SentenceState;
+  /** Original text from the spec file, when the latest differs from it. */
+  original?: string;
   workflows: { id: string; title: string }[];
 }
 
@@ -227,6 +229,38 @@ export interface SpecInitDocument {
   spec?: string;
   specHash?: string;
   sentences?: SpecSentenceView[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+/** One stored sentence with both versions and its revision log. */
+export interface SpecSentenceRecordView {
+  id: string;
+  state: SentenceState;
+  original: SentenceText | null;
+  latest: SentenceText | null;
+  history: Revision<SentenceText | null>[];
+}
+
+export interface SpecSentencesDocument {
+  command: 'spec.sentences.add' | 'spec.sentences.edit' | 'spec.sentences.delete';
+  ok: boolean;
+  session?: string;
+  sentence?: SpecSentenceRecordView;
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecExportDocument {
+  command: 'spec.export';
+  ok: boolean;
+  session?: string;
+  version?: 'original' | 'latest';
+  sentences?: number;
+  written?: string;
+  text?: string;
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -605,6 +639,8 @@ export type CommandDocument =
   | CompareDocument
   | SpecInitDocument
   | SpecTagDocument
+  | SpecSentencesDocument
+  | SpecExportDocument
   | SpecSpansDocument
   | SpecEntitiesDocument
   | SpecFactsDocument

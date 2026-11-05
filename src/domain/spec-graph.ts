@@ -12,7 +12,7 @@ import type {
   GraphState,
   GraphTransition,
   LiveSpan,
-  Sentence,
+  LiveSentence,
   SpecFlow,
   SpecSnapshot,
   TaggedSentence,
@@ -168,7 +168,7 @@ export function toWorkflowSetDraft(
   graph: DraftGraph,
   entities: readonly Entity[],
   facts: readonly Fact[],
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
   spans: readonly LiveSpan[] = [],
 ): { draft?: WorkflowSetDraft; findings: Finding[] } {
@@ -725,7 +725,7 @@ function flowDraft(
   graph: DraftGraph,
   entities: readonly Entity[],
   facts: readonly Fact[],
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
   spans: readonly LiveSpan[],
   spec: Spec | undefined,
@@ -782,7 +782,7 @@ function syntheticRejected(
   graph: DraftGraph,
   entities: readonly Entity[],
   facts: readonly Fact[],
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
   _spans: readonly LiveSpan[],
   spec: Spec | undefined,
@@ -828,7 +828,7 @@ function transitionText(
   flow: SpecFlow,
   entities: readonly Entity[],
   facts: readonly Fact[],
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
   spans: readonly LiveSpan[],
 ): string {
@@ -1213,7 +1213,7 @@ function actionLabel(fact: Fact, _entities: readonly Entity[]): string | undefin
   return undefined;
 }
 
-function sentenceFor(fact: Fact, sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): Sentence | undefined {
+function sentenceFor(fact: Fact, sentences: readonly LiveSentence[], tagged: readonly TaggedSentence[]): LiveSentence | undefined {
   for (const source of fact.sources) {
     const direct = findSentence(sentences, source);
     if (direct !== undefined) return direct;
@@ -1628,7 +1628,7 @@ function eventWords(event: string): string {
   return event.toLowerCase().replace(/_/g, ' ');
 }
 
-function findSentence(sentences: readonly Sentence[], id: string): Sentence | undefined {
+function findSentence(sentences: readonly LiveSentence[], id: string): LiveSentence | undefined {
   for (const sentence of sentences) {
     if (sentence.id === id) return sentence;
   }

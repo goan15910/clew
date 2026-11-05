@@ -1,5 +1,5 @@
 // Use case: propose draft facts from entities and live spans.
-import { hasBlocking, type Finding, type SpecSnapshot } from '../domain/spec.js';
+import { hasBlocking, type Finding, type SpecSnapshot, liveSentences } from '../domain/spec.js';
 import { proposeFacts, sameFacts } from '../domain/spec-facts.js';
 import type { Outcome, SpecFactsDocument } from './documents.js';
 import { specInput } from './documents.js';
@@ -31,7 +31,7 @@ export function proposeSpecFacts(command: ProposeFactsCommand, store: SpecStore)
       problem = `unknown sentence "${command.sentenceId}"`;
       return undefined;
     }
-    const proposed = proposeFacts(current.sentences, current.spans ?? [], current.entities, current.facts ?? [], command.sentenceId);
+    const proposed = proposeFacts(liveSentences(current.sentences), current.spans ?? [], current.entities, current.facts ?? [], command.sentenceId);
     findings = proposed.findings;
     if (sameFacts(current.facts, proposed.facts)) return undefined;
     const now = new Date().toISOString();
@@ -67,7 +67,7 @@ function hasCurrentSpans(snapshot: SpecSnapshot): boolean {
 
 function hasSentence(snapshot: SpecSnapshot, id: string): boolean {
   for (const sentence of snapshot.sentences) {
-    if (sentence.id === id && sentence.status === 'current') return true;
+    if (sentence.id === id && sentence.latest !== null) return true;
   }
   return false;
 }

@@ -111,7 +111,7 @@ describe('spec commands', { concurrency: false }, () => {
     });
   });
 
-  test('init is idempotent, keeps ids, and reports stale sentences', () => {
+  test('init is idempotent, keeps ids, and tombstones removed sentences', () => {
     withData((dir) => {
       const file = join(dir, 'flow.md');
       writeFileSync(file, 'The customer submits an order. The manager approves the order.\n');
@@ -135,12 +135,12 @@ describe('spec commands', { concurrency: false }, () => {
       const edited = initSpec({ file }, specTextSource, jsonSpecStore);
       assert.equal(edited.exit, 'pass');
       assert.deepEqual(edited.document.sentences?.map((sentence) => sentence.id), ['s1', 's3']);
-      assert.equal(edited.document.findings.some((finding) => finding.code === 'stale-sentence' && finding.refs.includes('s2')), true);
+      assert.equal(edited.document.findings.some((finding) => finding.code === 'removed-sentence' && finding.refs.includes('s2')), true);
       assert.equal(existsSync(join(session, '.lock')), false);
       writeFileSync(file, 'The customer submits an order. The manager approves the order.\n');
       const restored = initSpec({ file }, specTextSource, jsonSpecStore);
       assert.deepEqual(restored.document.sentences?.map((sentence) => sentence.id), ['s1', 's2']);
-      assert.equal(restored.document.findings.some((finding) => finding.id === 'stale:s3'), true);
+      assert.equal(restored.document.findings.some((finding) => finding.id === 'removed-sentence:s3'), true);
       const tokens = JSON.parse(readFileSync(join(session, 'tokens.json'), 'utf8')) as { sentences: { id: string; status: string }[] };
       const revived = tokens.sentences.find((sentence) => sentence.id === 's1');
       assert.equal(revived?.status, 'current');
@@ -331,7 +331,7 @@ describe('spec commands', { concurrency: false }, () => {
       const tag = clew(['spec', 'tag', '--json'], dir);
       assert.equal(tag.status, 2);
       assert.match(tag.stderr, /schema 1/);
-      assert.match(tag.stderr, /schema 3/);
+      assert.match(tag.stderr, /schema 4/);
       assert.match(tag.stderr, /no migration/);
       const after = JSON.parse(readFileSync(sessionPath, 'utf8')) as { schemaVersion: number };
       assert.equal(after.schemaVersion, 1);
