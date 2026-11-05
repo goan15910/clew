@@ -106,7 +106,7 @@ export interface SpecSessionSummary extends SessionRef {
 
 export interface SpecMutation {
   snapshot: SpecSnapshot;
-  history?: SpecHistoryEntry;
+  history?: SpecHistoryEntry | SpecHistoryEntry[];
 }
 
 export type SpecStoreResult =

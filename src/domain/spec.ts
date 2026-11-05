@@ -169,6 +169,16 @@ export interface Field {
   history: Revision<FieldVersion>[];
 }
 
+/** `who` is set when an agent or a human wrote it; a derived "no verb" has none. */
+export interface NotTransition {
+  reason: string;
+  who?: string;
+}
+
+export interface FrameVersion {
+  notTransition: { reason: string } | null;
+}
+
 /** One clause of one sentence. `id` is `fr:<first token id of the clause>`. */
 export interface Frame {
   id: string;
@@ -176,8 +186,27 @@ export interface Frame {
   clause: ClauseBound;
   marker?: string;
   negated?: true;
-  notTransition?: { reason: string };
+  notTransition?: NotTransition;
   roles: Record<RoleName, Field>;
+  /** Writes to `notTransition`. */
+  history: Revision<FrameVersion>[];
+}
+
+export interface GroupingVersion {
+  concept: string | null;
+  dependsOn: string[];
+}
+
+/**
+ * A per-span concept link written by an agent or a human, applied after the lexical grouping.
+ * `original` is the lexical concept; `latest` and `dependsOn` are what the span reads now.
+ */
+export interface Grouping {
+  span: string;
+  original: string | null;
+  latest: string | null;
+  dependsOn: string[];
+  history: Revision<GroupingVersion>[];
 }
 
 export interface SpecSnapshot {
@@ -192,6 +221,8 @@ export interface SpecSnapshot {
   /** Live span partition grounded in `tagged` tokens. Omitted until `spec tag` dual-emits. */
   spans?: LiveSpan[];
   concepts?: Concept[];
+  /** Stored in concepts.json next to `concepts`. */
+  groups?: Grouping[];
   frames?: Frame[];
   graph?: DraftGraph;
 }
@@ -251,7 +282,10 @@ export type SpecCommandName =
   | 'spec.spans.merge'
   | 'spec.spans.check'
   | 'spec.concepts.list'
+  | 'spec.concepts.group'
   | 'spec.frames.list'
+  | 'spec.frames.set'
+  | 'spec.frames.not-transition'
   | 'spec.graph.build'
   | 'spec.graph.split'
   | 'spec.graph.group';
@@ -278,6 +312,12 @@ export interface SpecHistoryArgs {
   finding?: string;
   by?: string;
   after?: string;
+  frame?: string;
+  span?: string;
+  role?: string;
+  values?: string[];
+  dependsOn?: string[];
+  clear?: boolean;
 }
 
 export interface SpecHistoryEntry {

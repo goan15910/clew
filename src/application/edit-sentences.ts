@@ -1,7 +1,7 @@
 // Use case: add, edit, or delete a sentence. An edit drops what was derived from that
 // sentence and rebuilds it: re-tag, fresh 1:1 spans, then concepts and frames.
-import { rebuildLayers } from '../domain/spec-frames.js';
 import { overlayGraph } from '../domain/spec-graph.js';
+import { rebuildLayers, type RefinementDrop } from '../domain/spec-refine.js';
 import { applySentenceEdit, type SentenceEdit } from '../domain/spec-sentences.js';
 import { replaceSentenceSpans } from '../domain/spec-spans.js';
 import {
@@ -19,6 +19,7 @@ import {
 } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecSentenceRecordView, type SpecSentencesDocument } from './documents.js';
 import type { PosTaggerPort, SpecStore, SpecTextSource } from './ports.js';
+import { dropFindings, dropHistory } from './refinement-drops.js';
 import { resolveSession } from './spec-session.js';
 import { tagTokens } from './tag-spec.js';
 
@@ -62,17 +63,20 @@ export function editSentence(
       return undefined;
     }
     written = applied.sentence;
-    const rebuilt = rebuildSentence(current, applied.sentences, applied.sentence, tagger);
+    const rebuilt = rebuildSentence(current, applied.sentences, applied.sentence, tagger, now);
     findings = rebuilt.findings;
     return {
       snapshot: rebuilt.snapshot,
-      history: {
-        at: now,
-        command: commandName,
-        args: historyArgs(command, current.id, applied.sentence.id),
-        before: command.action === 'add' ? [] : [applied.sentence.id],
-        after: applied.sentence.latest === null ? [] : [applied.sentence.id],
-      },
+      history: [
+        {
+          at: now,
+          command: commandName,
+          args: historyArgs(command, current.id, applied.sentence.id),
+          before: command.action === 'add' ? [] : [applied.sentence.id],
+          after: applied.sentence.latest === null ? [] : [applied.sentence.id],
+        },
+        ...dropHistory(commandName, current.id, now, rebuilt.drops),
+      ],
     };
   });
   if (!result.ok) return invalid(commandName, result.fault === 'missing' ? 'session' : result.fault, result.message);
@@ -117,7 +121,8 @@ function rebuildSentence(
   sentences: Sentence[],
   sentence: Sentence,
   tagger: PosTaggerPort,
-): { snapshot: SpecSnapshot; findings: Finding[] } {
+  now: string,
+): { snapshot: SpecSnapshot; findings: Finding[]; drops: RefinementDrop[] } {
   const findings: Finding[] = [];
   const tagged: TaggedSentence[] = current.tagged.filter((item) => item.id !== sentence.id);
   if (sentence.latest !== null && current.tagger !== undefined) {
@@ -139,18 +144,20 @@ function rebuildSentence(
     id: current.id,
     specHash: current.specHash,
     created: current.created,
-    updated: new Date().toISOString(),
+    updated: now,
     sentences,
     tagged,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
-  const layers = rebuildLayers(live, spans ?? [], current);
+  const layers = rebuildLayers(live, spans ?? [], current, { changed: new Set([sentence.id]), at: now });
   if (spans !== undefined) snapshot.spans = layers.spans;
   if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+  if (layers.groups !== undefined) snapshot.groups = layers.groups;
   if (layers.frames !== undefined) snapshot.frames = layers.frames;
   const overlay = overlayGraph(current.graph);
   if (overlay !== undefined) snapshot.graph = overlay;
-  return { snapshot, findings };
+  for (const finding of dropFindings(layers.drops)) findings.push(finding);
+  return { snapshot, findings, drops: layers.drops };
 }
 
 function historyArgs(command: EditSentenceCommand, session: string, id: string): SpecHistoryArgs {

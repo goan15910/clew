@@ -15,7 +15,11 @@
 // clew spec spans merge --id sp:... --id sp:... [--tags Noun] [--entity concept:id|--link none] [--session id] [--json]
 // clew spec spans check --lexicon file.json [--session id] [--json]
 // clew spec concepts list [--session id] [--json]
+// clew spec concepts group --span sp:... (--into concept:id | --none) [--depends-on sp:...] --reason text [--by] [--finding] [--comment] [--session id] [--json]
 // clew spec frames list [--sentence s1] [--session id] [--json]
+// clew spec frames set --frame fr:... --role actor|event|object|result|when (--value ref... | --unknown) [--depends-on sp:...] --reason text [--session id] [--json]
+// clew spec frames not-transition --frame fr:... --reason text [--clear] [--session id] [--json]
+// clew spec impact <sentence> [--session id] [--json]
 // clew spec graph build [--session id] [--json]
 // clew spec graph split --id W1 --at fr:s1.t2 [--session id] [--json]
 // clew spec graph group --id W1 --id W2 [--title text] [--session id] [--json]
@@ -76,7 +80,10 @@ import { emitSpec } from './application/emit-spec.js';
 import { exportSpec } from './application/export-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listConcepts } from './application/list-concepts.js';
+import { groupConcept } from './application/group-concepts.js';
 import { listFrames } from './application/list-frames.js';
+import { markNotTransition, setFrameRole } from './application/refine-frames.js';
+import { readSpecImpact } from './application/spec-impact.js';
 import { listSpecSessions } from './application/list-spec-sessions.js';
 import { mergeSpans } from './application/merge-spans.js';
 import { SPEC_SHOW_LAYERS, formatIssues, type CommandDocument, type DiagramViewDocument, type Outcome, type OutputIssue, type SpecShowLayer } from './application/documents.js';
@@ -92,6 +99,7 @@ import { viewChart, viewWorkflows } from './application/view-diagram.js';
 import { viewSpecSession } from './application/view-spec.js';
 import { assertManuals, findCommand, fullHelp, jsonNote, listCommands, sessionNote, setManual, specExits } from './cli/help.js';
 import { SPEC_CONCEPT_ID_MESSAGE, SPEC_CONCEPT_ID_PATTERN, SPEC_FRAME_ID_MESSAGE, SPEC_FRAME_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
+import { ROLE_NAMES } from './domain/spec-frames.js';
 import { WORKFLOW_ID_MESSAGE, WORKFLOW_ID_PATTERN } from './domain/workflow.js';
 
 const EXIT_PASS = 0;
@@ -211,6 +219,24 @@ const SpecFramesListFlags = z.object({
   session: SessionOption,
   sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
 });
+const SpanIdOption = z.string().regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2');
+const FrameIdOption = z.string({ error: '--frame is required' }).regex(SPEC_FRAME_ID_PATTERN, SPEC_FRAME_ID_MESSAGE);
+const SpecConceptsGroupFlags = z.object({
+  ...RevisionFlags,
+  span: z.string({ error: '--span is required' }).regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2'),
+  into: z.string().regex(SPEC_CONCEPT_ID_PATTERN, SPEC_CONCEPT_ID_MESSAGE).optional(),
+  none: z.boolean().optional(),
+  dependsOn: z.array(SpanIdOption).optional(),
+}).refine((flags) => (flags.into !== undefined) !== (flags.none === true), { message: 'pass exactly one of --into and --none', path: ['into'] });
+const SpecFramesSetFlags = z.object({
+  ...RevisionFlags,
+  frame: FrameIdOption,
+  role: z.enum(ROLE_NAMES, { error: '--role is one of actor, event, object, result, when' }),
+  value: z.array(z.string().min(1)).optional(),
+  unknown: z.boolean().optional(),
+  dependsOn: z.array(SpanIdOption).optional(),
+}).refine((flags) => ((flags.value ?? []).length > 0) !== (flags.unknown === true), { message: 'pass --value (repeatable) or --unknown, not both', path: ['value'] });
+const SpecFramesNotTransitionFlags = z.object({ ...RevisionFlags, frame: FrameIdOption, clear: z.boolean().optional() });
 const FlowIdOption = z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE);
 const SpecGraphSplitFlags = z.object({
   json: z.boolean().optional(),
@@ -878,6 +904,42 @@ setManual(concepts
   notes: ['A run with no change writes nothing and adds no history line.', jsonNote, sessionNote],
 });
 
+const refineNote = 'Every write records --by (default agent), --reason, and optional --finding and --comment in the record history. A write that changes nothing is exit 2.';
+const dropNote = 'A later spec sentences add, edit, or delete that changes a sentence cited by --depends-on drops the write: latest falls back to the derived value and status reports refinement-dropped.';
+
+setManual(concepts
+  .command('group')
+  .description('Move one span into another concept, a new concept, or none. Frames are re-derived after.')
+  .option('--span <id>', 'live significant span, for example sp:s1.t2..s1.t2')
+  .option('--into <concept>', 'existing concept id, or concept:<word> to start a new one')
+  .option('--none', 'link the span to no concept')
+  .option('--depends-on <span>', 'span that evidences the grouping (repeatable); defaults to --span', collectFlow, [] as string[])
+  .option('--reason <text>', 'why the span moves')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecConceptsGroupFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.concepts.group', opts, parsed.error);
+    const flags = parsed.data;
+    emit(groupConcept({
+      sessionId: flags.session,
+      ...revisionFields(flags),
+      span: flags.span,
+      into: flags.none === true ? null : flags.into ?? null,
+      dependsOn: flags.dependsOn !== undefined && flags.dependsOn.length > 0 ? flags.dependsOn : undefined,
+    }, jsonSpecStore), flags.json === true);
+  }), {
+  examples: [
+    'clew spec concepts group --span sp:s2.t2..s2.t2 --into concept:clerk --reason "same role as the clerk" --json',
+    'clew spec concepts group --span sp:s1.t5..s1.t5 --none --reason "not a domain word" --json',
+  ],
+  exitCodes: specExits,
+  notes: [refineNote, dropNote, jsonNote, sessionNote],
+});
+
 const frames = spec.command('frames').description('Read one clause frame per clause.').helpCommand(false);
 
 setManual(frames
@@ -894,6 +956,73 @@ setManual(frames
   examples: ['clew spec frames list --json', 'clew spec frames list --sentence s2 --json'],
   exitCodes: specExits,
   notes: ['--sentence filters the document only; every frame is still derived and stored.', 'Findings frame-missing-event, frame-missing-object, frame-missing-result, and value-never-assigned are warnings.', jsonNote, sessionNote],
+});
+
+setManual(frames
+  .command('set')
+  .description('Set one role of one frame from live concepts, spans, or frames.')
+  .option('--frame <id>', 'frame to refine, for example fr:s1.t7')
+  .option('--role <role>', 'actor, event, object, result, or when')
+  .option('--value <ref>', 'concept id (actor, object, result), content-verb span id (event), or frame id (when, repeatable)', collectFlow, [] as string[])
+  .option('--unknown', 'set the role to unknown')
+  .option('--depends-on <span>', 'live span that evidences the value (repeatable; may be in another sentence)', collectFlow, [] as string[])
+  .option('--reason <text>', 'why the role changes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecFramesSetFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.frames.set', opts, parsed.error);
+    const flags = parsed.data;
+    emit(setFrameRole({
+      sessionId: flags.session,
+      ...revisionFields(flags),
+      frame: flags.frame,
+      role: flags.role,
+      value: flags.unknown === true ? 'unknown' : flags.value ?? [],
+      dependsOn: flags.dependsOn !== undefined && flags.dependsOn.length > 0 ? flags.dependsOn : undefined,
+    }, jsonSpecStore), flags.json === true);
+  }), {
+  examples: [
+    'clew spec frames set --frame fr:s1.t7 --role actor --value concept:clerk --reason "the clerk approves" --json',
+    'clew spec frames set --frame fr:s2.t1 --role when --value fr:s1.t1 --depends-on sp:s1.t4..s1.t4 --reason "waits on the submit" --json',
+  ],
+  exitCodes: specExits,
+  notes: [
+    'The text is read from the refs: the concept canonical, the span lemma, or the cited clauses joined with " and ".',
+    '--depends-on defaults to the evidence of the value: the concept members in this sentence (else all members), the event span, or each cited frame\'s event or lead span.',
+    refineNote,
+    dropNote,
+    jsonNote,
+    sessionNote,
+  ],
+});
+
+setManual(frames
+  .command('not-transition')
+  .description('Mark a frame as not a transition with a reason, or clear that mark.')
+  .option('--frame <id>', 'frame to mark, for example fr:s1.t12')
+  .option('--clear', 'drop the mark; the frame falls back to its derived value')
+  .option('--reason <text>', 'why the frame is not a transition, or why the mark goes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecFramesNotTransitionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.frames.not-transition', opts, parsed.error);
+    const flags = parsed.data;
+    emit(markNotTransition({ sessionId: flags.session, ...revisionFields(flags), frame: flags.frame, clear: flags.clear === true }, jsonSpecStore), flags.json === true);
+  }), {
+  examples: [
+    'clew spec frames not-transition --frame fr:s1.t7 --reason "describes a policy, not a step" --json',
+    'clew spec frames not-transition --frame fr:s1.t7 --clear --reason "it is a step after all" --json',
+  ],
+  exitCodes: specExits,
+  notes: ['A cleared frame falls back to its derived value: a verbless clause stays no verb.', 'An edit of the frame\'s sentence drops the mark.', refineNote, jsonNote, sessionNote],
 });
 
 const graph = spec.command('graph').description('Assemble a draft graph and choose named paths.').helpCommand(false);
@@ -1015,6 +1144,24 @@ setManual(spec
   examples: ['clew spec trace concept:customer --json'],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
+});
+
+setManual(spec
+  .command('impact')
+  .description('List the fields and groupings that an edit of one sentence would drop, and its frames (read-only).')
+  .argument('<sentence>', 'sentence id, for example s1')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((sentence, opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.impact', opts, parsed.error);
+    const id = z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).safeParse(sentence);
+    if (!id.success) usage('spec.impact', opts, id.error);
+    emit(readSpecImpact({ sessionId: parsed.data.session, sentenceId: id.data }, jsonSpecStore), parsed.data.json === true);
+  }), {
+  examples: ['clew spec impact s1 --json'],
+  exitCodes: specExits,
+  notes: ['Each entry is a field or a grouping whose latest dependsOn cites a span of the sentence; refined is true when an agent or human wrote it last.', 'impact reads the session and does not write the store or history.jsonl.', jsonNote, sessionNote],
 });
 
 setManual(spec

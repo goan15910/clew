@@ -1,7 +1,8 @@
 // Use case: split a Markdown spec into sentences and open or refresh a session.
 import { basename } from 'node:path';
 import { sameConcepts } from '../domain/spec-concepts.js';
-import { rebuildLayers, sameFrames } from '../domain/spec-frames.js';
+import { sameFrames } from '../domain/spec-frames.js';
+import { rebuildLayers, sameGroups, type RefinementDrop } from '../domain/spec-refine.js';
 import { retainValidSpans, sameSpans } from '../domain/spec-spans.js';
 import {
   SPEC_SCHEMA_VERSION,
@@ -14,12 +15,14 @@ import {
   sentenceIds,
   splitSpec,
   sentenceFindings,
+  type Sentence,
   type SentenceDraft,
   type SpecSnapshot,
   liveSentences,
 } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecInitDocument, type SpecSentenceView } from './documents.js';
 import type { SpecStore, SpecTextSource } from './ports.js';
+import { dropFindings, dropHistory } from './refinement-drops.js';
 
 export interface InitSpecCommand {
   file: string;
@@ -40,11 +43,12 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
     });
   }
   const id = allocateSessionId(read.spec.path, command.sessionId);
+  let drops: RefinementDrop[] = [];
   const result = store.update(id, { create: true }, (current) => {
     const now = new Date().toISOString();
     const applied = applySpecText(current?.sentences ?? [], current?.tagged ?? [], drafts, now);
     const retained = retainValidSpans(current?.spans, applied.tagged);
-    const layers = rebuildLayers(liveSentences(applied.sentences), retained ?? [], current ?? {});
+    const layers = rebuildLayers(liveSentences(applied.sentences), retained ?? [], current ?? {}, { changed: changedSentences(current?.sentences ?? [], applied.sentences), at: now });
     const spans = retained === undefined ? undefined : layers.spans;
     const snapshot: SpecSnapshot = {
       schemaVersion: SPEC_SCHEMA_VERSION,
@@ -58,6 +62,7 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
     if (current?.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
     if (spans !== undefined) snapshot.spans = spans;
     if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+    if (layers.groups !== undefined) snapshot.groups = layers.groups;
     if (layers.frames !== undefined) snapshot.frames = layers.frames;
     if (current?.graph !== undefined) snapshot.graph = current.graph;
     if (
@@ -67,27 +72,32 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
       && sameTagged(current.tagged, snapshot.tagged)
       && sameSpans(current.spans, snapshot.spans)
       && sameConcepts(current.concepts, snapshot.concepts)
+      && sameGroups(current.groups, snapshot.groups)
       && sameFrames(current.frames, snapshot.frames)
     ) {
       return undefined;
     }
+    drops = layers.drops;
     const before = current === undefined ? [] : sentenceIds(current.sentences);
     return {
       snapshot,
-      history: {
-        at: now,
-        command: 'spec.init',
-        args: { session: id },
-        before,
-        after: sentenceIds(snapshot.sentences),
-      },
+      history: [
+        {
+          at: now,
+          command: 'spec.init',
+          args: { session: id },
+          before,
+          after: sentenceIds(snapshot.sentences),
+        },
+        ...dropHistory('spec.init', id, now, layers.drops),
+      ],
     };
   });
   if (!result.ok) {
     const fault = result.fault === 'missing' ? 'session' : result.fault;
     return invalid(command.file, fault, result.message);
   }
-  const findings = [...initFindings(result.snapshot.sentences, split.emptySpans), ...sentenceFindings(result.snapshot.sentences)];
+  const findings = [...initFindings(result.snapshot.sentences, split.emptySpans), ...sentenceFindings(result.snapshot.sentences), ...dropFindings(drops)];
   return {
     exit: hasBlocking(findings) ? 'fail' : 'pass',
     document: {
@@ -141,4 +151,15 @@ function invalid(file: string, fault: SpecInitDocument['fault'], message: string
       issues: [specInput(file, message)],
     },
   };
+}
+
+/** Sentences whose latest text a re-init changed or removed. */
+function changedSentences(before: readonly Sentence[], after: readonly Sentence[]): Set<string> {
+  const previous = new Map<string, string | null>();
+  for (const sentence of before) previous.set(sentence.id, sentence.latest?.hash ?? null);
+  const changed = new Set<string>();
+  for (const sentence of after) {
+    if (previous.has(sentence.id) && previous.get(sentence.id) !== (sentence.latest?.hash ?? null)) changed.add(sentence.id);
+  }
+  return changed;
 }

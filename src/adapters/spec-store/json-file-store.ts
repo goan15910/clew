@@ -18,6 +18,7 @@ import {
   type FieldVersion,
   type Frame,
   type GraphState,
+  type Grouping,
   type GraphTransition,
   type LiveSpan,
   type Revision,
@@ -152,17 +153,25 @@ const FieldVersionSchema = z.strictObject({
   dependsOn: z.array(z.string().min(1)),
 });
 
-const FieldSchema = z.strictObject({
-  original: FieldVersionSchema,
-  latest: FieldVersionSchema,
-  history: z.array(z.strictObject({
+function revisionSchema<T extends z.ZodType>(value: T) {
+  return z.strictObject({
     at: z.string().min(1),
     who: z.string().min(1),
     reason: z.string().min(1),
     finding: z.string().min(1).optional(),
     comment: z.string().min(1).optional(),
-    value: FieldVersionSchema,
-  })),
+    value,
+  });
+}
+
+const FieldSchema = z.strictObject({
+  original: FieldVersionSchema,
+  latest: FieldVersionSchema,
+  history: z.array(revisionSchema(FieldVersionSchema)),
+});
+
+const FrameVersionSchema = z.strictObject({
+  notTransition: z.strictObject({ reason: z.string().min(1) }).nullable(),
 });
 
 const FrameSchema = z.strictObject({
@@ -171,7 +180,7 @@ const FrameSchema = z.strictObject({
   clause: ClauseBoundSchema,
   marker: z.string().min(1).optional(),
   negated: z.literal(true).optional(),
-  notTransition: z.strictObject({ reason: z.string().min(1) }).optional(),
+  notTransition: z.strictObject({ reason: z.string().min(1), who: z.string().min(1).optional() }).optional(),
   roles: z.strictObject({
     actor: FieldSchema,
     event: FieldSchema,
@@ -179,11 +188,24 @@ const FrameSchema = z.strictObject({
     result: FieldSchema,
     when: FieldSchema,
   }),
+  history: z.array(revisionSchema(FrameVersionSchema)),
+});
+
+const ConceptRef = z.string().regex(SPEC_CONCEPT_ID_PATTERN, SPEC_CONCEPT_ID_MESSAGE).nullable();
+const SpanRef = z.string().regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2');
+
+const GroupingSchema = z.strictObject({
+  span: SpanRef,
+  original: ConceptRef,
+  latest: ConceptRef,
+  dependsOn: z.array(z.string().min(1)),
+  history: z.array(revisionSchema(z.strictObject({ concept: ConceptRef, dependsOn: z.array(z.string().min(1)) }))),
 });
 
 const ConceptsFileSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
   concepts: z.array(ConceptSchema),
+  groups: z.array(GroupingSchema),
 });
 
 const FramesFileSchema = z.strictObject({
@@ -458,6 +480,17 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
     const concepts: Concept[] = [];
     for (const raw of conceptsParsed.data.concepts) concepts.push({ id: raw.id, canonical: raw.canonical, members: raw.members.slice() });
     snapshot.concepts = concepts;
+    const groups: Grouping[] = [];
+    for (const raw of conceptsParsed.data.groups) {
+      groups.push({
+        span: raw.span,
+        original: raw.original,
+        latest: raw.latest,
+        dependsOn: raw.dependsOn.slice(),
+        history: toHistory(raw.history, (value) => ({ concept: value.concept, dependsOn: value.dependsOn.slice() })),
+      });
+    }
+    snapshot.groups = groups;
   }
 
   const framesFile = join(dir, 'frames.json');
@@ -491,22 +524,39 @@ function toFrame(raw: z.infer<typeof FrameSchema>): Frame {
       result: toField(raw.roles.result),
       when: toField(raw.roles.when),
     },
+    history: toHistory(raw.history, (value) => ({ notTransition: value.notTransition === null ? null : { reason: value.notTransition.reason } })),
   };
   if (raw.marker !== undefined) frame.marker = raw.marker;
   if (raw.negated === true) frame.negated = true;
-  if (raw.notTransition !== undefined) frame.notTransition = { reason: raw.notTransition.reason };
+  if (raw.notTransition !== undefined) {
+    frame.notTransition = { reason: raw.notTransition.reason };
+    if (raw.notTransition.who !== undefined) frame.notTransition.who = raw.notTransition.who;
+  }
   return frame;
 }
 
 function toField(raw: z.infer<typeof FieldSchema>): Field {
-  const history: Revision<FieldVersion>[] = [];
-  for (const revision of raw.history) {
-    const entry: Revision<FieldVersion> = { at: revision.at, who: revision.who, reason: revision.reason, value: toFieldVersion(revision.value) };
+  return { original: toFieldVersion(raw.original), latest: toFieldVersion(raw.latest), history: toHistory(raw.history, toFieldVersion) };
+}
+
+interface RawRevision<R> {
+  at: string;
+  who: string;
+  reason: string;
+  finding?: string | undefined;
+  comment?: string | undefined;
+  value: R;
+}
+
+function toHistory<R, T>(raw: readonly RawRevision<R>[], value: (item: R) => T): Revision<T>[] {
+  const history: Revision<T>[] = [];
+  for (const revision of raw) {
+    const entry: Revision<T> = { at: revision.at, who: revision.who, reason: revision.reason, value: value(revision.value) };
     if (revision.finding !== undefined) entry.finding = revision.finding;
     if (revision.comment !== undefined) entry.comment = revision.comment;
     history.push(entry);
   }
-  return { original: toFieldVersion(raw.original), latest: toFieldVersion(raw.latest), history };
+  return history;
 }
 
 function toFieldVersion(raw: z.infer<typeof FieldVersionSchema>): FieldVersion {
@@ -689,7 +739,7 @@ function writeJson(file: string, value: unknown): void {
   renameSync(temporary, file);
 }
 
-function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistoryEntry | undefined): void {
+function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecMutation['history']): void {
   const session: Record<string, unknown> = {
     schemaVersion: snapshot.schemaVersion,
     id: snapshot.id,
@@ -719,7 +769,17 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
   if (snapshot.concepts !== undefined) {
     const concepts = [];
     for (const concept of snapshot.concepts) concepts.push({ id: concept.id, canonical: concept.canonical, members: concept.members.slice() });
-    writeJson(join(dir, 'concepts.json'), { schemaVersion: snapshot.schemaVersion, concepts });
+    const groups: z.infer<typeof GroupingSchema>[] = [];
+    for (const grouping of snapshot.groups ?? []) {
+      groups.push({
+        span: grouping.span,
+        original: grouping.original,
+        latest: grouping.latest,
+        dependsOn: grouping.dependsOn.slice(),
+        history: historyRecords(grouping.history, (value) => ({ concept: value.concept, dependsOn: value.dependsOn.slice() })),
+      });
+    }
+    writeJson(join(dir, 'concepts.json'), { schemaVersion: snapshot.schemaVersion, concepts, groups });
   }
   if (snapshot.frames !== undefined) {
     const frames = [];
@@ -734,7 +794,8 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
   } else if (existsSync(overlayFile)) {
     unlinkSync(overlayFile);
   }
-  if (history !== undefined) appendFileSync(join(dir, 'history.jsonl'), `${JSON.stringify(historyRecord(history))}\n`);
+  const entries = history === undefined ? [] : Array.isArray(history) ? history : [history];
+  for (const entry of entries) appendFileSync(join(dir, 'history.jsonl'), `${JSON.stringify(historyRecord(entry))}\n`);
 }
 
 function frameRecord(frame: Frame): z.infer<typeof FrameSchema> {
@@ -749,22 +810,30 @@ function frameRecord(frame: Frame): z.infer<typeof FrameSchema> {
       result: fieldRecord(frame.roles.result),
       when: fieldRecord(frame.roles.when),
     },
+    history: historyRecords(frame.history, (value) => ({ notTransition: value.notTransition === null ? null : { reason: value.notTransition.reason } })),
   };
   if (frame.marker !== undefined) record.marker = frame.marker;
   if (frame.negated === true) record.negated = true;
-  if (frame.notTransition !== undefined) record.notTransition = { reason: frame.notTransition.reason };
+  if (frame.notTransition !== undefined) {
+    record.notTransition = { reason: frame.notTransition.reason };
+    if (frame.notTransition.who !== undefined) record.notTransition.who = frame.notTransition.who;
+  }
   return record;
 }
 
 function fieldRecord(field: Field): z.infer<typeof FieldSchema> {
-  const history: z.infer<typeof FieldSchema>['history'] = [];
-  for (const revision of field.history) {
-    const entry: z.infer<typeof FieldSchema>['history'][number] = { at: revision.at, who: revision.who, reason: revision.reason, value: fieldVersionRecord(revision.value) };
+  return { original: fieldVersionRecord(field.original), latest: fieldVersionRecord(field.latest), history: historyRecords(field.history, fieldVersionRecord) };
+}
+
+function historyRecords<T, R>(history: readonly Revision<T>[], value: (item: T) => R): RawRevision<R>[] {
+  const records: RawRevision<R>[] = [];
+  for (const revision of history) {
+    const entry: RawRevision<R> = { at: revision.at, who: revision.who, reason: revision.reason, value: value(revision.value) };
     if (revision.finding !== undefined) entry.finding = revision.finding;
     if (revision.comment !== undefined) entry.comment = revision.comment;
-    history.push(entry);
+    records.push(entry);
   }
-  return { original: fieldVersionRecord(field.original), latest: fieldVersionRecord(field.latest), history };
+  return records;
 }
 
 function fieldVersionRecord(version: FieldVersion): z.infer<typeof FieldVersionSchema> {
@@ -793,6 +862,12 @@ function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; 
   if (entry.args.finding !== undefined) args.finding = entry.args.finding;
   if (entry.args.by !== undefined) args.by = entry.args.by;
   if (entry.args.after !== undefined) args.after = entry.args.after;
+  if (entry.args.frame !== undefined) args.frame = entry.args.frame;
+  if (entry.args.span !== undefined) args.span = entry.args.span;
+  if (entry.args.role !== undefined) args.role = entry.args.role;
+  if (entry.args.values !== undefined) args.values = entry.args.values.slice();
+  if (entry.args.dependsOn !== undefined) args.dependsOn = entry.args.dependsOn.slice();
+  if (entry.args.clear !== undefined) args.clear = entry.args.clear;
   const before: string[] = [];
   for (const id of entry.before) before.push(id);
   const after: string[] = [];

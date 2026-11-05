@@ -1,7 +1,8 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
-import type { Finding, FlowOrigin, Frame, Revision, SentenceState, SentenceText } from '../domain/spec.js';
+import type { ImpactEntry } from '../domain/spec-refine.js';
+import type { Finding, FlowOrigin, Frame, Grouping, Revision, SentenceState, SentenceText } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -325,10 +326,13 @@ export interface ConceptView {
 }
 
 export interface SpecConceptsDocument {
-  command: 'spec.concepts.list';
+  command: 'spec.concepts.list' | 'spec.concepts.group';
   ok: boolean;
   session?: string;
   concepts?: ConceptView[];
+  groups?: Grouping[];
+  /** The grouping `spec.concepts.group` wrote. */
+  grouping?: Grouping;
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -353,6 +357,31 @@ export interface SpecFramesDocument {
   ok: boolean;
   session?: string;
   frames?: FrameView[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+/** `spec frames set` and `spec frames not-transition`: the one frame written. */
+export interface SpecFrameRefineDocument {
+  command: 'spec.frames.set' | 'spec.frames.not-transition';
+  ok: boolean;
+  session?: string;
+  frame?: FrameView;
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+export interface SpecImpactDocument {
+  command: 'spec.impact';
+  ok: boolean;
+  session?: string;
+  sentence?: string;
+  /** Fields and groupings whose `latest.dependsOn` cites a span of the sentence. */
+  impact?: ImpactEntry[];
+  /** Frames derived from the sentence. */
+  frames?: string[];
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -633,6 +662,8 @@ export type CommandDocument =
   | SpecSpansDocument
   | SpecConceptsDocument
   | SpecFramesDocument
+  | SpecFrameRefineDocument
+  | SpecImpactDocument
   | SpecTraceDocument
   | SpecStatusDocument
   | SpecShowDocument

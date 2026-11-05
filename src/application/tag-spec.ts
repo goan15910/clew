@@ -1,6 +1,7 @@
 // Use case: tag current sentences through PosTaggerPort and store the tokens.
 import { sameConcepts } from '../domain/spec-concepts.js';
-import { rebuildLayers, sameFrames } from '../domain/spec-frames.js';
+import { sameFrames } from '../domain/spec-frames.js';
+import { rebuildLayers, sameGroups } from '../domain/spec-refine.js';
 import { replaceSentenceSpans, sameSpans, validatePartition } from '../domain/spec-spans.js';
 import { markSkippedTokens } from '../domain/spec-stop-words.js';
 import {
@@ -23,6 +24,7 @@ import {
 } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecTagDocument } from './documents.js';
 import type { PosTaggerPort, SpecStore } from './ports.js';
+import { dropFindings, dropHistory } from './refinement-drops.js';
 import { resolveSession } from './spec-session.js';
 import { spanViews, taggedViews } from './spec-views.js';
 
@@ -98,6 +100,7 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       && taggerSame
       && sameSpans(current.spans, layers.spans)
       && sameConcepts(current.concepts, layers.concepts)
+      && sameGroups(current.groups, layers.groups)
       && sameFrames(current.frames, layers.frames)
     ) {
       return undefined;
@@ -115,8 +118,10 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       spans: layers.spans,
     };
     if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+    if (layers.groups !== undefined) snapshot.groups = layers.groups;
     if (layers.frames !== undefined) snapshot.frames = layers.frames;
     if (current.graph !== undefined) snapshot.graph = current.graph;
+    for (const finding of dropFindings(layers.drops)) produced.push(finding);
     const before: string[] = [];
     const after: string[] = [];
     for (const sentence of live) {
@@ -129,13 +134,16 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     if (command.sentenceId !== undefined) history.sentence = command.sentenceId;
     return {
       snapshot,
-      history: {
-        at: now,
-        command: 'spec.tag',
-        args: history,
-        before,
-        after,
-      },
+      history: [
+        {
+          at: now,
+          command: 'spec.tag',
+          args: history,
+          before,
+          after,
+        },
+        ...dropHistory('spec.tag', current.id, now, layers.drops),
+      ],
     };
   });
   if (!result.ok) {

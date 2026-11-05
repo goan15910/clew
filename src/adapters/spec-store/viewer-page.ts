@@ -234,6 +234,10 @@ main { padding: 1rem 1.5rem 2.5rem; max-width: 1100px; }
 .frame-graph .k { font: 600 0.72rem var(--mono); color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
 .member { display: inline-flex; gap: 0.3rem; align-items: baseline; }
 .member-sentence { font: 0.75rem var(--mono); color: var(--muted); }
+.member.regrouped .member-span { background: #fef3c7; color: #92400e; }
+.revisions { flex-basis: 100%; margin: 0.15rem 0 0; padding: 0 0 0 0.9rem; font-size: 0.78rem; color: var(--muted); }
+.revisions li { margin: 0.05rem 0; }
+.revisions .who { font: 600 0.72rem var(--mono); }
 .card .span-clause::before { content: "clause "; color: var(--line); }
 .pill {
   display: inline-block;
@@ -513,6 +517,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     tagged: [],
     spans: [],
     concepts: [],
+    groups: [],
     frames: [],
     graph: null,
     graphView: null,
@@ -1109,14 +1114,44 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return lineageBlock(rows);
   }
 
+  function lastRevision(history) {
+    return history && history.length ? history[history.length - 1] : undefined;
+  }
+
+  function revisionState(history) {
+    const last = lastRevision(history);
+    if (!last) return "";
+    if (last.who !== "clew") return "refined";
+    return last.finding && last.finding.indexOf("refinement-dropped:") === 0 ? "dropped" : "";
+  }
+
+  function revisionsHtml(className, history, valueText) {
+    if (!history || !history.length) return "";
+    return '<ul class="' + className + '">' + history.map(function (revision) {
+      return '<li data-who="' + esc(revision.who) + '"><span class="who">' + esc(revision.who) + "</span> " +
+        esc(revision.reason) + " → " + esc(valueText(revision.value)) + "</li>";
+    }).join("") + "</ul>";
+  }
+
+  function fieldValueText(version) {
+    return version.value === "unknown" ? "unknown" : version.value.text;
+  }
+
   function rolesHtml(frame) {
     return '<dl class="roles">' + ROLES.map(function (role) {
       const known = roleKnown(frame, role);
       const deps = roleLatest(frame, role).dependsOn || [];
+      const history = (frame.roles && frame.roles[role] && frame.roles[role].history) || [];
+      const status = revisionState(history);
       return "<dt>" + role + '</dt><dd data-role="' + role + '"><span class="role-value' + (known ? "" : " unknown") + '">' +
         esc(roleText(frame, role)) + "</span>" +
-        deps.map(function (id) { return '<code class="role-dep">' + esc(id) + "</code>"; }).join("") + "</dd>";
-    }).join("") + "</dl>";
+        (status ? '<span class="role-state" data-state="' + status + '">' + pill(status, status === "dropped" ? "warn" : "ok") + "</span>" : "") +
+        deps.map(function (id) { return '<code class="role-dep">' + esc(id) + "</code>"; }).join("") +
+        revisionsHtml("revisions", history, fieldValueText) + "</dd>";
+    }).join("") + "</dl>" +
+      revisionsHtml("revisions frame-revisions", frame.history, function (value) {
+        return value.notTransition ? "not a transition: " + value.notTransition.reason : "a transition";
+      });
   }
 
   function frameGraphHtml(frame) {
@@ -1207,6 +1242,14 @@ details.lineage[open] > summary::before { content: "▾ "; }
     });
   }
 
+  function regroupedSpans() {
+    const spans = new Set();
+    for (const grouping of state.groups) {
+      if (revisionState(grouping.history) === "refined") spans.add(grouping.span);
+    }
+    return spans;
+  }
+
   function renderConcepts() {
     const conceptFilter = els.concept.value;
     const visible = state.concepts.filter(function (concept) {
@@ -1229,8 +1272,10 @@ details.lineage[open] > summary::before { content: "▾ "; }
         pill(members.length === 1 ? "1 member" : members.length + " members") + "</h2>" +
         '<p class="blurb">' + esc(concept.canonical) + "</p>" +
         '<p class="members">' + members.map(function (member) {
-          return '<span class="member" data-span="' + esc(member.span) + '"><code class="member-span" title="' + esc(member.span) + '">' +
-            esc(member.surface) + '</code><span class="member-sentence">' + esc(member.sentence) + "</span></span>";
+          const regrouped = regroupedSpans().has(member.span);
+          return '<span class="member' + (regrouped ? " regrouped" : "") + '" data-span="' + esc(member.span) + '"><code class="member-span" title="' + esc(member.span) + '">' +
+            esc(member.surface) + '</code><span class="member-sentence">' + esc(member.sentence) + "</span>" +
+            (regrouped ? pill("regrouped", "warn") : "") + "</span>";
         }).join("") + "</p>" +
         conceptLineage(concept) +
         "</article>"
@@ -1801,6 +1846,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       state.spans = (spansFile && spansFile.spans) || [];
       const conceptsFile = await loadJson("concepts.json");
       state.concepts = (conceptsFile && conceptsFile.concepts) || [];
+      state.groups = (conceptsFile && conceptsFile.groups) || [];
       const framesFile = await loadJson("frames.json");
       state.frames = (framesFile && framesFile.frames) || [];
       state.graph = await loadJson("graph.json");
