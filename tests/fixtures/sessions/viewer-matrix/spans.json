@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "spans": [
     {
       "id": "sp:s1.t1..s1.t1",
@@ -66,7 +66,8 @@
         "text": "When the customer submits an order,",
         "start": 0,
         "end": 35
-      }
+      },
+      "entityId": "concept:customer"
     },
     {
       "id": "sp:s1.t4..s1.t4",
@@ -89,7 +90,9 @@
         "start": 0,
         "end": 35
       },
-      "lemma": "submit"
+      "entityId": "concept:submit",
+      "lemma": "submit",
+      "participle": "submitted"
     },
     {
       "id": "sp:s1.t5..s1.t5",
@@ -133,7 +136,8 @@
         "text": "When the customer submits an order,",
         "start": 0,
         "end": 35
-      }
+      },
+      "entityId": "concept:order"
     },
     {
       "id": "sp:s1.t7..s1.t7",
@@ -178,7 +182,8 @@
         "text": "the manager approves",
         "start": 36,
         "end": 56
-      }
+      },
+      "entityId": "concept:manager"
     },
     {
       "id": "sp:s1.t9..s1.t9",
@@ -201,7 +206,9 @@
         "start": 36,
         "end": 56
       },
-      "lemma": "approve"
+      "entityId": "concept:approve",
+      "lemma": "approve",
+      "participle": "approved"
     },
     {
       "id": "sp:s1.t10..s1.t10",
@@ -245,7 +252,8 @@
         "text": "the order if the total is under 500 dollars.",
         "start": 57,
         "end": 101
-      }
+      },
+      "entityId": "concept:order"
     },
     {
       "id": "sp:s1.t12..s1.t12",
@@ -312,7 +320,8 @@
         "text": "the order if the total is under 500 dollars.",
         "start": 57,
         "end": 101
-      }
+      },
+      "entityId": "concept:total"
     },
     {
       "id": "sp:s1.t15..s1.t15",
@@ -337,7 +346,8 @@
         "end": 101
       },
       "insignificant": true,
-      "lemma": "be"
+      "lemma": "be",
+      "participle": "been"
     },
     {
       "id": "sp:s1.t16..s1.t16",
@@ -452,7 +462,8 @@
         "text": "A clerk must not cancel a shipped package.",
         "start": 0,
         "end": 42
-      }
+      },
+      "entityId": "concept:clerk"
     },
     {
       "id": "sp:s2.t3..s2.t3",
@@ -476,7 +487,8 @@
         "start": 0,
         "end": 42
       },
-      "lemma": "must"
+      "lemma": "must",
+      "participle": "musted"
     },
     {
       "id": "sp:s2.t4..s2.t4",
@@ -521,7 +533,9 @@
         "start": 0,
         "end": 42
       },
-      "lemma": "cancel"
+      "entityId": "concept:cancel",
+      "lemma": "cancel",
+      "participle": "cancelled"
     },
     {
       "id": "sp:s2.t6..s2.t6",
@@ -566,7 +580,9 @@
         "start": 0,
         "end": 42
       },
-      "lemma": "ship"
+      "entityId": "concept:ship",
+      "lemma": "ship",
+      "participle": "shipped"
     },
     {
       "id": "sp:s2.t8..s2.t8",
@@ -588,7 +604,8 @@
         "text": "A clerk must not cancel a shipped package.",
         "start": 0,
         "end": 42
-      }
+      },
+      "entityId": "concept:package"
     }
   ]
 }

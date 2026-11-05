@@ -34,9 +34,9 @@ module.exports = {
     {
       name: 'graph-reads-compiled',
       severity: 'error',
-      comment: 'The graph layer reads the compiled spec (spec-actions), never the producer that extracted it.',
+      comment: 'The graph layer reads the compiled spec (spec-actions), never the concepts, clauses, or frames it was compiled from.',
       from: { path: '^src/domain/spec-graph(-view)?\\.ts$' },
-      to: { path: '^src/domain/spec-(facts|entities)\\.ts$' },
+      to: { path: '^src/domain/spec-(concepts|frames|clauses)\\.ts$' },
     },
     {
       name: 'application-inward',

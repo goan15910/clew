@@ -32,7 +32,7 @@ export const STOP_WORD_KEEP_TAGS: ReadonlySet<string> = new Set([
 
 /**
  * Surface forms that stay significant even when POS/list would skip.
- * Covers negation, modals, and condition/sequencing connectors used by facts.
+ * Covers negation, modals, and condition/sequencing connectors used by clause frames.
  */
 export const STOP_WORD_KEEP_WORDS: ReadonlySet<string> = new Set([
   // Negation
@@ -41,7 +41,7 @@ export const STOP_WORD_KEEP_WORDS: ReadonlySet<string> = new Set([
   "weren't", 'werent', "haven't", 'havent', "hasn't", 'hasnt', "hadn't", 'hadnt',
   // Modals
   'can', 'could', 'may', 'might', 'must', 'shall', 'should', 'will', 'would',
-  // Condition / sequencing (fact framing)
+  // Condition / sequencing (clause framing)
   'if', 'unless', 'when', 'whenever', 'while', 'after', 'before', 'once', 'until',
   'whereas', 'although', 'though', 'because', 'then',
 ]);

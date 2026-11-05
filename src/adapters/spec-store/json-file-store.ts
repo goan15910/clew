@@ -4,19 +4,24 @@ import { basename, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import type { SpecMutation, SpecRemovalResult, SpecSessionCounts, SpecSessionSummary, SpecStore, SpecStoreResult } from '../../application/ports.js';
 import {
-  ENTITY_KINDS,
-  SPEC_ENTITY_ID_PATTERN,
-  SPEC_FACT_ID_PATTERN,
+  SPEC_CONCEPT_ID_MESSAGE,
+  SPEC_CONCEPT_ID_PATTERN,
+  SPEC_FRAME_ID_MESSAGE,
+  SPEC_FRAME_ID_PATTERN,
   SPEC_SCHEMA_VERSION,
   SPEC_SENTENCE_ID_MESSAGE,
   SPEC_SENTENCE_ID_PATTERN,
   SPEC_SESSION_ID_PATTERN,
+  type Concept,
   type DraftGraph,
-  type Entity,
-  type Fact,
+  type Field,
+  type FieldVersion,
+  type Frame,
   type GraphState,
   type GraphTransition,
   type LiveSpan,
+  type Revision,
+  type Role,
   copySentence,
   type Sentence,
   type SentenceText,
@@ -27,8 +32,7 @@ import {
   type Token,
 } from '../../domain/spec.js';
 import { attachOverlay } from '../../domain/spec-graph.js';
-import { compileFacts, predicateFromScalars, predicateScalars } from '../../domain/spec-facts.js';
-import { patchFromScalars, scalarsFromPatch } from '../../domain/valuation.js';
+import { compileFrames } from '../../domain/spec-compile.js';
 import { WORKFLOW_ID_PATTERN, WORKFLOW_WORD_PATTERN } from '../../domain/workflow.js';
 import { locatedErrors } from '../yaml/issue-lines.js';
 import { specSessionDir, specRoot } from './data-dir.js';
@@ -76,6 +80,7 @@ const TokenSchema = z.strictObject({
   sources: z.array(z.string()),
   skipped: z.boolean().optional(),
   lemma: z.string().min(1).optional(),
+  participle: z.string().min(1).optional(),
   clause: ClauseBoundSchema.optional(),
 });
 
@@ -118,11 +123,12 @@ const LiveSpanSchema = z.strictObject({
   origin: z.enum(['promote', 'lexicon', 'interactive']),
   lexiconEntryId: z.string().min(1).optional(),
   explicitlySet: z.boolean(),
-  entityId: z.string().regex(SPEC_ENTITY_ID_PATTERN).optional(),
+  entityId: z.string().regex(SPEC_CONCEPT_ID_PATTERN, SPEC_CONCEPT_ID_MESSAGE).optional(),
   entityLinkExplicitlySet: z.boolean(),
   insignificant: z.boolean().optional(),
   clause: ClauseBoundSchema,
   lemma: z.string().min(1).optional(),
+  participle: z.string().min(1).optional(),
 });
 
 const SpansFileSchema = z.strictObject({
@@ -130,92 +136,59 @@ const SpansFileSchema = z.strictObject({
   spans: z.array(LiveSpanSchema),
 });
 
-const EntitySchema = z.strictObject({
-  id: z.string().regex(SPEC_ENTITY_ID_PATTERN),
-  kind: z.enum(ENTITY_KINDS),
-  name: z.string().min(1).optional(),
-  text: z.string().min(1).optional(),
-  sources: z.array(z.string()),
-  origin: z.enum(['tagger', 'rule', 'agent']),
-  status: z.enum(['candidate', 'confirmed', 'rejected', 'stale']),
-  review: z.enum(['candidate', 'confirmed', 'rejected']).optional(),
-  note: z.string().optional(),
-}).superRefine((entity, context) => {
-  if (entity.kind === 'condition' && entity.text === undefined) {
-    context.addIssue({ code: 'custom', message: 'condition needs text', path: ['text'] });
-  }
-  if (entity.kind !== 'condition' && entity.name === undefined) {
-    context.addIssue({ code: 'custom', message: `${entity.kind} needs a name`, path: ['name'] });
-  }
-  if (entity.status === 'stale' && entity.review === undefined) {
-    context.addIssue({ code: 'custom', message: 'stale entity needs review', path: ['review'] });
-  }
+const ConceptSchema = z.strictObject({
+  id: z.string().regex(SPEC_CONCEPT_ID_PATTERN, SPEC_CONCEPT_ID_MESSAGE),
+  canonical: z.string().min(1),
+  members: z.array(z.string().regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2')),
 });
 
-const ScalarSchema = z.union([z.boolean(), z.number(), z.string(), z.null()]);
+const RoleSchema = z.union([
+  z.literal('unknown'),
+  z.strictObject({ text: z.string().min(1), refs: z.array(z.string().min(1)) }),
+]);
 
-type StoredPredicate =
-  | { op: 'true' }
-  | { op: 'eq'; var: string; value: z.infer<typeof ScalarSchema> }
-  | { op: 'neq'; var: string; value: z.infer<typeof ScalarSchema> }
-  | { op: 'and'; of: StoredPredicate[] }
-  | { op: 'or'; of: StoredPredicate[] }
-  | { op: 'not'; of: StoredPredicate };
-
-const PredicateSchema: z.ZodType<StoredPredicate> = z.lazy(() =>
-  z.union([
-    z.strictObject({ op: z.literal('true') }),
-    z.strictObject({ op: z.literal('eq'), var: z.string().min(1), value: ScalarSchema }),
-    z.strictObject({ op: z.literal('neq'), var: z.string().min(1), value: ScalarSchema }),
-    z.strictObject({ op: z.literal('and'), of: z.array(PredicateSchema).min(1) }),
-    z.strictObject({ op: z.literal('or'), of: z.array(PredicateSchema).min(1) }),
-    z.strictObject({ op: z.literal('not'), of: PredicateSchema }),
-  ]),
-);
-
-const ActionFactSchema = z.strictObject({
-  id: z.string().regex(SPEC_FACT_ID_PATTERN),
-  kind: z.literal('action'),
-  event: z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'events are UPPER_SNAKE_CASE'),
-  actor: z.string().min(1),
-  when: PredicateSchema,
-  assign: z.record(z.string(), ScalarSchema),
-  origin: z.enum(['tagger', 'rule', 'agent']),
-  confidence: z.number().min(0).max(1),
-  sources: z.array(z.string()),
-  status: z.enum(['current', 'stale']),
-  note: z.string().optional(),
-  removed: z.literal(true).optional(),
-}).superRefine((fact, context) => {
-  if (Object.keys(fact.assign).length === 0) {
-    context.addIssue({ code: 'custom', message: 'action assign must be non-empty', path: ['assign'] });
-  }
+const FieldVersionSchema = z.strictObject({
+  value: RoleSchema,
+  dependsOn: z.array(z.string().min(1)),
 });
 
-const ConfigurationFactSchema = z.strictObject({
-  id: z.string().regex(SPEC_FACT_ID_PATTERN),
-  kind: z.enum(['init', 'terminal', 'forbidden']),
-  actor: z.string().min(1).optional(),
-  when: PredicateSchema.optional(),
-  assign: z.record(z.string(), ScalarSchema).optional(),
-  origin: z.enum(['tagger', 'rule', 'agent']),
-  confidence: z.number().min(0).max(1),
-  sources: z.array(z.string()),
-  status: z.enum(['current', 'stale']),
-  note: z.string().optional(),
-  removed: z.literal(true).optional(),
+const FieldSchema = z.strictObject({
+  original: FieldVersionSchema,
+  latest: FieldVersionSchema,
+  history: z.array(z.strictObject({
+    at: z.string().min(1),
+    who: z.string().min(1),
+    reason: z.string().min(1),
+    finding: z.string().min(1).optional(),
+    comment: z.string().min(1).optional(),
+    value: FieldVersionSchema,
+  })),
 });
 
-const FactSchema = z.discriminatedUnion('kind', [ActionFactSchema, ConfigurationFactSchema]);
+const FrameSchema = z.strictObject({
+  id: z.string().regex(SPEC_FRAME_ID_PATTERN, SPEC_FRAME_ID_MESSAGE),
+  sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE),
+  clause: ClauseBoundSchema,
+  marker: z.string().min(1).optional(),
+  negated: z.literal(true).optional(),
+  notTransition: z.strictObject({ reason: z.string().min(1) }).optional(),
+  roles: z.strictObject({
+    actor: FieldSchema,
+    event: FieldSchema,
+    object: FieldSchema,
+    result: FieldSchema,
+    when: FieldSchema,
+  }),
+});
 
-const EntitiesFileSchema = z.strictObject({
+const ConceptsFileSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
-  entities: z.array(EntitySchema),
+  concepts: z.array(ConceptSchema),
 });
 
-const FactsFileSchema = z.strictObject({
+const FramesFileSchema = z.strictObject({
   schemaVersion: z.literal(SPEC_SCHEMA_VERSION),
-  facts: z.array(FactSchema),
+  frames: z.array(FrameSchema),
 });
 
 const GraphStateSchema = z.strictObject({
@@ -223,7 +196,7 @@ const GraphStateSchema = z.strictObject({
   object: z.string().regex(WORKFLOW_WORD_PATTERN),
   initial: z.literal(true).optional(),
   final: z.literal(true).optional(),
-  facts: z.array(z.string()),
+  frames: z.array(z.string()),
 });
 
 const GraphTransitionSchema = z.strictObject({
@@ -232,13 +205,13 @@ const GraphTransitionSchema = z.strictObject({
   event: z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'events are UPPER_SNAKE_CASE'),
   to: z.string().regex(WORKFLOW_WORD_PATTERN),
   actor: z.string().regex(WORKFLOW_WORD_PATTERN).optional(),
-  guard: z.string().regex(SPEC_ENTITY_ID_PATTERN).optional(),
+  guard: z.string().regex(/^condition:[a-z][a-z0-9_]*$/, 'guards look like condition:<var>').optional(),
   object: z.string().regex(WORKFLOW_WORD_PATTERN),
-  fact: z.string().regex(SPEC_FACT_ID_PATTERN),
-  facts: z.array(z.string()),
+  frame: z.string().regex(SPEC_FRAME_ID_PATTERN, SPEC_FRAME_ID_MESSAGE),
+  frames: z.array(z.string()),
 });
 
-const OverlayId = z.string().regex(/^(?:f|tr)[1-9][0-9]*$/, 'flow steps are fact ids');
+const OverlayId = z.string().regex(SPEC_FRAME_ID_PATTERN, 'flow steps are frame ids');
 
 const FlowSchema = z.strictObject({
   id: z.string().regex(WORKFLOW_ID_PATTERN),
@@ -246,17 +219,17 @@ const FlowSchema = z.strictObject({
   expect: z.enum(['accepted', 'rejected']),
   rejectAt: z.number().int().positive().optional(),
   transitions: z.array(OverlayId),
-  forbidden: z.string().regex(SPEC_FACT_ID_PATTERN).optional(),
+  forbidden: z.string().regex(SPEC_FRAME_ID_PATTERN, SPEC_FRAME_ID_MESSAGE).optional(),
   origin: z.enum(['rule', 'agent']),
 }).superRefine((flow, context) => {
   if (flow.expect === 'accepted' && flow.transitions.length < 1) {
-    context.addIssue({ code: 'custom', message: 'an accepted flow needs a fact', path: ['transitions'] });
+    context.addIssue({ code: 'custom', message: 'an accepted flow needs a frame', path: ['transitions'] });
   }
   if (flow.expect === 'rejected' && flow.rejectAt === undefined) {
     context.addIssue({ code: 'custom', message: 'a rejected flow needs rejectAt', path: ['rejectAt'] });
   }
   if (flow.expect === 'rejected' && flow.transitions.length === 0 && flow.forbidden === undefined) {
-    context.addIssue({ code: 'custom', message: 'a rejected flow needs a fact or a forbidden fact', path: ['forbidden'] });
+    context.addIssue({ code: 'custom', message: 'a rejected flow needs a frame or a forbidden frame', path: ['forbidden'] });
   }
 });
 
@@ -360,6 +333,7 @@ function toToken(raw: z.infer<typeof TokenSchema>): Token | undefined {
   };
   if (raw.skipped === true) token.skipped = true;
   if (raw.lemma !== undefined) token.lemma = raw.lemma;
+  if (raw.participle !== undefined) token.participle = raw.participle;
   if (raw.clause !== undefined) {
     token.clause = { text: raw.clause.text, start: raw.clause.start, end: raw.clause.end };
   }
@@ -397,6 +371,7 @@ function toLiveSpan(raw: z.infer<typeof LiveSpanSchema>): LiveSpan {
   if (raw.entityId !== undefined) span.entityId = raw.entityId;
   if (raw.insignificant !== undefined) span.insignificant = raw.insignificant;
   if (raw.lemma !== undefined) span.lemma = raw.lemma;
+  if (raw.participle !== undefined) span.participle = raw.participle;
   return span;
 }
 
@@ -472,99 +447,80 @@ function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapsh
     snapshot.spans = spans;
   }
 
-  const entitiesFile = join(dir, 'entities.json');
-  if (existsSync(entitiesFile)) {
-    const entitiesRead = readJson(entitiesFile);
-    if (!entitiesRead.ok) return entitiesRead;
-    const entitiesVersion = versionFault(entitiesRead.value, entitiesFile);
-    if (entitiesVersion !== undefined) return { ok: false, fault: entitiesVersion.fault, message: entitiesVersion.message };
-    const entitiesParsed = EntitiesFileSchema.safeParse(entitiesRead.value);
-    if (!entitiesParsed.success) return { ok: false, ...zodFault(entitiesFile, entitiesParsed.error) };
-    const entities: Entity[] = [];
-    for (const raw of entitiesParsed.data.entities) entities.push(toEntity(raw));
-    snapshot.entities = entities;
+  const conceptsFile = join(dir, 'concepts.json');
+  if (existsSync(conceptsFile)) {
+    const conceptsRead = readJson(conceptsFile);
+    if (!conceptsRead.ok) return conceptsRead;
+    const conceptsVersion = versionFault(conceptsRead.value, conceptsFile);
+    if (conceptsVersion !== undefined) return { ok: false, fault: conceptsVersion.fault, message: conceptsVersion.message };
+    const conceptsParsed = ConceptsFileSchema.safeParse(conceptsRead.value);
+    if (!conceptsParsed.success) return { ok: false, ...zodFault(conceptsFile, conceptsParsed.error) };
+    const concepts: Concept[] = [];
+    for (const raw of conceptsParsed.data.concepts) concepts.push({ id: raw.id, canonical: raw.canonical, members: raw.members.slice() });
+    snapshot.concepts = concepts;
   }
 
-  const factsFile = join(dir, 'facts.json');
-  if (existsSync(factsFile)) {
-    const factsRead = readJson(factsFile);
-    if (!factsRead.ok) return factsRead;
-    const factsVersion = versionFault(factsRead.value, factsFile);
-    if (factsVersion !== undefined) return { ok: false, fault: factsVersion.fault, message: factsVersion.message };
-    const factsParsed = FactsFileSchema.safeParse(factsRead.value);
-    if (!factsParsed.success) return { ok: false, ...zodFault(factsFile, factsParsed.error) };
-    const facts: Fact[] = [];
-    for (const raw of factsParsed.data.facts) {
-      const built = toFact(raw);
-      if (built === undefined) return { ok: false, fault: 'schema', message: `invalid spec store JSON in ${basename(factsFile)}: fact ${raw.id} has an invalid when predicate` };
-      facts.push(built);
-    }
-    snapshot.facts = facts;
+  const framesFile = join(dir, 'frames.json');
+  if (existsSync(framesFile)) {
+    const framesRead = readJson(framesFile);
+    if (!framesRead.ok) return framesRead;
+    const framesVersion = versionFault(framesRead.value, framesFile);
+    if (framesVersion !== undefined) return { ok: false, fault: framesVersion.fault, message: framesVersion.message };
+    const framesParsed = FramesFileSchema.safeParse(framesRead.value);
+    if (!framesParsed.success) return { ok: false, ...zodFault(framesFile, framesParsed.error) };
+    const frames: Frame[] = [];
+    for (const raw of framesParsed.data.frames) frames.push(toFrame(raw));
+    snapshot.frames = frames;
   }
 
-  const overlay = readOverlay(dir, snapshot.entities ?? [], snapshot.facts ?? []);
+  const overlay = readOverlay(dir, snapshot.concepts ?? [], snapshot.frames ?? []);
   if (!overlay.ok) return overlay;
   if (overlay.graph !== undefined) snapshot.graph = overlay.graph;
   return { ok: true, snapshot };
 }
 
-function toEntity(raw: z.infer<typeof EntitySchema>): Entity {
-  const sources: string[] = [];
-  for (const source of raw.sources) sources.push(source);
-  const entity: Entity = { id: raw.id, kind: raw.kind, sources, origin: raw.origin, status: raw.status };
-  if (raw.name !== undefined) entity.name = raw.name;
-  if (raw.text !== undefined) entity.text = raw.text;
-  if (raw.review !== undefined) entity.review = raw.review;
-  if (raw.note !== undefined) entity.note = raw.note;
-  return entity;
+function toFrame(raw: z.infer<typeof FrameSchema>): Frame {
+  const frame: Frame = {
+    id: raw.id,
+    sentence: raw.sentence,
+    clause: { text: raw.clause.text, start: raw.clause.start, end: raw.clause.end },
+    roles: {
+      actor: toField(raw.roles.actor),
+      event: toField(raw.roles.event),
+      object: toField(raw.roles.object),
+      result: toField(raw.roles.result),
+      when: toField(raw.roles.when),
+    },
+  };
+  if (raw.marker !== undefined) frame.marker = raw.marker;
+  if (raw.negated === true) frame.negated = true;
+  if (raw.notTransition !== undefined) frame.notTransition = { reason: raw.notTransition.reason };
+  return frame;
 }
 
-function toFact(raw: z.infer<typeof FactSchema>): Fact | undefined {
-  const sources: string[] = [];
-  for (const source of raw.sources) sources.push(source);
-  if (raw.kind === 'action') {
-    const when = predicateFromScalars(raw.when);
-    if (when === undefined) return undefined;
-    const fact: Fact = {
-      id: raw.id,
-      kind: 'action',
-      event: raw.event,
-      actor: raw.actor,
-      when,
-      assign: patchFromScalars(raw.assign),
-      origin: raw.origin,
-      confidence: raw.confidence,
-      sources,
-      status: raw.status,
-    };
-    if (raw.note !== undefined) fact.note = raw.note;
-    if (raw.removed === true) fact.removed = true;
-    return fact;
+function toField(raw: z.infer<typeof FieldSchema>): Field {
+  const history: Revision<FieldVersion>[] = [];
+  for (const revision of raw.history) {
+    const entry: Revision<FieldVersion> = { at: revision.at, who: revision.who, reason: revision.reason, value: toFieldVersion(revision.value) };
+    if (revision.finding !== undefined) entry.finding = revision.finding;
+    if (revision.comment !== undefined) entry.comment = revision.comment;
+    history.push(entry);
   }
-  const fact: Fact = {
-    id: raw.id,
-    kind: raw.kind,
-    origin: raw.origin,
-    confidence: raw.confidence,
-    sources,
-    status: raw.status,
-  };
-  if (raw.actor !== undefined) fact.actor = raw.actor;
-  if (raw.when !== undefined) {
-    const when = predicateFromScalars(raw.when);
-    if (when === undefined) return undefined;
-    fact.when = when;
-  }
-  if (raw.assign !== undefined) fact.assign = patchFromScalars(raw.assign);
-  if (raw.note !== undefined) fact.note = raw.note;
-  if (raw.removed === true) fact.removed = true;
-  return fact;
+  return { original: toFieldVersion(raw.original), latest: toFieldVersion(raw.latest), history };
+}
+
+function toFieldVersion(raw: z.infer<typeof FieldVersionSchema>): FieldVersion {
+  return { value: toRole(raw.value), dependsOn: raw.dependsOn.slice() };
+}
+
+function toRole(raw: z.infer<typeof RoleSchema>): Role {
+  return raw === 'unknown' ? 'unknown' : { text: raw.text, refs: raw.refs.slice() };
 }
 
 function readOverlay(
   dir: string,
-  entities: readonly Entity[],
-  facts: readonly Fact[],
+  concepts: readonly Concept[],
+  frames: readonly Frame[],
 ): { ok: true; graph?: DraftGraph } | { ok: false; fault: 'schema' | 'unreadable'; message: string } {
   const overlayFile = join(dir, 'flows.json');
   if (existsSync(overlayFile)) {
@@ -574,7 +530,7 @@ function readOverlay(
     if (overlayVersion !== undefined) return { ok: false, fault: overlayVersion.fault, message: overlayVersion.message };
     const overlayParsed = OverlayFileSchema.safeParse(overlayRead.value);
     if (!overlayParsed.success) return { ok: false, ...zodFault(overlayFile, overlayParsed.error) };
-    return { ok: true, graph: attachOverlay(compileFacts(entities, facts), overlayFlows(overlayParsed.data.flows, [])) };
+    return { ok: true, graph: attachOverlay(compileFrames(frames, concepts).compiled, overlayFlows(overlayParsed.data.flows, [])) };
   }
   const graphFile = join(dir, 'graph.json');
   if (!existsSync(graphFile)) return { ok: true };
@@ -592,25 +548,25 @@ function toGraph(raw: z.infer<typeof GraphFileSchema>): DraftGraph {
   for (const object of raw.objects) objects.push(object);
   const states: GraphState[] = [];
   for (const state of raw.states) {
-    const facts: string[] = [];
-    for (const fact of state.facts) facts.push(fact);
-    const built: GraphState = { id: state.id, object: state.object, facts };
+    const frames: string[] = [];
+    for (const frame of state.frames) frames.push(frame);
+    const built: GraphState = { id: state.id, object: state.object, frames };
     if (state.initial === true) built.initial = true;
     if (state.final === true) built.final = true;
     states.push(built);
   }
   const transitions: GraphTransition[] = [];
   for (const transition of raw.transitions) {
-    const facts: string[] = [];
-    for (const fact of transition.facts) facts.push(fact);
+    const frames: string[] = [];
+    for (const frame of transition.frames) frames.push(frame);
     const built: GraphTransition = {
       id: transition.id,
       from: transition.from,
       event: transition.event,
       to: transition.to,
       object: transition.object,
-      fact: transition.fact,
-      facts,
+      frame: transition.frame,
+      frames,
     };
     if (transition.actor !== undefined) built.actor = transition.actor;
     if (transition.guard !== undefined) built.guard = transition.guard;
@@ -638,12 +594,12 @@ function overlayFlows(
   raw: readonly z.infer<typeof FlowSchema>[],
   transitions: readonly z.infer<typeof GraphTransitionSchema>[],
 ): SpecFlow[] {
-  const factOf = new Map<string, string>();
-  for (const transition of transitions) factOf.set(transition.id, transition.fact);
+  const frameOf = new Map<string, string>();
+  for (const transition of transitions) frameOf.set(transition.id, transition.frame);
   const flows: SpecFlow[] = [];
   for (const flow of raw) {
     const ids: string[] = [];
-    for (const id of flow.transitions) ids.push(factOf.get(id) ?? id);
+    for (const id of flow.transitions) ids.push(frameOf.get(id) ?? id);
     const built: SpecFlow = {
       id: flow.id,
       title: flow.title,
@@ -697,6 +653,7 @@ function tokenRecord(token: Token): z.infer<typeof TokenSchema> {
   };
   if (token.skipped === true) record.skipped = true;
   if (token.lemma !== undefined) record.lemma = token.lemma;
+  if (token.participle !== undefined) record.participle = token.participle;
   if (token.clause !== undefined) {
     record.clause = { text: token.clause.text, start: token.clause.start, end: token.clause.end };
   }
@@ -722,6 +679,7 @@ function liveSpanRecord(span: LiveSpan): z.infer<typeof LiveSpanSchema> {
   if (span.entityId !== undefined) record.entityId = span.entityId;
   if (span.insignificant !== undefined) record.insignificant = span.insignificant;
   if (span.lemma !== undefined) record.lemma = span.lemma;
+  if (span.participle !== undefined) record.participle = span.participle;
   return record;
 }
 
@@ -758,15 +716,15 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
     for (const span of snapshot.spans) spans.push(liveSpanRecord(span));
     writeJson(join(dir, 'spans.json'), { schemaVersion: snapshot.schemaVersion, spans });
   }
-  if (snapshot.entities !== undefined) {
-    const entities = [];
-    for (const entity of snapshot.entities) entities.push(entityRecord(entity));
-    writeJson(join(dir, 'entities.json'), { schemaVersion: snapshot.schemaVersion, entities });
+  if (snapshot.concepts !== undefined) {
+    const concepts = [];
+    for (const concept of snapshot.concepts) concepts.push({ id: concept.id, canonical: concept.canonical, members: concept.members.slice() });
+    writeJson(join(dir, 'concepts.json'), { schemaVersion: snapshot.schemaVersion, concepts });
   }
-  if (snapshot.facts !== undefined) {
-    const facts = [];
-    for (const fact of snapshot.facts) facts.push(factRecord(fact));
-    writeJson(join(dir, 'facts.json'), { schemaVersion: snapshot.schemaVersion, facts });
+  if (snapshot.frames !== undefined) {
+    const frames = [];
+    for (const frame of snapshot.frames) frames.push(frameRecord(frame));
+    writeJson(join(dir, 'frames.json'), { schemaVersion: snapshot.schemaVersion, frames });
   }
   const graphFile = join(dir, 'graph.json');
   if (existsSync(graphFile)) unlinkSync(graphFile);
@@ -779,57 +737,38 @@ function writeSnapshot(dir: string, snapshot: SpecSnapshot, history: SpecHistory
   if (history !== undefined) appendFileSync(join(dir, 'history.jsonl'), `${JSON.stringify(historyRecord(history))}\n`);
 }
 
-function entityRecord(entity: Entity): z.infer<typeof EntitySchema> {
-  const sources: string[] = [];
-  for (const source of entity.sources) sources.push(source);
-  const record: z.infer<typeof EntitySchema> = {
-    id: entity.id,
-    kind: entity.kind,
-    sources,
-    origin: entity.origin,
-    status: entity.status,
+function frameRecord(frame: Frame): z.infer<typeof FrameSchema> {
+  const record: z.infer<typeof FrameSchema> = {
+    id: frame.id,
+    sentence: frame.sentence,
+    clause: { text: frame.clause.text, start: frame.clause.start, end: frame.clause.end },
+    roles: {
+      actor: fieldRecord(frame.roles.actor),
+      event: fieldRecord(frame.roles.event),
+      object: fieldRecord(frame.roles.object),
+      result: fieldRecord(frame.roles.result),
+      when: fieldRecord(frame.roles.when),
+    },
   };
-  if (entity.name !== undefined) record.name = entity.name;
-  if (entity.text !== undefined) record.text = entity.text;
-  if (entity.review !== undefined) record.review = entity.review;
-  if (entity.note !== undefined) record.note = entity.note;
+  if (frame.marker !== undefined) record.marker = frame.marker;
+  if (frame.negated === true) record.negated = true;
+  if (frame.notTransition !== undefined) record.notTransition = { reason: frame.notTransition.reason };
   return record;
 }
 
-function factRecord(fact: Fact): z.infer<typeof FactSchema> {
-  const sources: string[] = [];
-  for (const source of fact.sources) sources.push(source);
-  if (fact.kind === 'action') {
-    const record: z.infer<typeof ActionFactSchema> = {
-      id: fact.id,
-      kind: 'action',
-      event: fact.event,
-      actor: fact.actor,
-      when: predicateScalars(fact.when) as StoredPredicate,
-      assign: scalarsFromPatch(fact.assign),
-      origin: fact.origin,
-      confidence: fact.confidence,
-      sources,
-      status: fact.status,
-    };
-    if (fact.note !== undefined) record.note = fact.note;
-    if (fact.removed === true) record.removed = true;
-    return record;
+function fieldRecord(field: Field): z.infer<typeof FieldSchema> {
+  const history: z.infer<typeof FieldSchema>['history'] = [];
+  for (const revision of field.history) {
+    const entry: z.infer<typeof FieldSchema>['history'][number] = { at: revision.at, who: revision.who, reason: revision.reason, value: fieldVersionRecord(revision.value) };
+    if (revision.finding !== undefined) entry.finding = revision.finding;
+    if (revision.comment !== undefined) entry.comment = revision.comment;
+    history.push(entry);
   }
-  const record: z.infer<typeof ConfigurationFactSchema> = {
-    id: fact.id,
-    kind: fact.kind,
-    origin: fact.origin,
-    confidence: fact.confidence,
-    sources,
-    status: fact.status,
-  };
-  if (fact.actor !== undefined) record.actor = fact.actor;
-  if (fact.when !== undefined) record.when = predicateScalars(fact.when) as StoredPredicate;
-  if (fact.assign !== undefined) record.assign = scalarsFromPatch(fact.assign);
-  if (fact.note !== undefined) record.note = fact.note;
-  if (fact.removed === true) record.removed = true;
-  return record;
+  return { original: fieldVersionRecord(field.original), latest: fieldVersionRecord(field.latest), history };
+}
+
+function fieldVersionRecord(version: FieldVersion): z.infer<typeof FieldVersionSchema> {
+  return { value: version.value === 'unknown' ? 'unknown' : { text: version.value.text, refs: version.value.refs.slice() }, dependsOn: version.dependsOn.slice() };
 }
 
 function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; args: SpecHistoryEntry['args']; before: string[]; after: string[] } {
@@ -945,16 +884,16 @@ function confinedToSession(root: string, dir: string, id: string): boolean {
   }
 }
 
-function liveCounts(snapshot: SpecSnapshot): { sentences: number; facts: number; flows: number } {
+function liveCounts(snapshot: SpecSnapshot): SpecSessionCounts {
   let sentences = 0;
   for (const sentence of snapshot.sentences) {
     if (sentence.latest !== null) sentences += 1;
   }
-  let facts = 0;
-  for (const fact of snapshot.facts ?? []) {
-    if (fact.status === 'current' && fact.removed !== true) facts += 1;
+  let frames = 0;
+  for (const frame of snapshot.frames ?? []) {
+    if (frame.notTransition === undefined) frames += 1;
   }
-  return { sentences, facts, flows: snapshot.graph?.flows.length ?? 0 };
+  return { sentences, frames, flows: snapshot.graph?.flows.length ?? 0 };
 }
 
 function lastWritten(dir: string): string {
@@ -979,7 +918,7 @@ function sessionDetail(dir: string, id: string): { updated: string; summary: Spe
   } catch {
     // listSessions still returns the directory. Callers only require the id.
   }
-  return { updated: lastWritten(dir), summary: { sentences: 0, facts: 0, flows: 0 } };
+  return { updated: lastWritten(dir), summary: { sentences: 0, frames: 0, flows: 0 } };
 }
 
 export const jsonSpecStore: SpecStore = {

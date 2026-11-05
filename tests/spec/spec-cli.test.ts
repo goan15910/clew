@@ -331,7 +331,7 @@ describe('spec commands', { concurrency: false }, () => {
       const tag = clew(['spec', 'tag', '--json'], dir);
       assert.equal(tag.status, 2);
       assert.match(tag.stderr, /schema 1/);
-      assert.match(tag.stderr, /schema 4/);
+      assert.match(tag.stderr, /schema 5/);
       assert.match(tag.stderr, /no migration/);
       const after = JSON.parse(readFileSync(sessionPath, 'utf8')) as { schemaVersion: number };
       assert.equal(after.schemaVersion, 1);

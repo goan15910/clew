@@ -1,5 +1,5 @@
 // Use case: the agent splits or groups the proposed paths.
-import { compileSnapshot } from '../domain/spec-facts.js';
+import { compileSnapshot } from '../domain/spec-compile.js';
 import { graphLayerFindings, groupFlows, sameGraph, splitFlow, type GroupRequest } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import type { Outcome, SpecGraphDocument } from './documents.js';
@@ -84,8 +84,8 @@ function replaceGraph(current: SpecSnapshot, graph: NonNullable<SpecSnapshot['gr
     updated: current.updated,
     sentences: current.sentences,
     tagged: current.tagged,
-    entities: current.entities,
-    facts: current.facts,
+    concepts: current.concepts,
+    frames: current.frames,
     graph,
     tagger: current.tagger,
   };
@@ -96,8 +96,8 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
   snapshot.updated = updated;
   if (current.graph !== undefined) snapshot.graph = current.graph;
   if (current.tagger === undefined) delete snapshot.tagger;
-  if (current.entities === undefined) delete snapshot.entities;
-  if (current.facts === undefined) delete snapshot.facts;
+  if (current.concepts === undefined) delete snapshot.concepts;
+  if (current.frames === undefined) delete snapshot.frames;
   return snapshot;
 }
 

@@ -6,7 +6,8 @@ import {
   type LexiconEntry,
   type SpanConflictWindow,
 } from '../domain/spec-spans.js';
-import { hasBlocking, type LiveSpan, type SpecSnapshot } from '../domain/spec.js';
+import { rebuildLayers } from '../domain/spec-frames.js';
+import { hasBlocking, liveSentences, type LiveSpan, type SpecSnapshot } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecSpanConflictView, type SpecSpansDocument } from './documents.js';
 import type { SpecStore } from './ports.js';
 import { resolveSession } from './spec-session.js';
@@ -57,8 +58,8 @@ export function mergeSpans(command: MergeSpansCommand, store: SpecStore): Outcom
       spansOut = pass.spans;
       if (pass.unchanged) return undefined;
       const now = new Date().toISOString();
-      const snapshot = copySnapshot(current, now);
-      snapshot.spans = pass.spans;
+      const snapshot = withSpans(current, pass.spans, now);
+      spansOut = snapshot.spans ?? pass.spans;
       return {
         snapshot,
         history: {
@@ -90,10 +91,9 @@ export function mergeSpans(command: MergeSpansCommand, store: SpecStore): Outcom
       return undefined;
     }
     merged = [edited.mergedId];
-    spansOut = edited.spans;
     const now = new Date().toISOString();
-    const snapshot = copySnapshot(current, now);
-    snapshot.spans = edited.spans;
+    const snapshot = withSpans(current, edited.spans, now);
+    spansOut = snapshot.spans ?? edited.spans;
     const args: {
       session: string;
       ids: string[];
@@ -161,7 +161,8 @@ function beforeIds(previous: readonly LiveSpan[], next: readonly LiveSpan[]): st
   return removed;
 }
 
-function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
+/** Merged spans change span ids, so concepts and frames are rebuilt over them. */
+function withSpans(current: SpecSnapshot, spans: readonly LiveSpan[], updated: string): SpecSnapshot {
   const snapshot: SpecSnapshot = {
     schemaVersion: current.schemaVersion,
     id: current.id,
@@ -172,9 +173,10 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
     tagged: current.tagged,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
-  if (current.spans !== undefined) snapshot.spans = current.spans;
-  if (current.entities !== undefined) snapshot.entities = current.entities;
-  if (current.facts !== undefined) snapshot.facts = current.facts;
+  const layers = rebuildLayers(liveSentences(current.sentences), spans, current);
+  snapshot.spans = layers.spans;
+  if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+  if (layers.frames !== undefined) snapshot.frames = layers.frames;
   if (current.graph !== undefined) snapshot.graph = current.graph;
   return snapshot;
 }

@@ -11,7 +11,7 @@ export function listSpecSessions(store: SpecStore): Outcome<SpecSessionListDocum
       updated: session.updated,
       summary: {
         sentences: session.summary.sentences,
-        facts: session.summary.facts,
+        frames: session.summary.frames,
         flows: session.summary.flows,
       },
     });

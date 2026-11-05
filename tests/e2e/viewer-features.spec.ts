@@ -1,4 +1,5 @@
 import {
+  conceptRoles,
   expectedMeta,
   expectedSpanCount,
   expectedSpanFilterGroups,
@@ -6,8 +7,11 @@ import {
   expectedSpanTabEntries,
   expectedVisibleIds,
   fixture,
+  frameIncomplete,
+  frameTransitions,
   PACKAGE_VERSION,
   posLabel,
+  roleText,
   significantSpansForSentence,
   skippedSpansForSentence,
   spanForSource,
@@ -19,7 +23,7 @@ import type { Page } from '@playwright/test';
 import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const emptyFilters = { text: '', kind: '', type: '', status: '' };
+const emptyFilters = { text: '', frame: '', concept: '' };
 
 async function box(page: Page, selector: string): Promise<{ x: number; y: number; width: number; height: number }> {
   const rect = await page.locator(selector).boundingBox();
@@ -31,23 +35,101 @@ test.beforeEach(async ({ page }) => {
   await waitForViewerReady(page);
 });
 
-test.describe('rejected entities', () => {
-  const rejected = fixture.entities.filter((entity) => entity.status === 'rejected').map((entity) => entity.id);
+test.describe('frames tab', () => {
+  test.beforeEach(async ({ page }) => {
+    await selectView(page, 'frames');
+  });
 
-  test('hidden by default, shown by the toggle, hidden again by clear', async ({ page }) => {
-    expect(rejected.length).toBeGreaterThan(0);
-    await selectView(page, 'entities');
-    const toggle = page.locator('#filter-rejected');
-    await expect(toggle).not.toBeChecked();
-    expect(await visibleCardIds(page, 'entities')).toEqual(expectedVisibleIds('entities', emptyFilters));
-    expect(await visibleCardIds(page, 'entities')).not.toContain(rejected[0]);
+  for (const frame of fixture.frames) {
+    test(`${frame.id} card shows clause, pills, roles, and graph citations`, async ({ page }) => {
+      const card = cardById(page, 'frames', frame.id);
+      await expect(card.locator('.blurb')).toHaveText(frame.clause.text);
+      const pills = [frame.sentence];
+      if (frame.marker) pills.push(frame.marker);
+      if (frame.negated) pills.push('negated');
+      if (frame.notTransition) pills.push('not a transition', frame.notTransition.reason);
+      if (frameIncomplete(frame)) pills.push('incomplete');
+      await expect(card.locator('h2 .pill')).toHaveText(pills);
+      await expect(card.locator('.roles dt')).toHaveText(['actor', 'event', 'object', 'result', 'when']);
+      for (const role of ['actor', 'event', 'object', 'result', 'when'] as const) {
+        const row = card.locator(`.roles dd[data-role="${role}"]`);
+        await expect(row.locator('.role-value')).toHaveText(roleText(frame, role));
+        await expect(row.locator('.role-value')).toHaveClass(roleText(frame, role) === 'unknown' ? /\bunknown\b/ : /^role-value$/);
+        await expect(row.locator('.role-dep')).toHaveText(frame.roles[role].latest.dependsOn);
+      }
+      const transitions = frameTransitions(frame.id);
+      const graph = card.locator('.frame-graph[data-graph="transition"]');
+      await expect(graph).toHaveCount(transitions.length);
+      for (const [index, transition] of transitions.entries()) {
+        await expect(graph.nth(index)).toHaveText(`transition${transition.event}${transition.from}→${transition.to}`);
+      }
+    });
+  }
 
-    await toggle.check();
-    expect(await visibleCardIds(page, 'entities')).toEqual(fixture.entities.map((entity) => entity.id));
+  test('a forbidden flow that cites a negated frame shows on its card and in its lineage', async ({ page, viewer }) => {
+    const negated = fixture.frames.find((frame) => frame.negated === true)!;
+    const other = join(dirname(viewer.sessionDir), 'zz-forbidden');
+    cpSync(viewer.sessionDir, other, { recursive: true });
+    const session = JSON.parse(readFileSync(join(other, 'session.json'), 'utf8')) as { id: string };
+    writeFileSync(join(other, 'session.json'), JSON.stringify({ ...session, id: 'zz-forbidden' }));
+    const flows = JSON.parse(readFileSync(join(other, 'flows.json'), 'utf8')) as { flows: unknown[] };
+    flows.flows.push({
+      id: 'W2',
+      title: 'Clerk must not cancel',
+      expect: 'rejected',
+      rejectAt: 1,
+      transitions: [],
+      forbidden: negated.id,
+      origin: 'rule',
+    });
+    writeFileSync(join(other, 'flows.json'), JSON.stringify(flows, null, 2));
+    try {
+      await page.locator('#session-id').hover();
+      await page.locator('#session-id').selectOption('zz-forbidden');
+      await expect(page).toHaveURL(/[?&]session=zz-forbidden/);
+      const card = cardById(page, 'frames', negated.id);
+      await expect(card.locator('.frame-graph[data-graph="forbidden"]')).toHaveText(
+        `forbiddenW2${roleText(negated, 'event')}Clerk must not cancel`,
+      );
+      const details = await openLineage(page, 'frames', negated.id);
+      await expect(details.locator('.line[data-text="W2 forbidden ' + negated.id + '"]')).toHaveCount(1);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+});
 
-    await clearFilters(page);
-    await expect(toggle).not.toBeChecked();
-    expect(await visibleCardIds(page, 'entities')).not.toContain(rejected[0]);
+test.describe('concepts tab', () => {
+  test.beforeEach(async ({ page }) => {
+    await selectView(page, 'concepts');
+  });
+
+  test('one card per concept in id order', async ({ page }) => {
+    expect(await visibleCardIds(page, 'concepts')).toEqual(fixture.concepts.map((concept) => concept.id));
+  });
+
+  for (const concept of fixture.concepts) {
+    test(`${concept.id} card shows canonical and member spans with their sentence`, async ({ page }) => {
+      const card = cardById(page, 'concepts', concept.id);
+      await expect(card.locator('.blurb')).toHaveText(concept.canonical);
+      await expect(card.locator('h2 .pill')).toHaveText(
+        concept.members.length === 1 ? '1 member' : `${concept.members.length} members`,
+      );
+      const members = card.locator('.members .member');
+      expect(await members.evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.span))).toEqual(concept.members);
+      const spans = concept.members.map((id) => fixture.spans.find((span) => span.id === id)!);
+      await expect(members.locator('.member-span')).toHaveText(spans.map((span) => span.surface));
+      await expect(members.locator('.member-sentence')).toHaveText(
+        spans.map((span) => span.firstTokenId.slice(0, span.firstTokenId.indexOf('.'))),
+      );
+    });
+  }
+
+  test('concept lineage lists the frames whose roles cite it', async ({ page }) => {
+    const details = await openLineage(page, 'concepts', 'concept:order');
+    const frames = fixture.frames.filter((frame) => conceptRoles(frame, 'concept:order').length > 0);
+    expect(frames.length).toBeGreaterThan(1);
+    await expect(details.locator('.lineage-pane[data-layer="frame"] .line .line-id')).toHaveText(frames.map((frame) => frame.id));
   });
 });
 
@@ -63,7 +145,7 @@ test.describe('header and banner', () => {
     const meta = expectedMeta();
     await expect(page.locator('header h1')).toHaveText(`Session ${meta.id}`);
     await expect(page.locator('#session-meta')).toHaveText(
-      `${meta.sentences} sentences · ${expectedSpanCount()} spans · ${meta.entities} entities · ${meta.facts} facts`,
+      `${meta.sentences} sentences · ${expectedSpanCount()} spans · ${meta.concepts} concepts · ${meta.frames} frames`,
     );
     const brand = await box(page, 'header .brand');
     const title = await box(page, 'header h1');
@@ -132,8 +214,11 @@ test.describe('session switcher and refresh', () => {
 test.describe('toolbar and tab block', () => {
   test('toolbar holds search and filters only; tabs live in the tab block below it', async ({ page }) => {
     const toolbar = page.locator('.toolbar');
-    for (const id of ['filter-text', 'filter-kind', 'filter-type', 'filter-status', 'filter-span', 'filter-clear']) {
+    for (const id of ['filter-text', 'filter-frame', 'filter-concept', 'filter-span', 'filter-clear']) {
       await expect(toolbar.locator(`#${id}`)).toHaveCount(1);
+    }
+    for (const id of ['filter-kind', 'filter-type', 'filter-status', 'filter-rejected']) {
+      await expect(page.locator(`#${id}`)).toHaveCount(0);
     }
     await expect(toolbar.locator('#filter-token')).toHaveCount(0);
     await expect(toolbar.locator('.tabs')).toHaveCount(0);
@@ -144,13 +229,13 @@ test.describe('toolbar and tab block', () => {
   });
 
   test('every panel renders inside the shared tab body', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences', 'spans', 'graph']) {
+    for (const view of ['frames', 'concepts', 'sentences', 'spans', 'graph']) {
       await expect(page.locator(`.tabset > .tab-body > #panel-${view}`)).toHaveCount(1);
     }
   });
 
   test('selected tab merges with the tab body; others stay distinct', async ({ page }) => {
-    for (const view of ['facts', 'entities', 'sentences', 'spans', 'graph'] as const) {
+    for (const view of ['frames', 'concepts', 'sentences', 'spans', 'graph'] as const) {
       await selectView(page, view);
       const styles = await page.evaluate(() => {
         const body = getComputedStyle(document.querySelector('.tab-body')!).backgroundColor;
@@ -170,12 +255,12 @@ test.describe('toolbar and tab block', () => {
 });
 
 test.describe('graph tab', () => {
-  test('renders interactive order chart and HappyPath with pan/zoom canvases', async ({ page }) => {
+  test('renders interactive order chart and the W1 workflow with pan/zoom canvases', async ({ page }) => {
     test.setTimeout(60_000);
     await selectView(page, 'graph');
     const panel = page.locator('#panel-graph');
     const order = panel.locator('[data-graph-object="order"] [data-graph-mount]');
-    const happy = panel.locator('[data-graph-id="HappyPath"] [data-graph-mount]');
+    const happy = panel.locator('[data-graph-id="W1"] [data-graph-mount]');
     await expect(order).toBeVisible({ timeout: 20_000 });
     await expect(happy).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => order.locator('.graph-cy').count()).toBeGreaterThan(0);
@@ -606,18 +691,14 @@ test.describe('sentence lineage', () => {
 });
 
 test.describe('span-level lineage rows', () => {
-  test('entity sourced by a span maps to a span sentence row with marked surface', async ({ page }) => {
-    await selectView(page, 'entities');
-    const entity = fixture.entities.find((row) => {
-      const sources = row.sources ?? [];
-      return sources.length === 1 && (/^sp:/.test(sources[0]!) || /\.t\d+$/.test(sources[0]!));
-    })!;
-    const source = entity.sources![0]!;
-    const span = spanForSource(source)!;
+  test('concept member span maps to a span sentence row with marked surface', async ({ page }) => {
+    await selectView(page, 'concepts');
+    const concept = fixture.concepts.find((row) => row.members.length === 1)!;
+    const span = spanForSource(concept.members[0]!)!;
     const sentenceId = span.firstTokenId.slice(0, span.firstTokenId.indexOf('.'));
     const sentence = fixture.sentences.find((row) => row.id === sentenceId)!;
 
-    const details = await openLineage(page, 'entities', entity.id);
+    const details = await openLineage(page, 'concepts', concept.id);
     const line = details.locator('.line').filter({ has: page.locator('.layer', { hasText: /^span$/ }) }).first();
     await expect(line.locator('.line-id')).toHaveText(span.id);
     await expect(line.locator('.line-type')).toHaveText(sentence.section);
@@ -630,6 +711,16 @@ test.describe('span-level lineage rows', () => {
     const id = await line.locator('.line-id').boundingBox();
     const content = await line.locator('.line-content').boundingBox();
     expect(content!.y).toBeGreaterThanOrEqual(id!.y + id!.height - 1);
+  });
+
+  test('frame dependsOn spans mark the frame evidence in its sentence', async ({ page }) => {
+    await selectView(page, 'frames');
+    const frame = fixture.frames.find((row) => row.id === 'fr:s1.t1')!;
+    const details = await openLineage(page, 'frames', frame.id);
+    const marks = await details
+      .locator('.lineage-pane[data-layer="span"] .source-mark')
+      .allTextContents();
+    expect(marks).toEqual(['customer submits', 'order']);
   });
 });
 
@@ -678,10 +769,10 @@ test.describe('span filter', () => {
     expect(await visibleCardIds(page, 'sentences')).toEqual(expectedVisibleIds('sentences', emptyFilters));
   });
 
-  test('facts and entities ignore the span filter', async ({ page }) => {
+  test('frames and concepts ignore the span filter', async ({ page }) => {
     const value = expectedSpanFilterGroups()[0]!.options[0]!.value;
     await page.locator('#filter-span').selectOption(value);
-    for (const view of ['facts', 'entities'] as const) {
+    for (const view of ['frames', 'concepts'] as const) {
       await selectView(page, view);
       expect(await visibleCardIds(page, view)).toEqual(expectedVisibleIds(view, emptyFilters));
     }

@@ -21,13 +21,10 @@ testcases:
     assertions:
     - result.code ShouldEqual 0
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json"
     assertions:
     - result.code ShouldEqual 0
-  - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json"
-    assertions:
-    - result.code ShouldEqual 0
+    - result.systemoutjson.frames ShouldHaveLength 3
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
     assertions:
@@ -49,15 +46,6 @@ testcases:
     - result.systemoutjson.sentences.sentences0.text ShouldContainSubstring "the customer submits an order"
     - result.systemoutjson.sentences.sentences0.workflows ShouldHaveLength 0
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f1 --when '{\"op\":\"eq\",\"var\":\"order\",\"value\":\"draft\"}' --json"
-    assertions:
-    - result.code ShouldEqual 0
-  - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --kind init --assign '{\"order\":\"draft\"}' --json"
-    assertions:
-    - result.code ShouldEqual 0
-    - result.systemoutjson.facts.facts2.id ShouldEqual f3
-  - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
     assertions:
     - result.code ShouldEqual 0
@@ -66,24 +54,28 @@ testcases:
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.session ShouldEqual order-sentence
     - result.systemoutjson.graph.objects.objects0 ShouldEqual order
-    - result.systemoutjson.graph.states.states0.id ShouldEqual draft
-    - result.systemoutjson.graph.states.states0.initial ShouldBeTrue
-    - result.systemoutjson.graph.states.states0.facts.facts0 ShouldEqual f1
-    - result.systemoutjson.graph.states.states0.facts.facts1 ShouldEqual f3
-    - result.systemoutjson.graph.transitions.transitions0.id ShouldEqual f1
+    - result.systemoutjson.graph.states ShouldHaveLength 3
+    - result.systemoutjson.graph.states.states1.id ShouldEqual submitted
+    - result.systemoutjson.graph.states.states1.frames.frames0 ShouldEqual fr:s1.t1
+    - result.systemoutjson.graph.states.states1.frames.frames1 ShouldEqual fr:s1.t7
+    - result.systemoutjson.graph.transitions.transitions0.id ShouldEqual fr:s1.t1
+    - result.systemoutjson.graph.transitions.transitions0.frame ShouldEqual fr:s1.t1
     - result.systemoutjson.graph.transitions.transitions0.event ShouldEqual SUBMIT
     - result.systemoutjson.graph.transitions.transitions0.actor ShouldEqual customer
-    - result.systemoutjson.graph.transitions.transitions1.id ShouldEqual f2
-    - result.systemoutjson.graph.transitions.transitions1.guard ShouldEqual condition:c1
+    - result.systemoutjson.graph.transitions.transitions1.id ShouldEqual fr:s1.t7
+    - result.systemoutjson.graph.transitions.transitions1.from ShouldEqual submitted
+    - result.systemoutjson.graph.transitions.transitions1.to ShouldEqual approved
+    - result.systemoutjson.graph.transitions.transitions1.guard ShouldEqual condition:cond_s1_t12
     - result.systemoutjson.flows.flows0.id ShouldEqual W1
     - result.systemoutjson.flows.flows0.title ShouldEqual "Order lifecycle"
     - result.systemoutjson.flows.flows0.origin ShouldEqual rule
-    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
-    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual f2
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual fr:s1.t1
+    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual fr:s1.t7
     - result.systemoutjson.flows.flows0.transitions ShouldHaveLength 2
     - result.systemoutjson.flows ShouldHaveLength 1
-    - result.systemoutjson.findings.findings0.code ShouldEqual no-final-state
-    - result.systemoutjson.findings ShouldHaveLength 1
+    - result.systemoutjson.findings.findings0.code ShouldEqual no-initial-state
+    - result.systemoutjson.findings.findings1.code ShouldEqual no-final-state
+    - result.systemoutjson.findings ShouldHaveLength 2
     - result.systemoutjson.issues ShouldHaveLength 0
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
@@ -122,6 +114,7 @@ testcases:
     - result.systemoutjson.workflowSet.workflows.workflows0.title ShouldEqual "Order lifecycle"
     - result.systemoutjson.workflowSet.workflows ShouldHaveLength 1
     - result.systemoutjson.chartYaml ShouldContainSubstring "clew.spec.v1"
+    - result.systemoutjson.chartYaml ShouldContainSubstring "cond_s1_t12"
     - result.systemoutjson.issues ShouldHaveLength 0
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --out '{{.dir}}/flows.yaml' --json"
@@ -170,12 +163,7 @@ testcases:
         from: result.systemout
         regex: '(.+)'
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f1 --when '{\"op\":\"eq\",\"var\":\"order\",\"value\":\"draft\"}' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --kind init --assign '{\"order\":\"draft\"}' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
-    assertions:
-    - result.code ShouldEqual 0
-    - result.systemoutjson.command ShouldEqual spec.graph.build
-  - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --kind terminal --assign '{\"order\":\"approve\"}' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --kind forbidden --actor actor:manager --when '{\"op\":\"eq\",\"var\":\"order\",\"value\":\"submit\"}' --assign '{\"order\":\"approve\"}' --source s1 --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    script: "printf '%s\n' 'When the customer submits an order, the manager approves the order if the total is under 500 dollars. The customer cannot approve the order.' > '{{.dir}}/order-rules.md' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/order-rules.md' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -184,16 +172,16 @@ testcases:
     - result.systemoutjson.flows.flows0.title ShouldEqual "Order lifecycle"
     - result.systemoutjson.flows.flows0.origin ShouldEqual rule
     - result.systemoutjson.flows.flows0.expect ShouldEqual accepted
-    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
-    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual f2
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual fr:s1.t1
+    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual fr:s1.t7
     - result.systemoutjson.flows.flows1.id ShouldEqual W2
     - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
     - result.systemoutjson.flows.flows1.title ShouldEqual "Cannot approve order"
-    - result.systemoutjson.flows.flows1.transitions.transitions0 ShouldEqual f2
+    - result.systemoutjson.flows.flows1.forbidden ShouldEqual fr:s2.t1
+    - result.systemoutjson.flows.flows1.transitions.transitions0 ShouldEqual fr:s1.t7
     - result.systemoutjson.flows ShouldHaveLength 2
-    - result.systemoutjson.findings ShouldHaveLength 0
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph split --id W1 --at f2 --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph split --id W1 --at fr:s1.t7 --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -203,12 +191,12 @@ testcases:
     - result.systemoutjson.flows.flows0.id ShouldEqual W1
     - result.systemoutjson.flows.flows0.title ShouldEqual "Submit order"
     - result.systemoutjson.flows.flows0.origin ShouldEqual agent
-    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual fr:s1.t1
     - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
     - result.systemoutjson.flows.flows2.id ShouldEqual W3
     - result.systemoutjson.flows.flows2.title ShouldEqual "Approve order"
     - result.systemoutjson.flows.flows2.origin ShouldEqual agent
-    - result.systemoutjson.flows.flows2.transitions.transitions0 ShouldEqual f2
+    - result.systemoutjson.flows.flows2.transitions.transitions0 ShouldEqual fr:s1.t7
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph group --id W1 --id W3 --title 'Submit and approve an order' --json"
     assertions:
@@ -219,8 +207,8 @@ testcases:
     - result.systemoutjson.changed.changed0 ShouldEqual W1
     - result.systemoutjson.flows.flows0.title ShouldEqual "Submit and approve an order"
     - result.systemoutjson.flows.flows0.origin ShouldEqual agent
-    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
-    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual f2
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual fr:s1.t1
+    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual fr:s1.t7
     - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --out '{{.dir}}/clean.yaml' --json"
@@ -238,25 +226,27 @@ testcases:
     - result.code ShouldEqual 0
     - result.systemoutjson.ok ShouldBeTrue
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph split --id W1 --at f2 --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph split --id W1 --at fr:s1.t7 --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.graph.split
     - result.systemoutjson.changed.changed0 ShouldEqual W1
     - result.systemoutjson.changed.changed1 ShouldEqual W3
-    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual fr:s1.t1
     - result.systemoutjson.flows.flows2.id ShouldEqual W3
     - result.systemoutjson.flows.flows2.origin ShouldEqual agent
     - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace f1 --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace fr:s1.t7 --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.chain.chain0.layer ShouldEqual transition
-    - result.systemoutjson.chain.chain0.id ShouldEqual f1
-    - result.systemoutjson.chain.chain0.text ShouldEqual "draft → submit"
+    - result.systemoutjson.chain.chain0.id ShouldEqual fr:s1.t7
+    - result.systemoutjson.chain.chain0.text ShouldEqual "submitted → approved"
+    - result.systemoutjson.chain.chain1.layer ShouldEqual frame
+    - result.systemoutjson.chain.chain1.text ShouldEqual "the manager approves the order"
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace W1 --json"
     assertions:
@@ -272,7 +262,7 @@ testcases:
     - result.systemoutjson.fault ShouldEqual session
     - result.systemoutjson.issues.issues0.kind ShouldEqual input
 
-- name: usage and a rejected edge with no transition
+- name: usage and an uncovered forbidden frame
   steps:
   - type: exec
     script: mktemp -d
@@ -289,24 +279,24 @@ testcases:
     - result.systemoutjson.ok ShouldBeFalse
     - result.systemoutjson.fault ShouldEqual usage
   - type: exec
-    script: "printf '%s\n' 'The customer cannot cancel a shipped order.' > '{{.dir}}/cancel.md' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/cancel.md' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --kind init --assign '{\"order\":\"shipped\"}' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    script: "printf '%s\n' 'The customer cannot cancel a shipped order.' > '{{.dir}}/cancel.md' && cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/cancel.md' --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json >/dev/null && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json"
     assertions:
     - result.code ShouldEqual 0
-    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.frames.frames0.negated ShouldBeTrue
+    - result.systemoutjson.frames.frames0.compiled.kind ShouldEqual forbidden
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph build --json"
+    assertions:
+    - result.code ShouldEqual 1
     - result.systemoutjson.command ShouldEqual spec.graph.build
-    - result.systemoutjson.flows.flows0.expect ShouldEqual rejected
-    - result.systemoutjson.flows.flows0.rejectAt ShouldEqual 1
-    - result.systemoutjson.flows.flows0.transitions ShouldHaveLength 0
+    - result.systemoutjson.findings.findings0.code ShouldEqual forbidden-uncovered
+    - result.systemoutjson.findings.findings0.severity ShouldEqual blocking
+    - result.systemoutjson.flows ShouldHaveLength 0
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --dry-run --json"
     assertions:
-    - result.code ShouldEqual 0
-    - result.systemerr ShouldBeEmpty
-    - result.systemoutjson.yaml ShouldContainSubstring "shipped"
-    - result.systemoutjson.yaml ShouldContainSubstring "CANCEL"
-    - result.systemoutjson.yaml ShouldContainSubstring "cancel"
-    - result.systemoutjson.yaml ShouldContainSubstring "The customer cannot cancel a shipped order"
-    - result.systemoutjson.issues ShouldHaveLength 0
+    - result.code ShouldEqual 1
+    - result.systemoutjson.findings.findings0.code ShouldEqual forbidden-uncovered
 
 - name: human graph summary
   steps:
@@ -317,7 +307,7 @@ testcases:
         from: result.systemout
         regex: '(.+)'
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec entities list --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts propose --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts edit --id f1 --when '{\"op\":\"eq\",\"var\":\"order\",\"value\":\"draft\"}' --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec facts add --kind init --assign '{\"order\":\"draft\"}' --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json"
     assertions:
     - result.code ShouldEqual 0
   - type: exec
@@ -326,6 +316,7 @@ testcases:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemout ShouldContainSubstring "3 states, 2 transitions, 1 flows"
+    - result.systemout ShouldContainSubstring "warning no-initial-state"
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --dry-run"
     assertions:

@@ -1,6 +1,7 @@
 // Short stdout for humans. `--json` skips this and prints the command document.
-import type { CommandDocument, SpecFactView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
+import type { CommandDocument, ConceptView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import { formatIssues } from '../../application/documents.js';
+import { ROLE_NAMES } from '../../domain/spec-frames.js';
 
 function list(ids: readonly string[]): string {
   return ids.length > 0 ? ` (${ids.join(', ')})` : '';
@@ -93,26 +94,13 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
-  if (
-    document.command === 'spec.entities.list'
-    || document.command === 'spec.entities.merge'
-    || document.command === 'spec.entities.rename'
-    || document.command === 'spec.entities.reject'
-    || document.command === 'spec.entities.promote'
-  ) {
+  if (document.command === 'spec.concepts.list') {
     if (document.fault !== undefined || document.session === undefined) return '';
-    const lines = [`session ${document.session}: ${document.entities?.length ?? 0} entities`];
-    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
-    return lines.join('\n');
+    return [`session ${document.session}: ${countPhrase(document.concepts?.length ?? 0, 'concept', 'concepts')}`, ...conceptLines(document.concepts ?? [])].join('\n');
   }
-  if (
-    document.command === 'spec.facts.propose'
-    || document.command === 'spec.facts.add'
-    || document.command === 'spec.facts.edit'
-    || document.command === 'spec.facts.remove'
-  ) {
+  if (document.command === 'spec.frames.list') {
     if (document.fault !== undefined || document.session === undefined) return '';
-    const lines = [`session ${document.session}: ${document.facts?.length ?? 0} facts`];
+    const lines = [`session ${document.session}: ${countPhrase(document.frames?.length ?? 0, 'frame', 'frames')}`, ...frameLines(document.frames ?? [])];
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
@@ -156,7 +144,7 @@ export function humanSummary(document: CommandDocument): string {
     const lines: string[] = [];
     for (const session of document.sessions) {
       const counts = session.summary;
-      lines.push(`${session.id}  ${countPhrase(counts.sentences, 'sentence', 'sentences')}, ${countPhrase(counts.facts, 'fact', 'facts')}, ${countPhrase(counts.flows, 'flow', 'flows')}  ${session.updated}`);
+      lines.push(`${session.id}  ${countPhrase(counts.sentences, 'sentence', 'sentences')}, ${countPhrase(counts.frames, 'frame', 'frames')}, ${countPhrase(counts.flows, 'flow', 'flows')}  ${session.updated}`);
     }
     return lines.join('\n');
   }
@@ -197,8 +185,8 @@ const SPEC_SHOW_COMMANDS = {
   'spec.show.tagged': true,
   'spec.show.tokens': true,
   'spec.show.spans': true,
-  'spec.show.entities': true,
-  'spec.show.facts': true,
+  'spec.show.concepts': true,
+  'spec.show.frames': true,
 } satisfies Record<SpecShowDocument['command'], true>;
 
 function isSpecShow(document: CommandDocument): document is SpecShowDocument {
@@ -247,20 +235,13 @@ function showSummary(document: SpecShowDocument): string {
       }
       return lines.join('\n');
     }
-    case 'spec.show.entities': {
-      const entities = document.entities ?? [];
-      const lines = [`session ${document.session}: ${countPhrase(entities.length, 'entity', 'entities')}`];
-      for (const entity of entities) {
-        const label = entity.name ?? entity.text ?? '';
-        lines.push(`  ${entity.id}  ${entity.status}  ${label}  <- ${entity.sources.join(' ')}`);
-      }
-      return lines.join('\n');
+    case 'spec.show.concepts': {
+      const concepts = document.concepts ?? [];
+      return [`session ${document.session}: ${countPhrase(concepts.length, 'concept', 'concepts')}`, ...conceptLines(concepts)].join('\n');
     }
-    case 'spec.show.facts': {
-      const facts = document.facts ?? [];
-      const lines = [`session ${document.session}: ${countPhrase(facts.length, 'fact', 'facts')}`];
-      for (const fact of facts) lines.push(factLine(fact));
-      return lines.join('\n');
+    case 'spec.show.frames': {
+      const frames = document.frames ?? [];
+      return [`session ${document.session}: ${countPhrase(frames.length, 'frame', 'frames')}`, ...frameLines(frames)].join('\n');
     }
     default: {
       const unexpected: never = document;
@@ -273,13 +254,35 @@ function readingText(reading: SpecTokenReadingView): string {
   return `${reading.tags.join('|')} ${reading.tokens.join(' ')}`;
 }
 
-function factLine(fact: SpecFactView): string {
-  const fields: string[] = [`kind=${fact.kind}`];
-  if (fact.event !== undefined) fields.push(`event=${fact.event}`);
-  if (fact.actor !== undefined) fields.push(`actor=${fact.actor}`);
-  if (fact.when !== undefined) fields.push(`when=${JSON.stringify(fact.when)}`);
-  if (fact.assign !== undefined) fields.push(`assign=${JSON.stringify(fact.assign)}`);
-  if (fact.note !== undefined) fields.push(`note=${fact.note}`);
-  const head = [fact.id, ...fields, String(fact.confidence), fact.status].join(' ');
-  return `  ${head} <- ${fact.sources.join(' ')}`;
+function conceptLines(concepts: readonly ConceptView[]): string[] {
+  const lines: string[] = [];
+  for (const concept of concepts) {
+    const members = concept.members.map((member) => `${member.span} ${member.surface}`).join(', ');
+    lines.push(`  ${concept.id}  ${concept.canonical}  <- ${members}`);
+  }
+  return lines;
+}
+
+function frameLines(frames: readonly FrameView[]): string[] {
+  const lines: string[] = [];
+  for (const frame of frames) {
+    const flags: string[] = [];
+    if (frame.marker !== undefined) flags.push(frame.marker);
+    if (frame.negated === true) flags.push('negated');
+    if (frame.notTransition !== undefined) flags.push(`not a transition: ${frame.notTransition.reason}`);
+    lines.push(`  ${frame.id}  ${frame.sentence}  "${frame.clause.text}"${flags.length === 0 ? '' : `  (${flags.join(', ')})`}`);
+    const roles: string[] = [];
+    for (const name of ROLE_NAMES) {
+      const role = frame.roles[name].latest.value;
+      roles.push(`${name}=${role === 'unknown' ? '?' : role.text}`);
+    }
+    lines.push(`    ${roles.join(' ')}`);
+    const compiled = frame.compiled;
+    if (compiled !== undefined) {
+      const verb = compiled.kind === 'forbidden' ? 'forbids' : 'compiles to';
+      const from = compiled.from === undefined ? '' : `${compiled.from} -> `;
+      lines.push(`    ${verb} ${compiled.event}: ${compiled.object} ${from}${compiled.to} by ${compiled.actor}`);
+    }
+  }
+  return lines;
 }

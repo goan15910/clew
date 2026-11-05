@@ -5,20 +5,20 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { SpecEmitDocument, SpecFactsDocument, SpecGraphDocument, SpecInitDocument } from '../../src/application/documents.js';
+import type { SpecEmitDocument, SpecFramesDocument, SpecGraphDocument, SpecInitDocument } from '../../src/application/documents.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
 const syntheticSpec = join(root, 'tests', 'fixtures', 'synthetic-pipeline.md');
 
 describe('synthetic pipeline harness', { concurrency: false }, () => {
-  test('actorless mint, when-null overlay, lifecycle emit, chart write', { timeout: 600_000 }, () => {
+  test('frames compile, then chains, lifecycle emit, chart write', { timeout: 600_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'clew-synthetic-'));
     try {
       const initDoc = requireDocument<SpecInitDocument>(clew(dir, ['spec', 'init', syntheticSpec, '--session', 'syn', '--json']), 'spec init', 0);
       requireDocument<{ ok: boolean }>(clew(dir, ['spec', 'tag', '--session', 'syn', '--json']), 'spec tag', 0);
-      requireDocument<{ ok: boolean }>(clew(dir, ['spec', 'entities', 'list', '--session', 'syn', '--json']), 'spec entities list');
-      const factsDoc = requireDocument<SpecFactsDocument>(clew(dir, ['spec', 'facts', 'propose', '--session', 'syn', '--json']), 'spec facts propose');
+      requireDocument<{ ok: boolean }>(clew(dir, ['spec', 'concepts', 'list', '--session', 'syn', '--json']), 'spec concepts list', 0);
+      const framesDoc = requireDocument<SpecFramesDocument>(clew(dir, ['spec', 'frames', 'list', '--session', 'syn', '--json']), 'spec frames list', 0);
       const graphDoc = requireDocument<SpecGraphDocument>(clew(dir, ['spec', 'graph', 'build', '--session', 'syn', '--json']), 'spec graph build');
       const chartPath = join(dir, 'spec.yaml');
       const workflowsPath = join(dir, 'workflows.yaml');
@@ -28,24 +28,18 @@ describe('synthetic pipeline harness', { concurrency: false }, () => {
       );
 
       assert.ok((initDoc.sentences?.length ?? 0) > 0);
-      const facts = liveFacts(factsDoc);
-      assert.ok(facts.length > 0, 'expected ActionFact or ConfigurationFact rows');
-
-      let actionFacts = 0;
-      let actorless = 0;
-      let whenNull = 0;
-      for (const fact of facts) {
-        if (fact.kind !== 'action') continue;
-        actionFacts += 1;
-        assert.ok(fact.assign !== undefined && Object.keys(fact.assign).length > 0, `${fact.id} empty assign`);
-        assert.equal('from' in fact, false);
-        assert.equal('to' in fact, false);
-        if (fact.actor === 'actor:unspecified') actorless += 1;
-        if (predicateHasNull(fact.when as Record<string, unknown> | undefined)) whenNull += 1;
+      const frames = framesDoc.frames ?? [];
+      assert.ok(frames.length > 0, 'expected frames');
+      let compiled = 0;
+      let chained = 0;
+      for (const frame of frames) {
+        if (frame.compiled === undefined) continue;
+        compiled += 1;
+        assert.ok(frame.compiled.to.length > 0, `${frame.id} empty result`);
+        if (frame.marker === 'then' && frame.roles.when.latest.value !== 'unknown') chained += 1;
       }
-      assert.ok(actionFacts > 0, 'expected ActionFacts');
-      assert.ok(actorless > 0, 'expected actor:unspecified mints');
-      assert.ok(whenNull >= 0);
+      assert.ok(compiled > 0, 'expected compiled frames');
+      assert.ok(chained > 0, 'expected then clauses to wait on the previous frame');
 
       assert.equal(countCode(graphDoc.findings, 'transition-without-from'), 0);
       assert.equal(countCode(graphDoc.findings, 'state-space-truncated') + countCode(emitDoc.findings, 'state-space-truncated'), 0);
@@ -66,24 +60,6 @@ describe('synthetic pipeline harness', { concurrency: false }, () => {
     }
   });
 });
-
-function liveFacts(factsDoc: SpecFactsDocument): NonNullable<SpecFactsDocument['facts']> {
-  return (factsDoc.facts ?? []).filter((fact) => fact.status === 'current' || fact.status === undefined);
-}
-
-function predicateHasNull(when: Record<string, unknown> | undefined): boolean {
-  if (when === undefined) return false;
-  if (when.op === 'eq' && when.value === null) return true;
-  if ((when.op === 'and' || when.op === 'or') && Array.isArray(when.of)) {
-    for (const child of when.of) {
-      if (typeof child === 'object' && child !== null && predicateHasNull(child as Record<string, unknown>)) return true;
-    }
-  }
-  if (when.op === 'not' && typeof when.of === 'object' && when.of !== null) {
-    return predicateHasNull(when.of as Record<string, unknown>);
-  }
-  return false;
-}
 
 function countCode(findings: { code: string }[] | undefined, code: string): number {
   let count = 0;

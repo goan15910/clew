@@ -1,22 +1,30 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { describe, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, before, describe, test } from 'node:test';
 import { chartInteractive, workflowInteractive } from '../../src/application/interactive-graph.js';
 import { draftChains, draftCharts, draftLabelModel } from '../../src/domain/spec-graph-view.js';
-import { compileSnapshot } from '../../src/domain/spec-facts.js';
+import { compileSnapshot } from '../../src/domain/spec-compile.js';
 import { toWorkflowSetDraft } from '../../src/domain/spec-graph.js';
-import type { DraftGraph, Entity, Sentence, SpecSnapshot, TaggedSentence } from '../../src/domain/spec.js';
-import { SPEC_SCHEMA_VERSION, liveSentences } from '../../src/domain/spec.js';
-import { storedFacts } from './helpers/stored-facts.js';
-
-const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const matrix = join(root, 'tests', 'fixtures', 'sessions', 'viewer-matrix');
+import { liveSentences, type SpecSnapshot } from '../../src/domain/spec.js';
+import { buildFramesSession, loadFramesSnapshot } from './helpers/frames-session.js';
 
 describe('interactive graph', () => {
+  let dir = '';
+  let snapshot: SpecSnapshot;
+
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), 'clew-interactive-'));
+    buildFramesSession(dir, 'guarded', { graph: true });
+    snapshot = loadFramesSnapshot(dir, 'guarded');
+  });
+
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test('chart hover details include condition text and sentence lineage', () => {
-    const snapshot = loadSnapshot();
     const charts = draftCharts(snapshot.graph!);
     const order = charts.find((chart) => chart.object === 'order');
     assert.ok(order);
@@ -28,13 +36,12 @@ describe('interactive graph', () => {
     assert.equal(guarded.condition, 'the total is under 500 dollars');
     assert.match(guarded.sentence ?? '', /customer submits an order/);
     assert.ok(guarded.lineage.some((link) => link.layer === 'transition'));
-    assert.ok(guarded.lineage.some((link) => link.layer === 'fact'));
-    assert.ok(guarded.lineage.some((link) => link.layer === 'entity'));
+    assert.ok(guarded.lineage.some((link) => link.layer === 'frame'));
+    assert.ok(guarded.lineage.some((link) => link.layer === 'concept'));
     assert.ok(guarded.lineage.some((link) => link.layer === 'sentence'));
   });
 
   test('workflow chain marks the happy path', () => {
-    const snapshot = loadSnapshot();
     const built = toWorkflowSetDraft(
       snapshot.graph!,
       compileSnapshot(snapshot),
@@ -43,7 +50,7 @@ describe('interactive graph', () => {
     );
     assert.ok(built.draft);
     const labels = draftLabelModel(snapshot.graph!);
-    const happy = draftChains(built.draft).find((flow) => flow.id === 'HappyPath');
+    const happy = draftChains(built.draft).find((flow) => flow.id === 'W1');
     assert.ok(happy);
     const interactive = workflowInteractive(labels, happy, snapshot);
     assert.equal(interactive.expect, 'accepted');
@@ -51,24 +58,3 @@ describe('interactive graph', () => {
     assert.ok(Object.values(interactive.details).some((detail) => detail.kind === 'step'));
   });
 });
-
-function loadSnapshot(): SpecSnapshot {
-  const graph = readJson<DraftGraph>('graph.json');
-  const session = readJson<{ id: string; specHash: string; created: string; updated: string }>('session.json');
-  return {
-    schemaVersion: SPEC_SCHEMA_VERSION,
-    id: session.id,
-    specHash: session.specHash,
-    created: session.created,
-    updated: session.updated,
-    sentences: readJson<{ sentences: Sentence[] }>('sentences.json').sentences,
-    tagged: readJson<{ sentences: TaggedSentence[] }>('tokens.json').sentences,
-    entities: readJson<{ entities: Entity[] }>('entities.json').entities,
-    facts: storedFacts(readJson<{ facts: unknown[] }>('facts.json').facts),
-    graph,
-  };
-}
-
-function readJson<T>(name: string): T {
-  return JSON.parse(readFileSync(join(matrix, name), 'utf8')) as T;
-}

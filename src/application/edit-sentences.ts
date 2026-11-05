@@ -1,7 +1,6 @@
 // Use case: add, edit, or delete a sentence. An edit drops what was derived from that
-// sentence and rebuilds it: re-tag, fresh 1:1 spans, then the later layers reconcile.
-import { reconcileEntities } from '../domain/spec-entities.js';
-import { reconcileFacts } from '../domain/spec-facts.js';
+// sentence and rebuilds it: re-tag, fresh 1:1 spans, then concepts and frames.
+import { rebuildLayers } from '../domain/spec-frames.js';
 import { overlayGraph } from '../domain/spec-graph.js';
 import { applySentenceEdit, type SentenceEdit } from '../domain/spec-sentences.js';
 import { replaceSentenceSpans } from '../domain/spec-spans.js';
@@ -145,9 +144,10 @@ function rebuildSentence(
     tagged,
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
-  if (spans !== undefined) snapshot.spans = spans;
-  if (current.entities !== undefined) snapshot.entities = reconcileEntities(live, spans ?? [], current.entities);
-  if (current.facts !== undefined) snapshot.facts = reconcileFacts(live, spans ?? [], snapshot.entities ?? [], current.facts);
+  const layers = rebuildLayers(live, spans ?? [], current);
+  if (spans !== undefined) snapshot.spans = layers.spans;
+  if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+  if (layers.frames !== undefined) snapshot.frames = layers.frames;
   const overlay = overlayGraph(current.graph);
   if (overlay !== undefined) snapshot.graph = overlay;
   return { snapshot, findings };

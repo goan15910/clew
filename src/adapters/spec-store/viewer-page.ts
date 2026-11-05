@@ -218,6 +218,22 @@ main { padding: 1rem 1.5rem 2.5rem; max-width: 1100px; }
   font-size: 0.8rem;
 }
 .card .span-lemma::before { content: "lemma "; color: var(--line); font-family: var(--sans); }
+.roles {
+  margin: 0.45rem 0 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.2rem 0.75rem;
+  font-size: 0.88rem;
+}
+.roles dt { font: 600 0.72rem/1.6 var(--mono); color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+.roles dd { margin: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 0.45rem; align-items: baseline; }
+.role-value { font-weight: 600; }
+.role-value.unknown { font-weight: 400; font-style: italic; color: var(--muted); }
+.role-dep, .member-span { font: 0.75rem var(--mono); color: #1d4ed8; background: #dbeafe; padding: 0.05rem 0.3rem; border-radius: 0.2rem; }
+.frame-graph, .members { margin: 0.45rem 0 0; display: flex; flex-wrap: wrap; gap: 0.3rem 0.5rem; align-items: baseline; font-size: 0.86rem; }
+.frame-graph .k { font: 600 0.72rem var(--mono); color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+.member { display: inline-flex; gap: 0.3rem; align-items: baseline; }
+.member-sentence { font: 0.75rem var(--mono); color: var(--muted); }
 .card .span-clause::before { content: "clause "; color: var(--line); }
 .pill {
   display: inline-block;
@@ -449,11 +465,9 @@ details.lineage[open] > summary::before { content: "▾ "; }
 <div class="toolbar">
   <div class="filters">
     <label>Search<input type="search" id="filter-text" placeholder="id or surface form"></label>
-    <label>Entity kind<select id="filter-kind"><option value="">any</option></select></label>
-    <label>Fact type<select id="filter-type"><option value="">any</option></select></label>
-    <label>Fact status<select id="filter-status"><option value="">any</option><option>current</option><option>stale</option></select></label>
+    <label>Frame<select id="filter-frame"><option value="">any</option></select></label>
+    <label>Concept<select id="filter-concept"><option value="">any</option></select></label>
     <label>Span<select id="filter-span"><option value="">any</option></select></label>
-    <label><input type="checkbox" id="filter-rejected">Show rejected entities</label>
     <label><input type="checkbox" id="filter-insignificant">Show insignificant spans</label>
     <label><input type="checkbox" id="filter-multi-token">Multi-token spans only</label>
     <button type="button" id="filter-clear">Clear filters</button>
@@ -466,15 +480,15 @@ details.lineage[open] > summary::before { content: "▾ "; }
   </div>
   <div class="tabset">
     <div class="tabs" role="tablist" aria-label="Views">
-      <button type="button" role="tab" id="tab-facts" aria-selected="true" data-tab="facts">Facts</button>
-      <button type="button" role="tab" id="tab-entities" aria-selected="false" data-tab="entities">Entities</button>
+      <button type="button" role="tab" id="tab-frames" aria-selected="true" data-tab="frames">Frames</button>
+      <button type="button" role="tab" id="tab-concepts" aria-selected="false" data-tab="concepts">Concepts</button>
       <button type="button" role="tab" id="tab-sentences" aria-selected="false" data-tab="sentences">Sentences</button>
       <button type="button" role="tab" id="tab-spans" aria-selected="false" data-tab="spans">Span</button>
       <button type="button" role="tab" id="tab-graph" aria-selected="false" data-tab="graph">Graph</button>
     </div>
     <div class="tab-body">
-      <section class="panel active" id="panel-facts" role="tabpanel" aria-labelledby="tab-facts"></section>
-      <section class="panel" id="panel-entities" role="tabpanel" aria-labelledby="tab-entities" hidden></section>
+      <section class="panel active" id="panel-frames" role="tabpanel" aria-labelledby="tab-frames"></section>
+      <section class="panel" id="panel-concepts" role="tabpanel" aria-labelledby="tab-concepts" hidden></section>
       <section class="panel" id="panel-sentences" role="tabpanel" aria-labelledby="tab-sentences" hidden></section>
       <section class="panel" id="panel-spans" role="tabpanel" aria-labelledby="tab-spans" hidden></section>
       <section class="panel" id="panel-graph" role="tabpanel" aria-labelledby="tab-graph" hidden></section>
@@ -486,20 +500,25 @@ details.lineage[open] > summary::before { content: "▾ "; }
 <script src="clew-interactive-graph.js"></script>
 <script>
 (function () {
-  const KINDS = ["actor", "object", "action", "condition"];
-  const TYPES = ["action", "init", "terminal", "forbidden"];
+  const FRAME_FILTERS = [
+    ["transition", "transition"],
+    ["not-transition", "not a transition"],
+    ["negated", "negated"],
+    ["incomplete", "incomplete"],
+  ];
+  const ROLES = ["actor", "event", "object", "result", "when"];
   const state = {
     session: null,
     sentences: [],
     tagged: [],
     spans: [],
-    entities: [],
-    facts: [],
+    concepts: [],
+    frames: [],
     graph: null,
     graphView: null,
     graphStatus: "loading",
-    tab: "facts",
-    page: { facts: 0, entities: 0, sentences: 0, spans: 0 },
+    tab: "frames",
+    page: { frames: 0, concepts: 0, sentences: 0, spans: 0 },
     graphMounts: [],
   };
   const PAGE_SIZE = 30;
@@ -510,32 +529,24 @@ details.lineage[open] > summary::before { content: "▾ "; }
     banner: document.getElementById("banner"),
     refresh: document.getElementById("refresh"),
     text: document.getElementById("filter-text"),
-    kind: document.getElementById("filter-kind"),
-    type: document.getElementById("filter-type"),
-    status: document.getElementById("filter-status"),
+    frame: document.getElementById("filter-frame"),
+    concept: document.getElementById("filter-concept"),
     span: document.getElementById("filter-span"),
-    rejected: document.getElementById("filter-rejected"),
     insignificant: document.getElementById("filter-insignificant"),
     multiToken: document.getElementById("filter-multi-token"),
     clear: document.getElementById("filter-clear"),
-    facts: document.getElementById("panel-facts"),
-    entities: document.getElementById("panel-entities"),
+    frames: document.getElementById("panel-frames"),
+    concepts: document.getElementById("panel-concepts"),
     sentences: document.getElementById("panel-sentences"),
     spans: document.getElementById("panel-spans"),
     graph: document.getElementById("panel-graph"),
   };
 
-  for (const kind of KINDS) {
+  for (const [value, label] of FRAME_FILTERS) {
     const opt = document.createElement("option");
-    opt.value = kind;
-    opt.textContent = kind;
-    els.kind.appendChild(opt);
-  }
-  for (const type of TYPES) {
-    const opt = document.createElement("option");
-    opt.value = type;
-    opt.textContent = type;
-    els.type.appendChild(opt);
+    opt.value = value;
+    opt.textContent = label;
+    els.frame.appendChild(opt);
   }
 
   function esc(value) {
@@ -593,13 +604,15 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return map;
   }
 
-  function entityShown(entity) {
-    return els.rejected.checked || entity.status !== "rejected";
+  function indexConcepts() {
+    const map = new Map();
+    for (const concept of state.concepts) map.set(concept.id, concept);
+    return map;
   }
 
-  function indexEntities() {
+  function indexFrames() {
     const map = new Map();
-    for (const entity of state.entities) map.set(entity.id, entity);
+    for (const frame of state.frames) map.set(frame.id, frame);
     return map;
   }
 
@@ -638,23 +651,6 @@ details.lineage[open] > summary::before { content: "▾ "; }
   function sentenceIdOfToken(tokenId) {
     const dot = tokenId.indexOf(".");
     return dot > 0 ? tokenId.slice(0, dot) : "";
-  }
-
-  /** Sentence id for a fact/entity source: sentence id, token id, or span id. */
-  function sentenceIdOfSource(source) {
-    if (!source) return "";
-    if (/^sp:/.test(source)) {
-      const body = source.slice(3);
-      const first = body.split("..")[0] || body;
-      return sentenceIdOfToken(first);
-    }
-    if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) return sentenceIdOfToken(source);
-    if (/^s[1-9][0-9]*$/.test(source)) return source;
-    return "";
-  }
-
-  function sourceTouchesSentence(source, sentenceId) {
-    return sentenceIdOfSource(source) === sentenceId;
   }
 
   function spanCoversToken(span, tokenId, order) {
@@ -696,12 +692,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return false;
   }
 
-  const LINEAGE_ORDER = ["span", "sentence", "entity", "fact", "source", "transition", "state", "flow"];
+  const LINEAGE_ORDER = ["span", "sentence", "concept", "frame", "source", "transition", "state", "flow"];
   const LINEAGE_LABELS = {
     span: "Spans",
     sentence: "Sentences",
-    entity: "Entities",
-    fact: "Facts",
+    concept: "Concepts",
+    frame: "Frames",
     source: "Sources",
     transition: "Transitions",
     state: "States",
@@ -890,103 +886,149 @@ details.lineage[open] > summary::before { content: "▾ "; }
     flush();
   }
 
-  function varNameForEntity(entity) {
-    if (entity.kind === "object" && entity.name) {
-      const name = String(entity.name).replace(/-/g, "_");
-      return /^[a-z][a-z0-9_]*$/.test(name) ? name : "";
+  function roleLatest(frame, role) {
+    const field = frame.roles && frame.roles[role];
+    return field ? field.latest : { value: "unknown", dependsOn: [] };
+  }
+
+  function roleKnown(frame, role) {
+    return roleLatest(frame, role).value !== "unknown";
+  }
+
+  function roleText(frame, role) {
+    const value = roleLatest(frame, role).value;
+    return value === "unknown" ? "unknown" : value.text;
+  }
+
+  function roleRefs(frame, role) {
+    const value = roleLatest(frame, role).value;
+    return value === "unknown" ? [] : value.refs || [];
+  }
+
+  function roleConcepts(frame, role) {
+    const spans = indexSpans();
+    return roleRefs(frame, role).map(function (ref) {
+      if (ref.indexOf("concept:") === 0) return ref;
+      const span = spans.get(ref);
+      return span && span.entityId ? span.entityId : "";
+    }).filter(function (id) { return id !== ""; });
+  }
+
+  function conceptRoles(frame, conceptId) {
+    return ["actor", "event", "object", "result"].filter(function (role) {
+      return roleConcepts(frame, role).indexOf(conceptId) >= 0;
+    });
+  }
+
+  function frameIncomplete(frame) {
+    if (frame.notTransition) return false;
+    return !roleKnown(frame, "event") || !roleKnown(frame, "object") || !roleKnown(frame, "result");
+  }
+
+  function frameKind(frame) {
+    if (frame.notTransition) return "not a transition";
+    if (frame.negated === true) return "negated";
+    if (frameIncomplete(frame)) return "incomplete";
+    return "transition";
+  }
+
+  function frameFilterMatches(frame, value) {
+    if (value === "transition") return !frame.notTransition;
+    if (value === "not-transition") return Boolean(frame.notTransition);
+    if (value === "negated") return frame.negated === true;
+    if (value === "incomplete") return frameIncomplete(frame);
+    return true;
+  }
+
+  function sortedSpanIds(ids) {
+    const spans = indexSpans();
+    const order = tokenOrder();
+    function at(id) {
+      const span = spans.get(id);
+      const index = span ? order.get(span.firstTokenId) : undefined;
+      return index === undefined ? Number.MAX_SAFE_INTEGER : index;
     }
-    if (entity.kind === "condition") {
-      const suffix = entity.id.indexOf("condition:") === 0 ? entity.id.slice("condition:".length) : entity.id;
-      const name = String(suffix).replace(/-/g, "_");
-      return /^[a-z][a-z0-9_]*$/.test(name) ? name : "";
-    }
-    return "";
+    return ids.slice().sort(function (left, right) { return at(left) - at(right); });
   }
 
-  function eventFromAction(entity) {
-    if (entity.kind !== "action" || !entity.name) return "";
-    const event = String(entity.name).replace(/-/g, "_").toUpperCase();
-    return /^[A-Z][A-Z0-9_]*$/.test(event) ? event : "";
-  }
-
-  function collectVars(node, names) {
-    if (!node || typeof node !== "object") return;
-    if (typeof node.var === "string") names[node.var] = true;
-    if (Array.isArray(node.of)) {
-      for (const child of node.of) collectVars(child, names);
-    } else if (node.of) collectVars(node.of, names);
-  }
-
-  function factKind(fact) {
-    return fact.kind || "";
-  }
-
-  function factCitedIds(fact) {
+  function frameDependsOn(frame) {
     const ids = [];
-    if (fact.actor) ids.push(fact.actor);
-    const names = {};
-    collectVars(fact.when, names);
-    if (fact.assign) {
-      for (const key of Object.keys(fact.assign)) names[key] = true;
+    for (const role of ROLES) {
+      for (const id of roleLatest(frame, role).dependsOn || []) {
+        if (ids.indexOf(id) < 0) ids.push(id);
+      }
     }
-    for (const entity of state.entities) {
-      const name = varNameForEntity(entity);
-      if (name && names[name] && ids.indexOf(entity.id) < 0) ids.push(entity.id);
-      const event = eventFromAction(entity);
-      if (event && fact.event === event && ids.indexOf(entity.id) < 0) ids.push(entity.id);
-    }
-    return ids;
+    return sortedSpanIds(ids);
   }
 
-  function factLineage(fact) {
-    const entities = indexEntities();
+  function clauseText(frame) {
+    return frame.clause && frame.clause.text ? frame.clause.text : "";
+  }
+
+  function frameTransitions(frameId) {
+    if (!state.graph) return [];
+    return (state.graph.transitions || []).filter(function (transition) {
+      return transition.frame === frameId || (transition.frames || []).indexOf(frameId) >= 0;
+    });
+  }
+
+  function forbiddenFlows(frameId) {
+    if (!state.graph) return [];
+    return (state.graph.flows || []).filter(function (flow) { return flow.forbidden === frameId; });
+  }
+
+  function transitionRow(transition) {
+    return {
+      layer: "transition",
+      text: transition.id + " " + transition.from + " -" + transition.event + "→ " + transition.to,
+      bits: [
+        part("id", transition.id),
+        part("up", transition.from),
+        part("type", transition.event),
+        part("note", "→"),
+        part("down", transition.to),
+      ],
+    };
+  }
+
+  function frameRow(frame, label) {
+    return {
+      layer: "frame",
+      text: frame.id + " " + label + " “" + clauseText(frame) + "”",
+      bits: [part("id", frame.id), part("type", label), part("content", clauseText(frame), true)],
+    };
+  }
+
+  function frameLineage(frame) {
     const rows = [];
-    for (const id of factCitedIds(fact)) {
-      const entity = entities.get(id);
-      if (entity && !entityShown(entity)) continue;
-      const label = entity ? (entity.name || entity.text || id) : id;
-      const field = entity ? entity.kind : "entity";
-      rows.push({
-        layer: "entity",
-        text: field + " → " + id + " (" + label + ")",
-        bits: [part("type", field), part("note", "→"), part("id", id), part("content", label)],
-      });
-      if (entity) appendSpanSources(rows, entity.sources);
-    }
-    for (const source of fact.sources || []) {
-      if (/^s[1-9][0-9]*$/.test(source)) {
-        const sentence = sentenceById(source);
-        rows.push(sentence
-          ? sentenceRow(sentence)
-          : { layer: "sentence", text: source, bits: [part("id", source)] });
-      } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source) || /^sp:/.test(source)) {
-        const span = /^sp:/.test(source) ? indexSpans().get(source) : spanForToken(source);
-        const sentence = span ? sentenceById(sentenceIdOfToken(span.firstTokenId)) : null;
-        if (sentence && span) rows.push(spanSentenceRow(sentence, [span]));
-        else if (span) rows.push(spanRow(span, false));
-        else rows.push({ layer: "source", text: source, bits: [part("id", source)] });
-      } else {
-        rows.push({ layer: "source", text: source, bits: [part("id", source)] });
+    appendSpanSources(rows, frameDependsOn(frame));
+    const sentence = sentenceById(frame.sentence);
+    rows.push(sentence ? sentenceRow(sentence) : { layer: "sentence", text: frame.sentence, bits: [part("id", frame.sentence)] });
+    const concepts = indexConcepts();
+    for (const role of ["actor", "event", "object", "result"]) {
+      for (const id of roleConcepts(frame, role)) {
+        const concept = concepts.get(id);
+        const label = concept ? concept.canonical : id;
+        rows.push({
+          layer: "concept",
+          text: role + " → " + id + " (" + label + ")",
+          bits: [part("type", role), part("note", "→"), part("id", id), part("content", label)],
+        });
       }
     }
+    const frames = indexFrames();
+    for (const id of roleRefs(frame, "when")) {
+      const cited = frames.get(id);
+      rows.push(cited ? frameRow(cited, "when →") : { layer: "frame", text: "when → " + id, bits: [part("type", "when →"), part("id", id)] });
+    }
+    for (const other of state.frames) {
+      if (roleRefs(other, "when").indexOf(frame.id) >= 0) rows.push(frameRow(other, "when of →"));
+    }
+    const transitions = frameTransitions(frame.id);
+    for (const transition of transitions) rows.push(transitionRow(transition));
     if (state.graph) {
-      for (const transition of state.graph.transitions || []) {
-        if (transition.fact === fact.id || (transition.facts || []).indexOf(fact.id) >= 0) {
-          rows.push({
-            layer: "transition",
-            text: transition.id + " " + transition.from + " -" + transition.event + "→ " + transition.to,
-            bits: [
-              part("id", transition.id),
-              part("up", transition.from),
-              part("type", transition.event),
-              part("note", "→"),
-              part("down", transition.to),
-            ],
-          });
-        }
-      }
       for (const graphState of state.graph.states || []) {
-        if ((graphState.facts || []).indexOf(fact.id) >= 0) {
+        if ((graphState.frames || []).indexOf(frame.id) >= 0) {
           rows.push({
             layer: "state",
             text: graphState.id + " (" + graphState.object + ")",
@@ -995,29 +1037,33 @@ details.lineage[open] > summary::before { content: "▾ "; }
         }
       }
       for (const flow of state.graph.flows || []) {
-        if (flow.forbidden === fact.id) {
-          rows.push({
-            layer: "flow",
-            text: flow.id + " forbidden " + fact.id,
-            bits: [part("id", flow.id), part("type", "forbidden"), part("ref", fact.id)],
-          });
+        for (const transition of transitions) {
+          if ((flow.transitions || []).indexOf(transition.id) >= 0) {
+            rows.push({
+              layer: "flow",
+              text: flow.id + " transition " + transition.id,
+              bits: [part("id", flow.id), part("type", "transition"), part("ref", transition.id)],
+            });
+          }
         }
+      }
+      for (const flow of forbiddenFlows(frame.id)) {
+        rows.push({
+          layer: "flow",
+          text: flow.id + " forbidden " + frame.id,
+          bits: [part("id", flow.id), part("type", "forbidden"), part("ref", frame.id)],
+        });
       }
     }
     return lineageBlock(rows);
   }
 
-  function entityLineage(entity) {
+  function conceptLineage(concept) {
     const rows = [];
-    appendSpanSources(rows, entity.sources);
-    for (const fact of state.facts) {
-      if (factCitedIds(fact).indexOf(entity.id) >= 0) {
-        rows.push({
-          layer: "fact",
-          text: fact.id + " " + factKind(fact),
-          bits: [part("id", fact.id), part("type", factKind(fact))],
-        });
-      }
+    appendSpanSources(rows, sortedSpanIds(concept.members || []));
+    for (const frame of state.frames) {
+      const roles = conceptRoles(frame, concept.id);
+      if (roles.length) rows.push(frameRow(frame, roles.join(" · ")));
     }
     return lineageBlock(rows);
   }
@@ -1038,74 +1084,97 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return part("ref", source);
   }
 
+  function spanInSentence(spanId, sentenceId) {
+    const span = indexSpans().get(spanId);
+    return Boolean(span) && sentenceIdOfToken(span.firstTokenId) === sentenceId;
+  }
+
   function sentenceLineage(sentence) {
     const rows = [];
-    for (const entity of state.entities.filter(entityShown)) {
-      for (const source of entity.sources || []) {
-        if (sourceTouchesSentence(source, sentence.id)) {
-          rows.push({
-            layer: "entity",
-            text: entity.id + " via " + source,
-            bits: [part("id", entity.id), part("note", "via"), viaPart(source)],
-          });
-          break;
-        }
+    for (const concept of state.concepts) {
+      const member = sortedSpanIds(concept.members || []).find(function (id) { return spanInSentence(id, sentence.id); });
+      if (member) {
+        rows.push({
+          layer: "concept",
+          text: concept.id + " via " + member,
+          bits: [part("id", concept.id), part("note", "via"), viaPart(member)],
+        });
       }
     }
-    for (const fact of state.facts) {
-      for (const source of fact.sources || []) {
-        if (sourceTouchesSentence(source, sentence.id)) {
-          rows.push({
-            layer: "fact",
-            text: fact.id + " " + factKind(fact) + " via " + source,
-            bits: [part("id", fact.id), part("type", factKind(fact)), part("note", "via"), viaPart(source)],
-          });
-          break;
-        }
-      }
+    const frames = state.frames.filter(function (frame) { return frame.sentence === sentence.id; });
+    for (const frame of frames) rows.push(frameRow(frame, frameKind(frame)));
+    for (const frame of frames) {
+      for (const transition of frameTransitions(frame.id)) rows.push(transitionRow(transition));
     }
     return lineageBlock(rows);
   }
 
-  function renderFacts() {
-    const kind = els.kind.value;
-    const type = els.type.value;
-    const status = els.status.value;
-    const entities = indexEntities();
-    const visible = state.facts.filter(function (fact) {
-      if (fact.removed === true) return false;
-      if (type && factKind(fact) !== type) return false;
-      if (status && fact.status !== status) return false;
-      if (kind) {
-        let hit = false;
-        for (const id of factCitedIds(fact)) {
-          const entity = entities.get(id);
-          if (entity && entity.kind === kind) hit = true;
-        }
-        if (!hit) return false;
-      }
-      return matchesText([
-        fact.id, factKind(fact), fact.event, fact.actor, JSON.stringify(fact.when || {}), JSON.stringify(fact.assign || {}), fact.note,
-      ].concat(fact.sources || []));
+  function rolesHtml(frame) {
+    return '<dl class="roles">' + ROLES.map(function (role) {
+      const known = roleKnown(frame, role);
+      const deps = roleLatest(frame, role).dependsOn || [];
+      return "<dt>" + role + '</dt><dd data-role="' + role + '"><span class="role-value' + (known ? "" : " unknown") + '">' +
+        esc(roleText(frame, role)) + "</span>" +
+        deps.map(function (id) { return '<code class="role-dep">' + esc(id) + "</code>"; }).join("") + "</dd>";
+    }).join("") + "</dl>";
+  }
+
+  function frameGraphHtml(frame) {
+    let html = "";
+    for (const transition of frameTransitions(frame.id)) {
+      html += '<p class="frame-graph" data-graph="transition"><span class="k">transition</span>' +
+        '<span class="line-type">' + esc(transition.event) + "</span>" +
+        '<code class="line-up">' + esc(transition.from) + "</code>→" +
+        '<code class="line-down">' + esc(transition.to) + "</code></p>";
+    }
+    for (const flow of forbiddenFlows(frame.id)) {
+      html += '<p class="frame-graph" data-graph="forbidden"><span class="k">forbidden</span>' +
+        '<code class="line-id">' + esc(flow.id) + "</code>" +
+        '<span class="line-type">' + esc(roleText(frame, "event")) + "</span>" +
+        "<span>" + esc(flow.title || "") + "</span></p>";
+    }
+    return html;
+  }
+
+  function frameHaystacks(frame) {
+    const items = [frame.id, frame.sentence, clauseText(frame), frame.marker, frameKind(frame)];
+    for (const role of ROLES) {
+      items.push(roleText(frame, role), ...roleRefs(frame, role), ...(roleLatest(frame, role).dependsOn || []));
+    }
+    return items;
+  }
+
+  function sentenceFrameMatches(sentence) {
+    const value = els.frame.value;
+    if (!value) return true;
+    return state.frames.some(function (frame) { return frame.sentence === sentence.id && frameFilterMatches(frame, value); });
+  }
+
+  function renderFrames() {
+    const frameFilter = els.frame.value;
+    const conceptFilter = els.concept.value;
+    const visible = state.frames.filter(function (frame) {
+      if (frameFilter && !frameFilterMatches(frame, frameFilter)) return false;
+      if (conceptFilter && conceptRoles(frame, conceptFilter).length === 0) return false;
+      return matchesText(frameHaystacks(frame));
     });
     if (visible.length === 0) {
-      els.facts.innerHTML = '<p class="empty">No facts match these filters.</p>';
+      els.frames.innerHTML = '<p class="empty">No frames match these filters.</p>';
       return;
     }
-    renderPage("facts", els.facts, visible, function (fact) {
-      const bits = [];
-      if (fact.event) bits.push("event " + fact.event);
-      if (fact.actor) bits.push("actor " + fact.actor);
-      if (fact.when) bits.push("when " + JSON.stringify(fact.when));
-      if (fact.assign) bits.push("assign " + JSON.stringify(fact.assign));
+    renderPage("frames", els.frames, visible, function (frame) {
+      let pills = pill(frame.sentence);
+      if (frame.marker) pills += pill(frame.marker);
+      if (frame.negated === true) pills += pill("negated", "bad");
+      if (frame.notTransition) pills += pill("not a transition", "warn") + pill(frame.notTransition.reason);
+      if (frameIncomplete(frame)) pills += pill("incomplete", "warn");
       return (
         '<article class="card">' +
-        "<h2><span class=\\"id\\">" + esc(fact.id) + "</span>" +
-        pill(factKind(fact)) + pill(fact.status, statusTone(fact.status)) +
-        pill(fact.origin) +
-        "<span class=\\"pill\\">" + esc(String(fact.confidence)) + "</span></h2>" +
-        '<p class="blurb">' + esc(bits.join(" · ") || "no roles") + "</p>" +
-        factLineage(fact) +
+        '<h2><span class="id">' + esc(frame.id) + "</span>" + pills + "</h2>" +
+        '<p class="blurb">' + esc(clauseText(frame)) + "</p>" +
+        rolesHtml(frame) +
+        frameGraphHtml(frame) +
+        frameLineage(frame) +
         "</article>"
       );
     });
@@ -1130,29 +1199,53 @@ details.lineage[open] > summary::before { content: "▾ "; }
     panel.innerHTML = pager + body + pager;
   }
 
-  function renderEntities() {
-    const kind = els.kind.value;
-    const visible = state.entities.filter(function (entity) {
-      if (!entityShown(entity)) return false;
-      if (kind && entity.kind !== kind) return false;
-      return matchesText([entity.id, entity.kind, entity.name, entity.text, entity.note, ...(entity.sources || [])]);
+  function conceptMembers(concept) {
+    const spans = indexSpans();
+    return (concept.members || []).map(function (id) {
+      const span = spans.get(id);
+      return { span: id, surface: span ? span.surface : id, sentence: span ? sentenceIdOfToken(span.firstTokenId) : "" };
+    });
+  }
+
+  function renderConcepts() {
+    const conceptFilter = els.concept.value;
+    const visible = state.concepts.filter(function (concept) {
+      if (conceptFilter && concept.id !== conceptFilter) return false;
+      const members = conceptMembers(concept);
+      return matchesText([concept.id, concept.canonical].concat(
+        members.map(function (member) { return member.span; }),
+        members.map(function (member) { return member.surface; }),
+      ));
     });
     if (visible.length === 0) {
-      els.entities.innerHTML = '<p class="empty">No entities match these filters.</p>';
+      els.concepts.innerHTML = '<p class="empty">No concepts match these filters.</p>';
       return;
     }
-    renderPage("entities", els.entities, visible, function (entity) {
-      const label = entity.name || entity.text || "";
+    renderPage("concepts", els.concepts, visible, function (concept) {
+      const members = conceptMembers(concept);
       return (
         '<article class="card">' +
-        "<h2><span class=\\"id\\">" + esc(entity.id) + "</span>" +
-        pill(entity.kind) + pill(entity.status, statusTone(entity.status)) +
-        pill(entity.origin) + "</h2>" +
-        (label ? '<p class="blurb">' + esc(label) + "</p>" : "") +
-        entityLineage(entity) +
+        '<h2><span class="id">' + esc(concept.id) + "</span>" +
+        pill(members.length === 1 ? "1 member" : members.length + " members") + "</h2>" +
+        '<p class="blurb">' + esc(concept.canonical) + "</p>" +
+        '<p class="members">' + members.map(function (member) {
+          return '<span class="member" data-span="' + esc(member.span) + '"><code class="member-span" title="' + esc(member.span) + '">' +
+            esc(member.surface) + '</code><span class="member-sentence">' + esc(member.sentence) + "</span></span>";
+        }).join("") + "</p>" +
+        conceptLineage(concept) +
         "</article>"
       );
     });
+  }
+
+  function fillConceptFilter() {
+    const current = els.concept.value;
+    let html = '<option value="">any</option>';
+    for (const concept of state.concepts) {
+      html += '<option value="' + esc(concept.id) + '">' + esc(concept.canonical) + " (" + (concept.members || []).length + ")</option>";
+    }
+    els.concept.innerHTML = html;
+    els.concept.value = state.concepts.some(function (concept) { return concept.id === current; }) ? current : "";
   }
 
   const POS_ORDER = [
@@ -1276,6 +1369,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const surfaces = spans.map(function (span) { return span.surface; });
       const ids = spans.map(function (span) { return span.id; });
       if (spanFilterActive() && !spans.some(spanMatches)) return false;
+      if (els.concept.value && !spans.some(function (span) { return span.entityId === els.concept.value; })) return false;
+      if (!sentenceFrameMatches(sentence)) return false;
       return matchesText([sentence.id, sentence.text, sentence.original, sentence.section, sentence.state, ...surfaces, ...ids]);
     });
     if (visible.length === 0) {
@@ -1556,8 +1651,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function render() {
-    if (state.tab === "facts") renderFacts();
-    else if (state.tab === "entities") renderEntities();
+    if (state.tab === "frames") renderFrames();
+    else if (state.tab === "concepts") renderConcepts();
     else if (state.tab === "sentences") renderSentences();
     else if (state.tab === "spans") renderSpans();
     else if (state.tab === "graph") renderGraph();
@@ -1569,7 +1664,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const selected = button.getAttribute("data-tab") === name;
       button.setAttribute("aria-selected", selected ? "true" : "false");
     }
-    for (const panel of [["facts", els.facts], ["entities", els.entities], ["sentences", els.sentences], ["spans", els.spans], ["graph", els.graph]]) {
+    for (const panel of [["frames", els.frames], ["concepts", els.concepts], ["sentences", els.sentences], ["spans", els.spans], ["graph", els.graph]]) {
       const active = panel[0] === name;
       panel[1].classList.toggle("active", active);
       panel[1].hidden = !active;
@@ -1621,7 +1716,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   });
 
   function resetPages() {
-    state.page = { facts: 0, entities: 0, sentences: 0, spans: 0 };
+    state.page = { frames: 0, concepts: 0, sentences: 0, spans: 0 };
   }
 
   function filtersChanged() {
@@ -1629,18 +1724,16 @@ details.lineage[open] > summary::before { content: "▾ "; }
     render();
   }
 
-  for (const input of [els.text, els.kind, els.type, els.status, els.span, els.rejected, els.insignificant, els.multiToken]) {
+  for (const input of [els.text, els.frame, els.concept, els.span, els.insignificant, els.multiToken]) {
     input.addEventListener("input", filtersChanged);
     input.addEventListener("change", filtersChanged);
   }
   els.clear.addEventListener("click", function () {
     resetPages();
     els.text.value = "";
-    els.kind.value = "";
-    els.type.value = "";
-    els.status.value = "";
+    els.frame.value = "";
+    els.concept.value = "";
     els.span.value = "";
-    els.rejected.checked = false;
     els.insignificant.checked = false;
     els.multiToken.checked = false;
     render();
@@ -1706,20 +1799,21 @@ details.lineage[open] > summary::before { content: "▾ "; }
       state.tagged = (tokensFile && tokensFile.sentences) || [];
       const spansFile = await loadJson("spans.json");
       state.spans = (spansFile && spansFile.spans) || [];
-      const entitiesFile = await loadJson("entities.json");
-      state.entities = (entitiesFile && entitiesFile.entities) || [];
-      const factsFile = await loadJson("facts.json");
-      state.facts = (factsFile && factsFile.facts) || [];
+      const conceptsFile = await loadJson("concepts.json");
+      state.concepts = (conceptsFile && conceptsFile.concepts) || [];
+      const framesFile = await loadJson("frames.json");
+      state.frames = (framesFile && framesFile.frames) || [];
       state.graph = await loadJson("graph.json");
       const graphReady = loadGraphView();
       setSessionOptions(Array.from(els.sessionId.options, function (opt) { return opt.value; })
         .filter(function (id) { return id !== "…"; }), session.id);
       els.meta.textContent = state.sentences.length + " sentences · " +
         state.spans.length + " spans · " +
-        state.entities.length + " entities · " +
-        state.facts.filter(function (fact) { return fact.removed !== true; }).length + " facts";
+        state.concepts.length + " concepts · " +
+        state.frames.length + " frames";
       document.title = "Clew · " + session.id;
       fillSpanFilter();
+      fillConceptFilter();
       els.banner.textContent = "Session updated " + localTime(session.updated) + " · loaded " + localTime(new Date());
       els.banner.classList.remove("error");
       render();

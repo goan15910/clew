@@ -1,20 +1,21 @@
 // JSON patches for spec graph split and group. Zod stops at this file.
 import { z } from 'zod';
 import type { GroupRequest } from '../../domain/spec-graph.js';
+import { SPEC_FRAME_ID_PATTERN } from '../../domain/spec.js';
 import { WORKFLOW_ID_MESSAGE, WORKFLOW_ID_PATTERN } from '../../domain/workflow.js';
 import { readJson } from '../json/read-json.js';
 
-const TRANSITION_ID = /^f[1-9][0-9]*$/;
+const TRANSITION_ID = SPEC_FRAME_ID_PATTERN;
 const FlowId = z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE);
 
 const SplitPatch = z.strictObject({
   id: FlowId,
-  at: z.union([z.number().int().positive(), z.string().regex(/^[A-Za-z0-9_-]+$/, 'split at a transition id or a 1-based edge number')]),
+  at: z.union([z.number().int().positive(), z.string().regex(/^[A-Za-z0-9_:.-]+$/, 'split at a transition id or a 1-based edge number')]),
 });
 
 const GroupPatch = z.strictObject({
   ids: z.array(FlowId).min(2).optional(),
-  transitions: z.array(z.string().regex(TRANSITION_ID, 'transition ids are fact ids')).min(2).optional(),
+  transitions: z.array(z.string().regex(TRANSITION_ID, 'transition ids are frame ids')).min(2).optional(),
   title: z.string().min(1).optional(),
   into: FlowId.optional(),
 }).superRefine((value, context) => {

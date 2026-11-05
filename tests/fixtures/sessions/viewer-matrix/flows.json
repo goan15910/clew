@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 5,
+  "flows": [
+    {
+      "id": "W1",
+      "title": "Order lifecycle",
+      "expect": "accepted",
+      "transitions": [
+        "fr:s1.t1",
+        "fr:s1.t7"
+      ],
+      "origin": "rule"
+    }
+  ]
+}

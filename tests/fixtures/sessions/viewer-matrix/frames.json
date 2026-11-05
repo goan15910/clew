@@ -1,0 +1,455 @@
+{
+  "schemaVersion": 5,
+  "frames": [
+    {
+      "id": "fr:s1.t1",
+      "sentence": "s1",
+      "clause": {
+        "text": "When the customer submits an order",
+        "start": 0,
+        "end": 34
+      },
+      "roles": {
+        "actor": {
+          "original": {
+            "value": {
+              "text": "customer",
+              "refs": [
+                "concept:customer"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t3..s1.t3"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "customer",
+              "refs": [
+                "concept:customer"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t3..s1.t3"
+            ]
+          },
+          "history": []
+        },
+        "event": {
+          "original": {
+            "value": {
+              "text": "submit",
+              "refs": [
+                "sp:s1.t4..s1.t4"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t4..s1.t4"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "submit",
+              "refs": [
+                "sp:s1.t4..s1.t4"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t4..s1.t4"
+            ]
+          },
+          "history": []
+        },
+        "object": {
+          "original": {
+            "value": {
+              "text": "order",
+              "refs": [
+                "concept:order"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t6..s1.t6"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "order",
+              "refs": [
+                "concept:order"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t6..s1.t6"
+            ]
+          },
+          "history": []
+        },
+        "result": {
+          "original": {
+            "value": {
+              "text": "submitted",
+              "refs": []
+            },
+            "dependsOn": [
+              "sp:s1.t4..s1.t4"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "submitted",
+              "refs": []
+            },
+            "dependsOn": [
+              "sp:s1.t4..s1.t4"
+            ]
+          },
+          "history": []
+        },
+        "when": {
+          "original": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "latest": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "history": []
+        }
+      },
+      "marker": "when"
+    },
+    {
+      "id": "fr:s1.t7",
+      "sentence": "s1",
+      "clause": {
+        "text": "the manager approves the order",
+        "start": 36,
+        "end": 66
+      },
+      "roles": {
+        "actor": {
+          "original": {
+            "value": {
+              "text": "manager",
+              "refs": [
+                "concept:manager"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t8..s1.t8"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "manager",
+              "refs": [
+                "concept:manager"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t8..s1.t8"
+            ]
+          },
+          "history": []
+        },
+        "event": {
+          "original": {
+            "value": {
+              "text": "approve",
+              "refs": [
+                "sp:s1.t9..s1.t9"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t9..s1.t9"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "approve",
+              "refs": [
+                "sp:s1.t9..s1.t9"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t9..s1.t9"
+            ]
+          },
+          "history": []
+        },
+        "object": {
+          "original": {
+            "value": {
+              "text": "order",
+              "refs": [
+                "concept:order"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t11..s1.t11"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "order",
+              "refs": [
+                "concept:order"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t11..s1.t11"
+            ]
+          },
+          "history": []
+        },
+        "result": {
+          "original": {
+            "value": {
+              "text": "approved",
+              "refs": []
+            },
+            "dependsOn": [
+              "sp:s1.t9..s1.t9"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "approved",
+              "refs": []
+            },
+            "dependsOn": [
+              "sp:s1.t9..s1.t9"
+            ]
+          },
+          "history": []
+        },
+        "when": {
+          "original": {
+            "value": {
+              "text": "When the customer submits an order and if the total is under 500 dollars",
+              "refs": [
+                "fr:s1.t1",
+                "fr:s1.t12"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t1..s1.t1",
+              "sp:s1.t4..s1.t4",
+              "sp:s1.t12..s1.t12",
+              "sp:s1.t14..s1.t14"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "When the customer submits an order and if the total is under 500 dollars",
+              "refs": [
+                "fr:s1.t1",
+                "fr:s1.t12"
+              ]
+            },
+            "dependsOn": [
+              "sp:s1.t1..s1.t1",
+              "sp:s1.t4..s1.t4",
+              "sp:s1.t12..s1.t12",
+              "sp:s1.t14..s1.t14"
+            ]
+          },
+          "history": []
+        }
+      }
+    },
+    {
+      "id": "fr:s1.t12",
+      "sentence": "s1",
+      "clause": {
+        "text": "if the total is under 500 dollars",
+        "start": 67,
+        "end": 100
+      },
+      "roles": {
+        "actor": {
+          "original": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "latest": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "history": []
+        },
+        "event": {
+          "original": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "latest": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "history": []
+        },
+        "object": {
+          "original": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "latest": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "history": []
+        },
+        "result": {
+          "original": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "latest": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "history": []
+        },
+        "when": {
+          "original": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "latest": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "history": []
+        }
+      },
+      "marker": "if",
+      "notTransition": {
+        "reason": "no verb"
+      }
+    },
+    {
+      "id": "fr:s2.t1",
+      "sentence": "s2",
+      "clause": {
+        "text": "A clerk must not cancel a shipped package",
+        "start": 0,
+        "end": 41
+      },
+      "roles": {
+        "actor": {
+          "original": {
+            "value": {
+              "text": "clerk",
+              "refs": [
+                "concept:clerk"
+              ]
+            },
+            "dependsOn": [
+              "sp:s2.t2..s2.t2"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "clerk",
+              "refs": [
+                "concept:clerk"
+              ]
+            },
+            "dependsOn": [
+              "sp:s2.t2..s2.t2"
+            ]
+          },
+          "history": []
+        },
+        "event": {
+          "original": {
+            "value": {
+              "text": "cancel",
+              "refs": [
+                "sp:s2.t5..s2.t5"
+              ]
+            },
+            "dependsOn": [
+              "sp:s2.t5..s2.t5",
+              "sp:s2.t4..s2.t4"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "cancel",
+              "refs": [
+                "sp:s2.t5..s2.t5"
+              ]
+            },
+            "dependsOn": [
+              "sp:s2.t5..s2.t5",
+              "sp:s2.t4..s2.t4"
+            ]
+          },
+          "history": []
+        },
+        "object": {
+          "original": {
+            "value": {
+              "text": "package",
+              "refs": [
+                "concept:package"
+              ]
+            },
+            "dependsOn": [
+              "sp:s2.t8..s2.t8"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "package",
+              "refs": [
+                "concept:package"
+              ]
+            },
+            "dependsOn": [
+              "sp:s2.t8..s2.t8"
+            ]
+          },
+          "history": []
+        },
+        "result": {
+          "original": {
+            "value": {
+              "text": "cancelled",
+              "refs": []
+            },
+            "dependsOn": [
+              "sp:s2.t5..s2.t5"
+            ]
+          },
+          "latest": {
+            "value": {
+              "text": "cancelled",
+              "refs": []
+            },
+            "dependsOn": [
+              "sp:s2.t5..s2.t5"
+            ]
+          },
+          "history": []
+        },
+        "when": {
+          "original": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "latest": {
+            "value": "unknown",
+            "dependsOn": []
+          },
+          "history": []
+        }
+      },
+      "negated": true
+    }
+  ]
+}

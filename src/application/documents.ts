@@ -1,7 +1,7 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
-import type { EntityKind, EntityReview, EntityStatus, FactKind, Finding, FlowOrigin, Revision, SentenceState, SentenceText, SpecOrigin } from '../domain/spec.js';
+import type { Finding, FlowOrigin, Frame, Revision, SentenceState, SentenceText } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -204,7 +204,7 @@ export interface SpecSentenceContextView {
   workflows: { id: string; title: string }[];
 }
 
-export const SPEC_SHOW_LAYERS = ['sentences', 'tagged', 'tokens', 'spans', 'entities', 'facts'] as const;
+export const SPEC_SHOW_LAYERS = ['sentences', 'tagged', 'tokens', 'spans', 'concepts', 'frames'] as const;
 
 export type SpecShowLayer = (typeof SPEC_SHOW_LAYERS)[number];
 
@@ -318,52 +318,41 @@ export interface SpecSpansDocument {
   issues: OutputIssue[];
 }
 
-export interface SpecEntityView {
+export interface ConceptView {
   id: string;
-  kind: EntityKind;
-  name?: string;
-  text?: string;
-  sources: string[];
-  origin: SpecOrigin;
-  status: EntityStatus;
-  review?: EntityReview;
-  note?: string;
+  canonical: string;
+  members: { span: string; surface: string; sentence: string }[];
 }
 
-export interface SpecEntitiesDocument {
-  command: 'spec.entities.list' | 'spec.entities.merge' | 'spec.entities.rename' | 'spec.entities.reject' | 'spec.entities.promote';
+export interface SpecConceptsDocument {
+  command: 'spec.concepts.list';
   ok: boolean;
   session?: string;
-  entities?: SpecEntityView[];
-  changed?: string[];
-  removed?: string[];
-  affected?: string[];
+  concepts?: ConceptView[];
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
 }
 
-export interface SpecFactView {
-  id: string;
-  kind: FactKind;
-  event?: string;
-  actor?: string;
-  when?: Record<string, unknown>;
-  assign?: Record<string, boolean | number | string | null>;
-  origin: SpecOrigin;
-  confidence: number;
-  sources: string[];
-  status: 'current' | 'stale';
-  note?: string;
+/** What a frame compiled to. Absent for a frame that is not a transition or misses a role. */
+export interface FrameCompiledView {
+  event: string;
+  object: string;
+  from?: string;
+  to: string;
+  actor: string;
+  kind: 'action' | 'forbidden';
 }
 
-export interface SpecFactsDocument {
-  command: 'spec.facts.propose' | 'spec.facts.add' | 'spec.facts.edit' | 'spec.facts.remove';
+export interface FrameView extends Frame {
+  compiled?: FrameCompiledView;
+}
+
+export interface SpecFramesDocument {
+  command: 'spec.frames.list';
   ok: boolean;
   session?: string;
-  facts?: SpecFactView[];
-  changed?: string[];
-  removed?: string[];
+  frames?: FrameView[];
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -385,7 +374,7 @@ export interface SpecGraphStateView {
   object: string;
   initial?: true;
   final?: true;
-  facts: string[];
+  frames: string[];
 }
 
 export interface SpecGraphTransitionView {
@@ -396,8 +385,8 @@ export interface SpecGraphTransitionView {
   actor?: string;
   guard?: string;
   object: string;
-  fact: string;
-  facts: string[];
+  frame: string;
+  frames: string[];
 }
 
 export interface SpecFlowView {
@@ -450,8 +439,8 @@ export interface SpecStatusDocument {
   ok: boolean;
   session?: string;
   coverage?: StatusCoverage;
-  layers?: { tokens: boolean; entities: boolean; facts: boolean; graph: boolean };
-  findingsByLayer?: { sentences: Finding[]; tokens: Finding[]; entities: Finding[]; facts: Finding[]; graph: Finding[] };
+  layers?: { tokens: boolean; concepts: boolean; frames: boolean; graph: boolean };
+  findingsByLayer?: { sentences: Finding[]; tokens: Finding[]; concepts: Finding[]; frames: Finding[]; graph: Finding[] };
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -460,7 +449,7 @@ export interface SpecStatusDocument {
 export interface SpecSessionListRow {
   id: string;
   updated: string;
-  summary: { sentences: number; facts: number; flows: number };
+  summary: { sentences: number; frames: number; flows: number };
 }
 
 export interface SpecSessionListDocument {
@@ -614,8 +603,8 @@ export type SpecShowDocument =
   | (SpecShowBase & { command: 'spec.show.tagged'; sentences?: SpecTaggedView[] })
   | (SpecShowBase & { command: 'spec.show.tokens'; tokens?: SpecUniqueTokenView[] })
   | (SpecShowBase & { command: 'spec.show.spans'; spans?: SpecSpanView[] })
-  | (SpecShowBase & { command: 'spec.show.entities'; entities?: SpecEntityView[] })
-  | (SpecShowBase & { command: 'spec.show.facts'; facts?: SpecFactView[] });
+  | (SpecShowBase & { command: 'spec.show.concepts'; concepts?: ConceptView[] })
+  | (SpecShowBase & { command: 'spec.show.frames'; frames?: FrameView[] });
 
 export interface UpgradeDocument {
   command: 'upgrade';
@@ -642,8 +631,8 @@ export type CommandDocument =
   | SpecSentencesDocument
   | SpecExportDocument
   | SpecSpansDocument
-  | SpecEntitiesDocument
-  | SpecFactsDocument
+  | SpecConceptsDocument
+  | SpecFramesDocument
   | SpecTraceDocument
   | SpecStatusDocument
   | SpecShowDocument

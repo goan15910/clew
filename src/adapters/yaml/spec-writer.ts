@@ -63,7 +63,7 @@ export function renderSpecYaml(draft: SpecDraft): string {
     lines.push('labels:');
     for (const label of draft.labels) {
       const final = label.final === true ? ', final: true' : '';
-      const id = label.id === undefined ? '' : `id: ${label.id}, `;
+      const id = label.id === undefined ? '' : `id: ${quote(label.id)}, `;
       lines.push(`  - { ${id}match: ${renderPatch(label.match)}, text: ${quote(label.text)}${final} }`);
     }
   }
