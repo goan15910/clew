@@ -43,8 +43,8 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
   const result = store.update(id, { create: true }, (current) => {
     const applied = applySpecText(current?.sentences ?? [], current?.tagged ?? [], drafts);
     const spans = retainValidSpans(current?.spans, applied.tagged);
-    const entities = current?.entities === undefined ? undefined : reconcileEntities(applied.sentences, applied.tagged, current.entities);
-    const facts = current?.facts === undefined ? undefined : reconcileFacts(applied.sentences, applied.tagged, entities ?? [], current.facts);
+    const entities = current?.entities === undefined ? undefined : reconcileEntities(applied.sentences, spans ?? [], current.entities);
+    const facts = current?.facts === undefined ? undefined : reconcileFacts(applied.sentences, spans ?? [], entities ?? [], current.facts);
     const now = new Date().toISOString();
     const snapshot: SpecSnapshot = {
       schemaVersion: SPEC_SCHEMA_VERSION,

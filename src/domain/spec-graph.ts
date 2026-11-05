@@ -11,11 +11,11 @@ import type {
   Finding,
   GraphState,
   GraphTransition,
+  LiveSpan,
   Sentence,
   SpecFlow,
   SpecSnapshot,
   TaggedSentence,
-  Token,
 } from './spec.js';
 import { assembleSpecFromFacts, eventFromAction, isActionFact, overlayOf, specFromFacts, varNameForEntity, visibleFacts } from './spec-facts.js';
 import type { Spec, SpecDraft } from './spec-model.js';
@@ -170,12 +170,13 @@ export function toWorkflowSetDraft(
   facts: readonly Fact[],
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[] = [],
 ): { draft?: WorkflowSetDraft; findings: Finding[] } {
   const spec = assembleSpecFromFacts(entities, facts);
   const workflows: WorkflowSetDraft['workflows'][number][] = [];
   const findings: Finding[] = [];
   for (const flow of graph.flows) {
-    const built = flowDraft(flow, graph, entities, facts, sentences, tagged, spec);
+    const built = flowDraft(flow, graph, entities, facts, sentences, tagged, spans, spec);
     if (built.problem !== undefined) {
       findings.push(blocked('path-not-linear', built.problem, [flow.id, ...flow.transitions]));
       continue;
@@ -726,10 +727,11 @@ function flowDraft(
   facts: readonly Fact[],
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   spec: Spec | undefined,
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
   if (flow.expect === 'rejected' && flow.transitions.length === 0) {
-    return syntheticRejected(flow, graph, entities, facts, sentences, tagged, spec);
+    return syntheticRejected(flow, graph, entities, facts, sentences, tagged, spans, spec);
   }
   const transitions: GraphTransition[] = [];
   for (const id of flow.transitions) {
@@ -759,7 +761,7 @@ function flowDraft(
       from: cursor,
       event: chartEventName(transition.event),
       to,
-      text: transitionText(transition, flow, entities, facts, sentences, tagged),
+      text: transitionText(transition, flow, entities, facts, sentences, tagged, spans),
     });
     cursor = to;
   }
@@ -782,6 +784,7 @@ function syntheticRejected(
   facts: readonly Fact[],
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
+  _spans: readonly LiveSpan[],
   spec: Spec | undefined,
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
   const fact = flow.forbidden === undefined ? undefined : findFact(facts, flow.forbidden);
@@ -827,6 +830,7 @@ function transitionText(
   facts: readonly Fact[],
   sentences: readonly Sentence[],
   tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
 ): string {
   if (flow.expect === 'rejected' && flow.forbidden !== undefined) {
     const forbidden = findFact(facts, flow.forbidden);
@@ -841,13 +845,12 @@ function transitionText(
     const actor = transition.actor === undefined ? '' : `The ${transition.actor} `;
     return `${actor}${transition.event} ${transition.object}`.trim();
   }
-  const item = findTagged(tagged, sentence.id);
   const action = findEntityByName(entities, 'action', transition.event);
   const object = findEntityByName(entities, 'object', transition.object);
-  const actionToken = tokenFor(action, sentence, item);
-  const objectToken = tokenAfter(object, sentence, item, actionToken);
+  const actionSpan = spanForEntity(action, spans, sentence.id);
+  const objectSpan = spanForEntity(object, spans, sentence.id, actionSpan);
   let text = sentence.text;
-  if (item !== undefined && actionToken !== undefined) text = clauseSlice(sentence, item.clauses, actionToken, objectToken);
+  if (actionSpan !== undefined) text = clauseTextFromSpans(actionSpan, objectSpan, spans) ?? sentence.text;
   text = cleanClause(text);
   if (transition.guard !== undefined) {
     const condition = findEntity(entities, transition.guard);
@@ -858,37 +861,48 @@ function transitionText(
   return text;
 }
 
-function clauseSlice(sentence: Sentence, clauses: readonly string[], action: Token, object: Token | undefined): string {
-  const spans: { text: string; start: number; end: number }[] = [];
-  let search = 0;
-  for (const clause of clauses) {
-    const at = sentence.text.indexOf(clause, search);
-    if (at < 0) continue;
-    spans.push({ text: clause, start: at, end: at + clause.length });
-    search = at + clause.length;
-  }
-  const origin = action.span[0] - sentence.span[0];
-  let start = -1;
-  for (let index = 0; index < spans.length; index += 1) {
-    const span = spans[index];
-    if (span !== undefined && origin >= span.start && origin < span.end) start = index;
-  }
-  if (start < 0) return sentence.text;
-  let end = start;
-  if (object !== undefined) {
-    const target = object.span[0] - sentence.span[0];
-    while (end < spans.length - 1) {
-      const span = spans[end];
-      if (span === undefined || target < span.end) break;
-      end += 1;
-    }
+function clauseTextFromSpans(
+  action: LiveSpan,
+  object: LiveSpan | undefined,
+  spans: readonly LiveSpan[],
+): string {
+  if (object === undefined
+    || (action.clause.start === object.clause.start && action.clause.end === object.clause.end)) {
+    return action.clause.text;
   }
   const parts: string[] = [];
-  for (let index = start; index <= end; index += 1) {
-    const span = spans[index];
-    if (span !== undefined) parts.push(span.text);
+  const seen = new Set<string>();
+  let started = false;
+  for (const span of spans) {
+    if (span.id === action.id) started = true;
+    if (!started) continue;
+    const key = `${span.clause.start}:${span.clause.end}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      parts.push(span.clause.text);
+    }
+    if (object !== undefined && (span.id === object.id || span.range[0] > object.range[0])) break;
   }
-  return parts.join(' ');
+  return parts.length > 0 ? parts.join(' ') : action.clause.text;
+}
+
+function spanForEntity(
+  entity: Entity | undefined,
+  spans: readonly LiveSpan[],
+  sentenceId: string,
+  after?: LiveSpan,
+): LiveSpan | undefined {
+  if (entity === undefined) return undefined;
+  let fallback: LiveSpan | undefined;
+  for (const source of entity.sources) {
+    for (const span of spans) {
+      if (span.id !== source) continue;
+      if (!span.firstTokenId.startsWith(`${sentenceId}.`) && !span.id.includes(`:${sentenceId}.`)) continue;
+      if (after === undefined || span.range[0] >= after.range[0]) return span;
+      fallback = span;
+    }
+  }
+  return fallback;
 }
 
 function cleanClause(text: string): string {
@@ -1202,13 +1216,17 @@ function actionLabel(fact: Fact, _entities: readonly Entity[]): string | undefin
 function sentenceFor(fact: Fact, sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): Sentence | undefined {
   for (const source of fact.sources) {
     const direct = findSentence(sentences, source);
-    if (direct !== undefined && direct.status === 'current') return direct;
-    const tokenSentence = source.split('.')[0];
-    if (tokenSentence === undefined) continue;
-    const sentence = findSentence(sentences, tokenSentence);
-    if (sentence !== undefined && sentence.status === 'current') {
+    if (direct !== undefined) return direct;
+    if (source.startsWith('sp:')) {
+      const body = source.slice(3);
+      const dot = body.indexOf('.');
+      const sentenceId = dot === -1 ? body : body.slice(0, dot);
+      const hit = findSentence(sentences, sentenceId);
+      if (hit !== undefined) return hit;
+    }
+    for (const sentence of sentences) {
       const item = findTagged(tagged, sentence.id);
-      if (item === undefined) return sentence;
+      if (item === undefined) continue;
       for (const token of item.tokens) {
         if (token.id === source) return sentence;
       }
@@ -1217,29 +1235,6 @@ function sentenceFor(fact: Fact, sentences: readonly Sentence[], tagged: readonl
   return undefined;
 }
 
-function tokenFor(entity: Entity | undefined, sentence: Sentence, tagged: TaggedSentence | undefined): Token | undefined {
-  if (entity === undefined || tagged === undefined) return undefined;
-  for (const source of entity.sources) {
-    for (const token of tagged.tokens) {
-      if (token.id === source && token.span[0] >= sentence.span[0] && token.span[0] <= sentence.span[1]) return token;
-    }
-  }
-  return undefined;
-}
-
-function tokenAfter(entity: Entity | undefined, sentence: Sentence, tagged: TaggedSentence | undefined, action: Token | undefined): Token | undefined {
-  if (entity === undefined || tagged === undefined) return undefined;
-  let fallback: Token | undefined;
-  for (const source of entity.sources) {
-    for (const token of tagged.tokens) {
-      if (token.id !== source) continue;
-      if (token.span[0] < sentence.span[0] || token.span[0] > sentence.span[1]) continue;
-      if (action === undefined || token.span[0] >= action.span[0]) return token;
-      fallback = token;
-    }
-  }
-  return fallback;
-}
 
 function rememberObject(objects: string[], name: string): void {
   if (name !== '' && !objects.includes(name)) objects.push(name);

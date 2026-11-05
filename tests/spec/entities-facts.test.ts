@@ -9,7 +9,8 @@ import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import type { SpecEntitiesDocument, SpecFactsDocument, SpecStatusDocument, SpecTagDocument, SpecTraceDocument } from '../../src/application/documents.js';
 import { contradictionFindings, proposeFacts } from '../../src/domain/spec-facts.js';
 import { entityFindings, pastParticiple } from '../../src/domain/spec-entities.js';
-import type { ActionFact, Entity, Fact, Sentence, TaggedSentence, Token } from '../../src/domain/spec.js';
+import { promoteTokensToSpans, spanIdFor } from '../../src/domain/spec-spans.js';
+import type { ActionFact, Entity, Fact, LiveSpan, Sentence, TaggedSentence, Token } from '../../src/domain/spec.js';
 import { varId, type Patch, type Predicate } from '../../src/domain/valuation.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -48,10 +49,13 @@ describe('spec entities and facts', { concurrency: false }, () => {
       ]);
       const order = byId(entities.entities ?? [], 'object:order');
       assert.equal(order.origin, 'rule');
-      assert.deepEqual(order.sources, ['s1.t6', 's1.t11']);
+      assert.deepEqual(order.sources, ['sp:s1.t6..s1.t6', 'sp:s1.t11..s1.t11']);
       const condition = byId(entities.entities ?? [], 'condition:c1');
       assert.equal(condition.text, 'the total is under 500 dollars');
-      assert.deepEqual(condition.sources, ['s1.t12', 's1.t13', 's1.t14', 's1.t15', 's1.t16', 's1.t17', 's1.t18']);
+      assert.deepEqual(condition.sources, [
+        'sp:s1.t12..s1.t12', 'sp:s1.t13..s1.t13', 'sp:s1.t14..s1.t14',
+        'sp:s1.t15..s1.t15', 'sp:s1.t16..s1.t16', 'sp:s1.t17..s1.t17', 'sp:s1.t18..s1.t18',
+      ]);
       assert.equal(entities.entities?.some((item) => item.id.includes('dollar') || item.name === 'be'), false);
       assert.deepEqual(codes(entities.findings), [
         'unreviewed', 'unreviewed', 'unreviewed', 'unreviewed', 'unreviewed', 'unreviewed', 'unreviewed',
@@ -125,9 +129,9 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('actor:customer', 'actor', 'customer'),
       entity('action:submit', 'action', 'submit'),
     ];
-    entities[0]!.sources = ['s1.t2'];
-    entities[1]!.sources = ['s1.t3'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t2')];
+    entities[1]!.sources = [spanSource('s1.t3')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     assert.equal(proposed.findings.some((finding) => finding.code === 'action-without-object'), true);
     const action = proposed.facts.find((fact) => fact.kind === 'action' && fact.status === 'current');
     assert.equal(action, undefined);
@@ -156,12 +160,12 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('action:approve', 'action', 'approve'),
       entity('object:order', 'object', 'order'),
     ];
-    entities[0]!.sources = ['s1.t1'];
-    entities[1]!.sources = ['s2.t1'];
-    entities[2]!.sources = ['s1.t2'];
-    entities[3]!.sources = ['s2.t2'];
-    entities[4]!.sources = ['s1.t3'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t1')];
+    entities[1]!.sources = [spanSource('s2.t1')];
+    entities[2]!.sources = [spanSource('s1.t2')];
+    entities[3]!.sources = [spanSource('s2.t2')];
+    entities[4]!.sources = [spanSource('s1.t3')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     assert.equal(proposed.findings.some((finding) => finding.code === 'action-without-object'), true);
     const approve = proposed.facts.find((fact) => fact.kind === 'action' && fact.event === 'APPROVE');
     assert.deepEqual(approve?.assign, { order: { t: 'atom', v: 'approve' } });
@@ -182,11 +186,11 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('action:handle', 'action', 'handle'),
       entity('object:report', 'object', 'report'),
     ];
-    entities[0]!.sources = ['s1.t1'];
-    entities[1]!.sources = ['s1.t2'];
-    entities[2]!.sources = ['s1.t4'];
-    entities[3]!.sources = ['s1.t3'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t1')];
+    entities[1]!.sources = [spanSource('s1.t2')];
+    entities[2]!.sources = [spanSource('s1.t4')];
+    entities[3]!.sources = [spanSource('s1.t3')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     assert.equal(proposed.findings.some((finding) => finding.code === 'action-without-object'), true);
     const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
     assert.equal(live.length, 1);
@@ -221,14 +225,14 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('object:system', 'object', 'system'),
       entity('object:group', 'object', 'group'),
     ];
-    entities[0]!.sources = ['s1.t1'];
-    entities[1]!.sources = ['s1.t2'];
-    entities[2]!.sources = ['s2.t3'];
-    entities[3]!.sources = ['s2.t4'];
-    entities[4]!.sources = ['s1.t3'];
-    entities[5]!.sources = ['s2.t1'];
-    entities[6]!.sources = ['s2.t2'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t1')];
+    entities[1]!.sources = [spanSource('s1.t2')];
+    entities[2]!.sources = [spanSource('s2.t3')];
+    entities[3]!.sources = [spanSource('s2.t4')];
+    entities[4]!.sources = [spanSource('s1.t3')];
+    entities[5]!.sources = [spanSource('s2.t1')];
+    entities[6]!.sources = [spanSource('s2.t2')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
     assert.equal(live.some((fact) => fact.event === 'REASON'), false);
     assert.equal(live.some((fact) => fact.event === 'SUBMIT'), true);
@@ -267,14 +271,14 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('object:order', 'object', 'order'),
       entity('object:name', 'object', 'name'),
     ];
-    entities[0]!.sources = ['s1.t1', 's3.t1'];
-    entities[1]!.sources = ['s2.t1'];
-    entities[2]!.sources = ['s1.t2'];
-    entities[3]!.sources = ['s2.t2'];
-    entities[4]!.sources = ['s3.t2'];
-    entities[5]!.sources = ['s1.t3', 's2.t3', 's3.t4'];
-    entities[6]!.sources = ['s3.t3'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t1'), spanSource('s3.t1')];
+    entities[1]!.sources = [spanSource('s2.t1')];
+    entities[2]!.sources = [spanSource('s1.t2')];
+    entities[3]!.sources = [spanSource('s2.t2')];
+    entities[4]!.sources = [spanSource('s3.t2')];
+    entities[5]!.sources = [spanSource('s1.t3'), spanSource('s2.t3'), spanSource('s3.t4')];
+    entities[6]!.sources = [spanSource('s3.t3')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
     assert.equal(live.length, 3);
     const edit = live.find((fact) => fact.event === 'EDIT');
@@ -316,15 +320,15 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('object:apply', 'object', 'apply'),
       entity('object:button', 'object', 'button'),
     ];
-    entities[0]!.sources = ['s1.t1', 's3.t1'];
-    entities[1]!.sources = ['s2.t1'];
-    entities[2]!.sources = ['s1.t2'];
-    entities[3]!.sources = ['s2.t2'];
-    entities[4]!.sources = ['s3.t2'];
-    entities[5]!.sources = ['s1.t3', 's2.t3'];
-    entities[6]!.sources = ['s3.t3'];
-    entities[7]!.sources = ['s3.t4'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t1'), spanSource('s3.t1')];
+    entities[1]!.sources = [spanSource('s2.t1')];
+    entities[2]!.sources = [spanSource('s1.t2')];
+    entities[3]!.sources = [spanSource('s2.t2')];
+    entities[4]!.sources = [spanSource('s3.t2')];
+    entities[5]!.sources = [spanSource('s1.t3'), spanSource('s2.t3')];
+    entities[6]!.sources = [spanSource('s3.t3')];
+    entities[7]!.sources = [spanSource('s3.t4')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     const live = proposed.facts.filter((fact): fact is ActionFact => fact.kind === 'action' && fact.status === 'current');
     const click = live.find((fact) => fact.event === 'CLICK');
     assert.deepEqual(click?.assign, { apply: { t: 'atom', v: 'click' } });
@@ -353,10 +357,10 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('action:select', 'action', 'select'),
       entity('object:company', 'object', 'company'),
     ];
-    entities[0]!.sources = ['s1.t1', 's2.t1'];
-    entities[1]!.sources = ['s1.t2', 's2.t2'];
-    entities[2]!.sources = ['s1.t3', 's2.t3'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t1'), spanSource('s2.t1')];
+    entities[1]!.sources = [spanSource('s1.t2'), spanSource('s2.t2')];
+    entities[2]!.sources = [spanSource('s1.t3'), spanSource('s2.t3')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     const selects = proposed.facts.filter((fact) => fact.kind === 'action' && fact.status === 'current' && fact.event === 'SELECT');
     assert.equal(selects.length, 1);
     assert.deepEqual(selects[0]?.when, { op: 'eq', var: 'company', value: { t: 'null' } });
@@ -387,12 +391,12 @@ describe('spec entities and facts', { concurrency: false }, () => {
       entity('action:approve', 'action', 'approve'),
       entity('object:order', 'object', 'order'),
     ];
-    entities[0]!.sources = ['s1.t1'];
-    entities[1]!.sources = ['s2.t1'];
-    entities[2]!.sources = ['s1.t2'];
-    entities[3]!.sources = ['s2.t2'];
-    entities[4]!.sources = ['s1.t3', 's2.t3'];
-    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    entities[0]!.sources = [spanSource('s1.t1')];
+    entities[1]!.sources = [spanSource('s2.t1')];
+    entities[2]!.sources = [spanSource('s1.t2')];
+    entities[3]!.sources = [spanSource('s2.t2')];
+    entities[4]!.sources = [spanSource('s1.t3'), spanSource('s2.t3')];
+    const proposed = proposeFacts(sentences, spansOf(tagged), entities, [], undefined);
     const submit = proposed.facts.find((fact) => fact.kind === 'action' && fact.event === 'SUBMIT');
     const approve = proposed.facts.find((fact) => fact.kind === 'action' && fact.event === 'APPROVE');
     assert.deepEqual(submit?.when, { op: 'eq', var: 'order', value: { t: 'null' } });
@@ -694,7 +698,7 @@ describe('spec entities and facts', { concurrency: false }, () => {
 });
 
 function entity(id: string, kind: Entity['kind'], name: string): Entity {
-  return { id, kind, name, sources: ['s1.t1'], origin: 'tagger', status: 'candidate' };
+  return { id, kind, name, sources: [spanIdFor('s1.t1', 's1.t1')], origin: 'tagger', status: 'candidate' };
 }
 
 function sentenceOf(id: string, text: string): Sentence {
@@ -711,11 +715,30 @@ function sentenceOf(id: string, text: string): Sentence {
 }
 
 function taggedOf(id: string, tokens: Token[]): TaggedSentence {
-  return { id, status: 'current', clauses: [], tokens };
+  const clause = { text: tokens.map((token) => token.text).join(' '), start: 0, end: Math.max(...tokens.map((token) => token.span[1]), 0) };
+  const withClause: Token[] = [];
+  for (const token of tokens) {
+    const copy: Token = { ...token, tags: token.tags.slice(), sources: token.sources.slice(), clause: { ...clause } };
+    if (token.tags.includes('Verb') && token.lemma === undefined) {
+      // Synthetic fixtures: strip a trailing s for a rough infinitive when none was set.
+      const lower = token.text.toLowerCase();
+      copy.lemma = lower.endsWith('s') && !lower.endsWith('ss') ? lower.slice(0, -1) : lower;
+    }
+    withClause.push(copy);
+  }
+  return { id, status: 'current', clauses: [clause.text], tokens: withClause };
 }
 
 function tokenOf(id: string, text: string, tags: string[], span: [number, number]): Token {
   return { id, text, tags, span, origin: 'rule', status: 'current', sources: [] };
+}
+
+function spansOf(tagged: readonly TaggedSentence[]): LiveSpan[] {
+  return promoteTokensToSpans(tagged.flatMap((item) => item.tokens));
+}
+
+function spanSource(tokenId: string): string {
+  return spanIdFor(tokenId, tokenId);
 }
 
 function prepare(dir: string, file: string): void {

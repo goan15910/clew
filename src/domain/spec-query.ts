@@ -1,5 +1,5 @@
 // Read-only provenance and coverage over a spec session.
-import type { Entity, Fact, Finding, GraphTransition, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
+import type { Entity, Fact, Finding, GraphTransition, LiveSpan, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
 import { currentSentences, initFindings, staleFindings, tagFindings } from './spec.js';
 import { entityFindings } from './spec-entities.js';
 import { contradictionFindings, entityUsesFact, visibleFacts } from './spec-facts.js';
@@ -188,7 +188,10 @@ export function sentenceWorkflows(snapshot: SpecSnapshot): Map<string, SpecFlow[
     if (flow.forbidden !== undefined) factIds.push(flow.forbidden);
     const sentences = new Set<string>();
     for (const factId of factIds) {
-      for (const source of facts.get(factId)?.sources ?? []) sentences.add(source.split('.')[0] ?? source);
+      for (const source of facts.get(factId)?.sources ?? []) {
+        const sentenceId = sourceSentenceId(source);
+        if (sentenceId !== undefined) sentences.add(sentenceId);
+      }
     }
     for (const sentence of sentences) {
       const list = bySentence.get(sentence) ?? [];
@@ -240,9 +243,20 @@ function sentenceIsMapped(sentence: Sentence, tagged: readonly TaggedSentence[],
     if (fact.sources.includes(sentence.id)) return true;
     for (const source of fact.sources) {
       if (tokens.has(source)) return true;
+      if (sourceSentenceId(source) === sentence.id) return true;
     }
   }
   return false;
+}
+
+function sourceSentenceId(source: string): string | undefined {
+  if (source.startsWith('sp:')) {
+    const body = source.slice(3);
+    const dot = body.indexOf('.');
+    return dot === -1 ? body : body.slice(0, dot);
+  }
+  const dot = source.indexOf('.');
+  return dot === -1 ? source : source.slice(0, dot);
 }
 
 function sentenceFindings(snapshot: SpecSnapshot): Finding[] {
@@ -587,13 +601,23 @@ export function uniqueTokens(sentences: readonly Sentence[], tagged: readonly Ta
 }
 
 function findToken(snapshot: SpecSnapshot, id: string): { token: Token; sentence: Sentence } | undefined {
+  // Span sources resolve through the auto-promoted cover (first token of the live span).
+  const span = findSpan(snapshot, id);
+  const tokenId = span?.firstTokenId ?? id;
   for (const item of snapshot.tagged) {
     for (const token of item.tokens) {
-      if (token.id !== id) continue;
+      if (token.id !== tokenId) continue;
       const sentence = findSentence(snapshot.sentences, item.id);
       if (sentence === undefined) return undefined;
       return { token, sentence };
     }
+  }
+  return undefined;
+}
+
+function findSpan(snapshot: SpecSnapshot, id: string): LiveSpan | undefined {
+  for (const span of snapshot.spans ?? []) {
+    if (span.id === id) return span;
   }
   return undefined;
 }

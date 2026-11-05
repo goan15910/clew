@@ -249,6 +249,7 @@ export interface SpecSpanView {
   sentence: string;
   firstTokenId: string;
   lastTokenId: string;
+  range: [number, number];
   surface: string;
   tags: string[];
   origin: 'promote' | 'lexicon' | 'interactive';
@@ -257,10 +258,12 @@ export interface SpecSpanView {
   entityId?: string;
   entityLinkExplicitlySet: boolean;
   insignificant?: boolean;
+  clause: { text: string; start: number; end: number };
+  lemma?: string;
 }
 
 export interface SpecSpanConflictView {
-  kind: 'tag-conflict' | 'multi-entity';
+  kind: 'tag-conflict' | 'multi-entity' | 'cross-clause';
   spanIds: string[];
   surfaces: string[];
   childTags: string[][];

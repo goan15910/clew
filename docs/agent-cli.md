@@ -114,7 +114,7 @@ Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling 
 
 `history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, propose records live fact ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec facts propose`, and `spec graph build` have an empty `before`.
 
-`session.json` carries `schemaVersion`. This Clew reads schema 2. A different version is exit 2 and names the missing migration. There is no migration from schema 1. The store adapter is the only place that validates that JSON with Zod.
+`session.json` carries `schemaVersion`. This Clew reads schema 3. A different version is exit 2 with no migration — drop the old session and re-run `clew spec init` / `tag`. The store adapter is the only place that validates that JSON with Zod.
 
 Every spec document has `findings`. A finding is `{ id, kind, code, severity, message, refs }`. `kind` is `gap`, `conflict`, `stale`, `vocabulary`, or `coverage`. `severity` is `blocking`, `warning`, or `info`. `ok` means the layer was produced. It stays true when findings are present. Exit 0 means no blocking finding. Exit 1 means a blocking finding is in the document, and stderr stays empty. Warnings and info do not change the exit code.
 

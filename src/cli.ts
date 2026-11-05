@@ -1014,7 +1014,7 @@ const facts = spec.command('facts').description('Propose facts and record agent 
 
 setManual(facts
   .command('propose')
-  .description('Propose draft facts from entities, clauses, and token order.')
+  .description('Propose draft facts from entities and live spans.')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--sentence <id>', 'propose only from this sentence, for example s1')
   .option('--json', 'print the result document as JSON on stdout')

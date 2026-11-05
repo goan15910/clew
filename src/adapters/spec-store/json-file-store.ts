@@ -46,6 +46,12 @@ const SentenceSchema = z.strictObject({
   sources: z.array(z.string()),
 });
 
+const ClauseBoundSchema = z.strictObject({
+  text: z.string(),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().nonnegative(),
+});
+
 const TokenSchema = z.strictObject({
   id: z.string().regex(TOKEN_ID, 'token ids look like s1.t1'),
   text: z.string(),
@@ -55,6 +61,8 @@ const TokenSchema = z.strictObject({
   status: z.enum(['current', 'stale']),
   sources: z.array(z.string()),
   skipped: z.boolean().optional(),
+  lemma: z.string().min(1).optional(),
+  clause: ClauseBoundSchema.optional(),
 });
 
 const TaggedSchema = z.strictObject({
@@ -90,6 +98,7 @@ const LiveSpanSchema = z.strictObject({
   id: z.string().regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2'),
   firstTokenId: z.string().regex(TOKEN_ID, 'token ids look like s1.t1'),
   lastTokenId: z.string().regex(TOKEN_ID, 'token ids look like s1.t1'),
+  range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]),
   surface: z.string(),
   tags: z.array(z.string()),
   origin: z.enum(['promote', 'lexicon', 'interactive']),
@@ -98,6 +107,8 @@ const LiveSpanSchema = z.strictObject({
   entityId: z.string().regex(SPEC_ENTITY_ID_PATTERN).optional(),
   entityLinkExplicitlySet: z.boolean(),
   insignificant: z.boolean().optional(),
+  clause: ClauseBoundSchema,
+  lemma: z.string().min(1).optional(),
 });
 
 const SpansFileSchema = z.strictObject({
@@ -253,7 +264,7 @@ function isSessionId(id: string): boolean {
 }
 
 function migrationMessage(file: string, version: unknown): string {
-  return `spec store schema ${String(version)} in ${file} is not supported; this Clew reads schema ${SPEC_SCHEMA_VERSION} and there is no migration yet (see docs/agent-cli.md)`;
+  return `spec store schema ${String(version)} in ${file} is not supported; this Clew reads schema ${SPEC_SCHEMA_VERSION} with no migration — drop the old session and re-run clew spec init / tag (see docs/agent-cli.md)`;
 }
 
 function readJson(file: string): { ok: true; value: unknown } | { ok: false; fault: 'unreadable'; message: string } {
@@ -325,6 +336,10 @@ function toToken(raw: z.infer<typeof TokenSchema>): Token | undefined {
     sources,
   };
   if (raw.skipped === true) token.skipped = true;
+  if (raw.lemma !== undefined) token.lemma = raw.lemma;
+  if (raw.clause !== undefined) {
+    token.clause = { text: raw.clause.text, start: raw.clause.start, end: raw.clause.end };
+  }
   return token;
 }
 
@@ -347,15 +362,18 @@ function toLiveSpan(raw: z.infer<typeof LiveSpanSchema>): LiveSpan {
     id: raw.id,
     firstTokenId: raw.firstTokenId,
     lastTokenId: raw.lastTokenId,
+    range: [raw.range[0], raw.range[1]],
     surface: raw.surface,
     tags,
     origin: raw.origin,
     explicitlySet: raw.explicitlySet,
     entityLinkExplicitlySet: raw.entityLinkExplicitlySet,
+    clause: { text: raw.clause.text, start: raw.clause.start, end: raw.clause.end },
   };
   if (raw.lexiconEntryId !== undefined) span.lexiconEntryId = raw.lexiconEntryId;
   if (raw.entityId !== undefined) span.entityId = raw.entityId;
   if (raw.insignificant !== undefined) span.insignificant = raw.insignificant;
+  if (raw.lemma !== undefined) span.lemma = raw.lemma;
   return span;
 }
 
@@ -670,6 +688,10 @@ function tokenRecord(token: Token): z.infer<typeof TokenSchema> {
     sources,
   };
   if (token.skipped === true) record.skipped = true;
+  if (token.lemma !== undefined) record.lemma = token.lemma;
+  if (token.clause !== undefined) {
+    record.clause = { text: token.clause.text, start: token.clause.start, end: token.clause.end };
+  }
   return record;
 }
 
@@ -680,15 +702,18 @@ function liveSpanRecord(span: LiveSpan): z.infer<typeof LiveSpanSchema> {
     id: span.id,
     firstTokenId: span.firstTokenId,
     lastTokenId: span.lastTokenId,
+    range: [span.range[0], span.range[1]],
     surface: span.surface,
     tags,
     origin: span.origin,
     explicitlySet: span.explicitlySet,
     entityLinkExplicitlySet: span.entityLinkExplicitlySet,
+    clause: { text: span.clause.text, start: span.clause.start, end: span.clause.end },
   };
   if (span.lexiconEntryId !== undefined) record.lexiconEntryId = span.lexiconEntryId;
   if (span.entityId !== undefined) record.entityId = span.entityId;
   if (span.insignificant !== undefined) record.insignificant = span.insignificant;
+  if (span.lemma !== undefined) record.lemma = span.lemma;
   return record;
 }
 

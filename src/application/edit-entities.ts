@@ -37,7 +37,7 @@ export function editEntities(command: EditEntitiesCommand, store: SpecStore): Ou
       return undefined;
     }
     if (change.blocked) return undefined;
-    const rebuilt = rebuildFacts(current.sentences, current.tagged, change.entities, change.facts);
+    const rebuilt = rebuildFacts(current.sentences, current.spans ?? [], change.entities, change.facts);
     for (const finding of rebuilt.findings) change.findings.push(finding);
     const affected = changedFactIds(change.facts, rebuilt.facts);
     for (const id of affected) {

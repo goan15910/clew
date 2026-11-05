@@ -1,11 +1,11 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "entities": [
     {
       "id": "actor:customer",
       "kind": "actor",
       "sources": [
-        "s1.t3"
+        "sp:s1.t3..s1.t3"
       ],
       "origin": "tagger",
       "status": "candidate",
@@ -15,7 +15,7 @@
       "id": "actor:manager",
       "kind": "actor",
       "sources": [
-        "s1.t8"
+        "sp:s1.t8..s1.t8"
       ],
       "origin": "tagger",
       "status": "candidate",
@@ -25,8 +25,8 @@
       "id": "object:order",
       "kind": "object",
       "sources": [
-        "s1.t6",
-        "s1.t11"
+        "sp:s1.t6..s1.t6",
+        "sp:s1.t11..s1.t11"
       ],
       "origin": "rule",
       "status": "candidate",
@@ -36,7 +36,7 @@
       "id": "object:total",
       "kind": "object",
       "sources": [
-        "s1.t14"
+        "sp:s1.t14..s1.t14"
       ],
       "origin": "tagger",
       "status": "candidate",
@@ -46,7 +46,7 @@
       "id": "action:submit",
       "kind": "action",
       "sources": [
-        "s1.t4"
+        "sp:s1.t4..s1.t4"
       ],
       "origin": "tagger",
       "status": "candidate",
@@ -56,7 +56,7 @@
       "id": "action:approve",
       "kind": "action",
       "sources": [
-        "s1.t9"
+        "sp:s1.t9..s1.t9"
       ],
       "origin": "tagger",
       "status": "candidate",
@@ -66,13 +66,13 @@
       "id": "condition:c1",
       "kind": "condition",
       "sources": [
-        "s1.t12",
-        "s1.t13",
-        "s1.t14",
-        "s1.t15",
-        "s1.t16",
-        "s1.t17",
-        "s1.t18"
+        "sp:s1.t12..s1.t12",
+        "sp:s1.t13..s1.t13",
+        "sp:s1.t14..s1.t14",
+        "sp:s1.t15..s1.t15",
+        "sp:s1.t16..s1.t16",
+        "sp:s1.t17..s1.t17",
+        "sp:s1.t18..s1.t18"
       ],
       "origin": "rule",
       "status": "candidate",
@@ -82,7 +82,7 @@
       "id": "actor:clerk",
       "kind": "actor",
       "sources": [
-        "s2.t2"
+        "sp:s2.t2..s2.t2"
       ],
       "origin": "tagger",
       "status": "candidate",
@@ -92,7 +92,7 @@
       "id": "object:package",
       "kind": "object",
       "sources": [
-        "s2.t8"
+        "sp:s2.t8..s2.t8"
       ],
       "origin": "tagger",
       "status": "candidate",
@@ -102,7 +102,7 @@
       "id": "action:cancel",
       "kind": "action",
       "sources": [
-        "s2.t5"
+        "sp:s2.t5..s2.t5"
       ],
       "origin": "tagger",
       "status": "candidate",

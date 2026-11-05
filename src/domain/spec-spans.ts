@@ -1,7 +1,8 @@
 // Live span partition: promote, lexicon merge, interactive merge, and read-only check.
 // Pure data and rules. No files, no Zod, no CLI.
 
-import type { LiveSpan, SpanOrigin, TaggedSentence, Token } from './spec.js';
+import type { ClauseBound, LiveSpan, SpanOrigin, TaggedSentence, Token } from './spec.js';
+import { sameClauseBound } from './spec.js';
 
 /** Tags that select the case-sensitive lexicon path. ProperNoun alone does not. */
 export const SPECIAL_CASE_TAGS = ['Person', 'Place', 'Organization', 'Acronym'] as const;
@@ -17,7 +18,7 @@ export interface AutoPassOptions {
   forceAuto?: boolean;
 }
 
-export type SpanConflictKind = 'tag-conflict' | 'multi-entity';
+export type SpanConflictKind = 'tag-conflict' | 'multi-entity' | 'cross-clause';
 
 export interface SpanConflictWindow {
   kind: SpanConflictKind;
@@ -100,22 +101,50 @@ export function displaySurfaceForTokens(tokens: readonly Token[], joiner: ' ' | 
   return parts.join(joiner);
 }
 
-export function promoteTokensToSpans(tokens: readonly Token[]): LiveSpan[] {
-  const spans: LiveSpan[] = [];
+export function defaultClauseBound(tokens: readonly Token[]): ClauseBound {
+  let start = 0;
+  let end = 0;
+  let text = '';
   for (const token of tokens) {
     if (token.status !== 'current') continue;
+    if (token.clause !== undefined) return { text: token.clause.text, start: token.clause.start, end: token.clause.end };
+    const relativeStart = 0;
+    const relativeEnd = token.text.length;
+    if (text === '') {
+      start = relativeStart;
+      end = relativeEnd;
+      text = token.text;
+    } else {
+      end = relativeEnd;
+      text = `${text} ${token.text}`;
+    }
+  }
+  return { text, start, end };
+}
+
+export function promoteTokensToSpans(tokens: readonly Token[]): LiveSpan[] {
+  const spans: LiveSpan[] = [];
+  const fallback = defaultClauseBound(tokens);
+  for (const token of tokens) {
+    if (token.status !== 'current') continue;
+    const clause = token.clause !== undefined
+      ? { text: token.clause.text, start: token.clause.start, end: token.clause.end }
+      : { text: fallback.text, start: fallback.start, end: fallback.end };
     const span: LiveSpan = {
       id: spanIdFor(token.id, token.id),
       firstTokenId: token.id,
       lastTokenId: token.id,
+      range: [token.span[0], token.span[1]],
       surface: token.text,
       tags: token.tags.slice(),
       origin: 'promote',
       explicitlySet: false,
       entityLinkExplicitlySet: false,
+      clause,
     };
     // Skipped stop-word tokens promote to insignificant spans (still cover the token for merge glue).
     if (token.skipped === true) span.insignificant = true;
+    if (token.lemma !== undefined) span.lemma = token.lemma;
     spans.push(span);
   }
   return spans;
@@ -129,6 +158,35 @@ export function promoteTaggedToSpans(tagged: readonly TaggedSentence[]): LiveSpa
     for (const span of promoteTokensToSpans(item.tokens)) spans.push(span);
   }
   return spans;
+}
+
+/** Union of child clause bounds. Callers must ensure children share one clause. */
+export function unionClauseBounds(children: readonly LiveSpan[]): ClauseBound {
+  const first = children[0]?.clause;
+  if (first === undefined) return { text: '', start: 0, end: 0 };
+  let start = first.start;
+  let end = first.end;
+  for (const child of children) {
+    if (child.clause.start < start) start = child.clause.start;
+    if (child.clause.end > end) end = child.clause.end;
+  }
+  // Same-clause children share the compromise clause text; keep the earliest child's text.
+  return { text: first.text, start, end };
+}
+
+export function sameClause(left: ClauseBound, right: ClauseBound): boolean {
+  return left.start === right.start && left.end === right.end && left.text === right.text;
+}
+
+export function spansShareClause(children: readonly LiveSpan[]): boolean {
+  const first = children[0];
+  if (first === undefined) return true;
+  for (let index = 1; index < children.length; index += 1) {
+    const child = children[index];
+    if (child === undefined) continue;
+    if (!sameClause(first.clause, child.clause)) return false;
+  }
+  return true;
 }
 
 /**
@@ -170,11 +228,14 @@ export function sameSpans(left: readonly LiveSpan[] | undefined, right: readonly
 export function sameSpan(left: LiveSpan, right: LiveSpan): boolean {
   if (left.id !== right.id) return false;
   if (left.firstTokenId !== right.firstTokenId || left.lastTokenId !== right.lastTokenId) return false;
+  if (left.range[0] !== right.range[0] || left.range[1] !== right.range[1]) return false;
   if (left.surface !== right.surface || left.origin !== right.origin) return false;
   if (left.explicitlySet !== right.explicitlySet || left.entityLinkExplicitlySet !== right.entityLinkExplicitlySet) return false;
   if (left.lexiconEntryId !== right.lexiconEntryId) return false;
   if (left.entityId !== right.entityId) return false;
   if (left.insignificant !== right.insignificant) return false;
+  if (left.lemma !== right.lemma) return false;
+  if (!sameClauseBound(left.clause, right.clause)) return false;
   if (left.tags.length !== right.tags.length) return false;
   for (let index = 0; index < left.tags.length; index += 1) {
     if (left.tags[index] !== right.tags[index]) return false;
@@ -227,6 +288,10 @@ export function mergeLexicon(
         const coverId = spanIdFor(first.firstTokenId, last.lastTokenId);
         if (children.length === 1 && first.lexiconEntryId === entry.id && first.id === coverId) continue;
 
+        if (!spansShareClause(children)) {
+          skipped.push(conflictWindow('cross-clause', children, entry));
+          continue;
+        }
         const tagDecision = mergeTags(children, entry.tags);
         if (tagDecision.kind === 'conflict') {
           skipped.push(conflictWindow('tag-conflict', children, entry));
@@ -244,14 +309,18 @@ export function mergeLexicon(
           id: coverId,
           firstTokenId: first.firstTokenId,
           lastTokenId: last.lastTokenId,
+          range: [first.range[0], last.range[1]],
           surface: displaySurfaceForTokens(coverTokens, joiner),
           tags: tagDecision.tags,
           origin: 'lexicon',
           lexiconEntryId: entry.id,
           explicitlySet: false,
           entityLinkExplicitlySet: entityDecision.entityLinkExplicitlySet,
+          clause: unionClauseBounds(children),
         };
         if (entityDecision.entityId !== undefined) nextSpan.entityId = entityDecision.entityId;
+        const lemma = firstLemma(children);
+        if (lemma !== undefined) nextSpan.lemma = lemma;
 
         const childIds = new Set<string>();
         for (const child of children) childIds.add(child.id);
@@ -299,6 +368,10 @@ export function checkSpanConflicts(
     for (const window of windows) {
       const children = window.spans;
       if (children.length < 2) continue;
+      if (!spansShareClause(children)) {
+        skipped.push(conflictWindow('cross-clause', children, entry));
+        continue;
+      }
       const tagDecision = mergeTags(children, entry.tags);
       const entityDecision = mergeEntityLinks(children);
       if (tagDecision.kind === 'conflict') skipped.push(conflictWindow('tag-conflict', children, entry));
@@ -353,6 +426,9 @@ export function interactiveMerge(
   const first = ordered[0];
   const last = ordered[ordered.length - 1];
   if (first === undefined || last === undefined) return { ok: false, message: 'merge spans must be contiguous live spans' };
+  if (!spansShareClause(ordered)) {
+    return { ok: false, message: 'cannot merge spans from different clauses' };
+  }
   const tokens = tokenIndex(tagged);
   const coverTokens = tokensInCover(first.firstTokenId, last.lastTokenId, tagged, tokens);
   const joiner: ' ' | '-' = ' ';
@@ -360,13 +436,17 @@ export function interactiveMerge(
     id: spanIdFor(first.firstTokenId, last.lastTokenId),
     firstTokenId: first.firstTokenId,
     lastTokenId: last.lastTokenId,
+    range: [first.range[0], last.range[1]],
     surface: displaySurfaceForTokens(coverTokens, joiner),
     tags,
     origin: 'interactive',
     explicitlySet: true,
     entityLinkExplicitlySet,
+    clause: unionClauseBounds(ordered),
   };
   if (entityId !== undefined) nextSpan.entityId = entityId;
+  const lemma = firstLemma(ordered);
+  if (lemma !== undefined) nextSpan.lemma = lemma;
 
   const childIds = new Set<string>();
   for (const child of ordered) childIds.add(child.id);
@@ -688,20 +768,30 @@ export function sentenceIdOfToken(tokenId: string): string | undefined {
   return tokenId.slice(0, dot);
 }
 
+function firstLemma(children: readonly LiveSpan[]): string | undefined {
+  for (const child of children) {
+    if (child.lemma !== undefined && child.lemma !== '') return child.lemma;
+  }
+  return undefined;
+}
+
 function cloneSpan(span: LiveSpan): LiveSpan {
   const copy: LiveSpan = {
     id: span.id,
     firstTokenId: span.firstTokenId,
     lastTokenId: span.lastTokenId,
+    range: [span.range[0], span.range[1]],
     surface: span.surface,
     tags: span.tags.slice(),
     origin: span.origin,
     explicitlySet: span.explicitlySet,
     entityLinkExplicitlySet: span.entityLinkExplicitlySet,
+    clause: { text: span.clause.text, start: span.clause.start, end: span.clause.end },
   };
   if (span.lexiconEntryId !== undefined) copy.lexiconEntryId = span.lexiconEntryId;
   if (span.entityId !== undefined) copy.entityId = span.entityId;
   if (span.insignificant !== undefined) copy.insignificant = span.insignificant;
+  if (span.lemma !== undefined) copy.lemma = span.lemma;
   return copy;
 }
 

@@ -40,7 +40,7 @@ export function emitSpec(
   if (graph === undefined) return invalid('session', 'no graph; run clew spec graph build first');
   const findings: Finding[] = [];
   for (const finding of graphLayerFindings(snapshot)) findings.push(finding);
-  const rendered = toWorkflowSetDraft(graph, snapshot.entities ?? [], snapshot.facts ?? [], snapshot.sentences, snapshot.tagged);
+  const rendered = toWorkflowSetDraft(graph, snapshot.entities ?? [], snapshot.facts ?? [], snapshot.sentences, snapshot.tagged, snapshot.spans ?? []);
   for (const finding of rendered.findings) findings.push(finding);
   let yaml: string | undefined;
   let views: WorkflowView[] | undefined;

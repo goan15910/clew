@@ -129,6 +129,30 @@ describe('span live partition', { concurrency: false }, () => {
     }
   });
 
+  test('cross-clause merge is skipped with a warning', () => {
+    const tokens = [
+      token('s1.t1', 'create', ['Noun']),
+      token('s1.t2', 'ticket', ['Noun']),
+    ];
+    tokens[0]!.clause = { text: 'create', start: 0, end: 6 };
+    tokens[0]!.span = [0, 6];
+    tokens[1]!.clause = { text: 'ticket', start: 8, end: 14 };
+    tokens[1]!.span = [8, 14];
+    const tagged = [{ id: 's1', status: 'current' as const, clauses: ['create', 'ticket'], tokens }];
+    const spans = promoteTokensToSpans(tokens);
+    assert.notEqual(spans[0]?.clause.start, spans[1]?.clause.start);
+    const lexicon: LexiconEntry[] = [{ id: 'create-ticket', key: 'create ticket', tags: ['Noun'] }];
+    const auto = mergeLexicon(spans, tagged, lexicon);
+    assert.equal(auto.merged.length, 0);
+    assert.equal(auto.skipped.some((window) => window.kind === 'cross-clause'), true);
+    const interactive = interactiveMerge(spans, tagged, {
+      spanIds: [spans[0]!.id, spans[1]!.id],
+      tags: ['Noun'],
+    });
+    assert.equal(interactive.ok, false);
+    if (!interactive.ok) assert.match(interactive.message, /different clauses/);
+  });
+
   test('explicitlySet spans are skipped unless forceAuto', () => {
     const tokens = [
       token('s1.t1', 'create', ['Noun']),

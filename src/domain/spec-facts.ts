@@ -1,17 +1,15 @@
-// ActionFact and ConfigurationFact proposals from entities and tokens.
-// rebuildFacts runs on every entity write. No performs/transition/guard join.
+// ActionFact and ConfigurationFact proposals from entities and live spans.
+// Spans → facts. rebuildFacts runs on every entity write. No performs/transition/guard join.
 import {
   assembleSpec,
   type Action,
   type SpecDraft,
 } from './spec-model.js';
 import {
-  clauseSpans,
   hasTag,
   isAuxiliary,
   isConditionMarker,
   verbLemma,
-  type ClauseSpan,
 } from './spec-entities.js';
 import {
   UNSPECIFIED_ACTOR_ID,
@@ -22,9 +20,8 @@ import {
   type Fact,
   type FactKind,
   type Finding,
+  type LiveSpan,
   type Sentence,
-  type TaggedSentence,
-  type Token,
 } from './spec.js';
 import {
   eventName,
@@ -66,9 +63,9 @@ export interface ProposedFacts {
 }
 
 interface Frame {
-  actor?: { id: string; token: Token };
-  action?: { id: string; token: Token; lemma: string; passive: boolean };
-  object?: { id: string; token: Token };
+  actor?: { id: string; span: LiveSpan };
+  action?: { id: string; span: LiveSpan; lemma: string; passive: boolean };
+  object?: { id: string; span: LiveSpan };
   negated: boolean;
   sentence: Sentence;
 }
@@ -79,25 +76,25 @@ export function isActionFact(fact: Fact): fact is ActionFact {
 
 export function proposeFacts(
   sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   entities: readonly Entity[],
   existing: readonly Fact[],
   onlySentence: string | undefined,
 ): ProposedFacts {
   const usable = usableEntities(entities);
-  const drafts = collectDrafts(sentences, tagged, usable, onlySentence);
-  return applyDrafts(drafts, existing, tagged, onlySentence, entities);
+  const drafts = collectDrafts(sentences, spans, usable, onlySentence);
+  return applyDrafts(drafts, existing, spans, onlySentence, entities);
 }
 
 export function rebuildFacts(
   sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   entities: readonly Entity[],
   existing: readonly Fact[],
 ): ProposedFacts {
-  const proposed = proposeFacts(sentences, tagged, entities, existing, undefined);
+  const proposed = proposeFacts(sentences, spans, entities, existing, undefined);
   return {
-    facts: reconcileFacts(sentences, tagged, entities, proposed.facts),
+    facts: reconcileFacts(sentences, spans, entities, proposed.facts),
     findings: proposed.findings,
   };
 }
@@ -203,23 +200,22 @@ export function contradictionFindings(facts: readonly Fact[]): Finding[] {
 
 export function reconcileFacts(
   sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   entities: readonly Entity[],
   facts: readonly Fact[],
 ): Fact[] {
-  const currentTokens = new Set<string>();
+  const currentSpans = new Set<string>();
   const staleSentences = new Set<string>();
   for (const sentence of sentences) {
     if (sentence.status === 'stale') staleSentences.add(sentence.id);
   }
-  for (const item of tagged) {
-    if (item.status === 'stale') {
-      staleSentences.add(item.id);
-      continue;
-    }
-    for (const token of item.tokens) {
-      if (token.status === 'current') currentTokens.add(token.id);
-    }
+  const liveSentences = new Set<string>();
+  for (const sentence of sentences) {
+    if (sentence.status === 'current') liveSentences.add(sentence.id);
+  }
+  for (const span of spans) {
+    const sentenceId = sourceSentenceId(span.firstTokenId);
+    if (sentenceId !== undefined && liveSentences.has(sentenceId)) currentSpans.add(span.id);
   }
   const staleEntities = new Set<string>();
   for (const entity of entities) {
@@ -236,7 +232,7 @@ export function reconcileFacts(
     const sourced = copy.sources.length > 0;
     let liveSource = !sourced;
     for (const source of copy.sources) {
-      if (!staleSentences.has(source) && (currentTokens.has(source) || findSentence(sentences, source)?.status === 'current')) liveSource = true;
+      if (!staleSentences.has(source) && (currentSpans.has(source) || findSentence(sentences, source)?.status === 'current')) liveSource = true;
     }
     const refs = factRefs(copy);
     let liveRef = true;
@@ -323,11 +319,11 @@ function frameObjectVar(
     const objectEntity = findEntity(entities, frame.object.id);
     const objectVar = objectEntity === undefined ? undefined : varNameForEntity(objectEntity);
     if (objectVar === undefined) return undefined;
-    return { varName: objectVar, sources: [frame.action.token.id, frame.object.token.id], mentioned: true };
+    return { varName: objectVar, sources: [frame.action.span.id, frame.object.span.id], mentioned: true };
   }
   if (sentenceHasObject || lastObject === undefined) return undefined;
-  if (hasTag(frame.action.token.tags, 'Infinitive')) return undefined;
-  return { varName: lastObject, sources: [frame.action.token.id], mentioned: false };
+  if (hasTag(frame.action.span.tags, 'Infinitive')) return undefined;
+  return { varName: lastObject, sources: [frame.action.span.id], mentioned: false };
 }
 
 export function varNameForEntity(entity: Entity): string | undefined {
@@ -592,11 +588,11 @@ export function predicateScalars(predicate: Predicate): Record<string, unknown> 
 
 function collectDrafts(
   sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   entities: readonly Entity[],
   onlySentence: string | undefined,
 ): { drafts: Fact[]; findings: Finding[] } {
-  const tokenEntity = indexTokens(entities);
+  const spanEntity = indexSpans(entities);
   const drafts: Fact[] = [];
   const findings: Finding[] = [];
   const lastValue = new Map<string, Value>();
@@ -604,11 +600,11 @@ function collectDrafts(
   for (const sentence of sentences) {
     if (sentence.status !== 'current') continue;
     if (onlySentence !== undefined && sentence.id !== onlySentence) continue;
-    const item = findTagged(tagged, sentence.id);
-    if (item === undefined || item.status !== 'current') continue;
-    const parsed = parseSentence(sentence, item, tokenEntity);
+    const sentenceSpans = spansForSentence(spans, sentence.id);
+    if (sentenceSpans.length === 0) continue;
+    const parsed = parseSentence(sentence, sentenceSpans, spanEntity);
     for (const finding of parsed.findings) findings.push(finding);
-    const ordered = orderFrames(parsed.frames, parsed.tokens);
+    const ordered = orderFrames(parsed.frames, parsed.spans);
     const sentenceHasObject = ordered.some((frame) => frame.object !== undefined);
     const guardsByAction = new Map<string, string[]>();
     for (const guard of parsed.guards) {
@@ -626,8 +622,8 @@ function collectDrafts(
           kind: 'vocabulary',
           code: 'vocabulary',
           severity: 'warning',
-          message: `${frame.action.token.text} has no event name`,
-          refs: [sentence.id, frame.action.token.id],
+          message: `${frame.action.span.surface} has no event name`,
+          refs: [sentence.id, frame.action.span.id],
         });
         continue;
       }
@@ -667,10 +663,10 @@ function collectDrafts(
       }
       const note = previous === undefined
         ? undefined
-        : sequencingWord(parsed.tokens) === 'when'
+        : sequencingWord(parsed.spans) === 'when'
           ? 'when inferred from the When-clause order'
-          : sequencingWord(parsed.tokens) !== undefined
-            ? `when inferred from the ${sequencingWord(parsed.tokens)}-clause order`
+          : sequencingWord(parsed.spans) !== undefined
+            ? `when inferred from the ${sequencingWord(parsed.spans)}-clause order`
             : 'when inferred from clause order';
       const action: ActionFact = {
         id: 'f0',
@@ -680,7 +676,7 @@ function collectDrafts(
         when: andAll(whenParts),
         assign,
         origin: 'rule',
-        confidence: previous === undefined ? 0.5 : sequencingWord(parsed.tokens) === 'when' ? 0.6 : 0.5,
+        confidence: previous === undefined ? 0.5 : sequencingWord(parsed.spans) === 'when' ? 0.6 : 0.5,
         sources,
         status: 'current',
       };
@@ -764,6 +760,11 @@ function entityTouchesSentence(entity: Entity, sentenceId: string): boolean {
 
 function sourceSentenceId(source: string | undefined): string | undefined {
   if (source === undefined) return undefined;
+  if (source.startsWith('sp:')) {
+    const body = source.slice(3);
+    const dot = body.indexOf('.');
+    return dot === -1 ? body : body.slice(0, dot);
+  }
   const dot = source.indexOf('.');
   return dot === -1 ? source : source.slice(0, dot);
 }
@@ -771,7 +772,7 @@ function sourceSentenceId(source: string | undefined): string | undefined {
 function applyDrafts(
   collected: { drafts: Fact[]; findings: Finding[] },
   existing: readonly Fact[],
-  tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   onlySentence: string | undefined,
   entities: readonly Entity[],
 ): ProposedFacts {
@@ -808,7 +809,7 @@ function applyDrafts(
       consumed.add(factSignature(draft));
       continue;
     }
-    if (fact.origin === 'agent' || (onlySentence !== undefined && !factTouches(fact, onlySentence, tagged))) {
+    if (fact.origin === 'agent' || (onlySentence !== undefined && !factTouches(fact, onlySentence, spans))) {
       next.push(copyFact(fact));
       continue;
     }
@@ -867,86 +868,82 @@ export function entityUsesFact(entity: Entity, fact: Fact): boolean {
 
 interface ParsedSentence {
   frames: Frame[];
-  guards: { action: string; condition: string; token: Token; sentence: Sentence }[];
+  guards: { action: string; condition: string; span: LiveSpan; sentence: Sentence }[];
   findings: Finding[];
-  tokens: Token[];
+  spans: LiveSpan[];
 }
 
 function parseSentence(
   sentence: Sentence,
-  tagged: TaggedSentence,
-  tokenEntity: ReadonlyMap<string, Entity>,
+  spans: readonly LiveSpan[],
+  spanEntity: ReadonlyMap<string, Entity>,
 ): ParsedSentence {
-  const tokens: Token[] = [];
-  for (const token of tagged.tokens) {
-    if (token.status === 'current') tokens.push(token);
-  }
-  const spans = clauseSpans(sentence, tagged.clauses);
-  const placed = tokens.map((token) => ({ token, sentence, ordinal: 0 }));
   const markers: number[] = [];
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token !== undefined && isConditionMarker(token, index, placed, sentence, spans)) markers.push(index);
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index];
+    if (span !== undefined && isConditionMarker(span, index, spans)) {
+      markers.push(index);
+    }
   }
-  const excluded = conditionTokenIndexes(tokens, sentence, spans, markers);
-  const frames = swoFrames(tokens, sentence, tokenEntity, excluded);
+  const excluded = conditionSpanIndexes(spans, sentence, markers);
+  const frames = swoFrames(spans, sentence, spanEntity, excluded);
   const findings: Finding[] = [];
   const actions: { id: string; index: number }[] = [];
   for (const frame of frames) {
     if (frame.action === undefined) continue;
-    actions.push({ id: frame.action.id, index: tokens.indexOf(frame.action.token) });
+    actions.push({ id: frame.action.id, index: spans.indexOf(frame.action.span) });
     if (frame.actor === undefined) {
       findings.push({
-        id: `action-without-actor:${frame.action.token.id}`,
+        id: `action-without-actor:${frame.action.span.id}`,
         kind: 'gap',
         code: 'action-without-actor',
         severity: 'warning',
         message: `${frame.action.id} has no actor`,
-        refs: [sentence.id, frame.action.token.id],
+        refs: [sentence.id, frame.action.span.id],
       });
     }
     if (frame.object === undefined) {
       findings.push({
-        id: `action-without-object:${frame.action.token.id}`,
+        id: `action-without-object:${frame.action.span.id}`,
         kind: 'gap',
         code: 'action-without-object',
         severity: 'warning',
         message: `${frame.action.id} has no object`,
-        refs: [sentence.id, frame.action.token.id],
+        refs: [sentence.id, frame.action.span.id],
       });
     }
   }
   const guards: ParsedSentence['guards'] = [];
   for (const index of markers) {
-    const token = tokens[index];
-    const entity = token === undefined ? undefined : tokenEntity.get(token.id);
-    if (token === undefined || entity === undefined || entity.kind !== 'condition') continue;
+    const span = spans[index];
+    const entity = span === undefined ? undefined : spanEntity.get(span.id);
+    if (span === undefined || entity === undefined || entity.kind !== 'condition') continue;
     const action = nearestAction(actions, index);
     if (action === undefined) {
       findings.push({
-        id: `guard-without-action:${token.id}`,
+        id: `guard-without-action:${span.id}`,
         kind: 'gap',
         code: 'guard-without-action',
         severity: 'warning',
         message: `${entity.id} does not attach to an action`,
-        refs: [sentence.id, token.id],
+        refs: [sentence.id, span.id],
       });
       continue;
     }
-    guards.push({ action, condition: entity.id, token, sentence });
+    guards.push({ action, condition: entity.id, span, sentence });
   }
-  return { frames, guards, findings, tokens };
+  return { frames, guards, findings, spans: spans.slice() };
 }
 
 function swoFrames(
-  tokens: readonly Token[],
+  spans: readonly LiveSpan[],
   sentence: Sentence,
-  tokenEntity: ReadonlyMap<string, Entity>,
+  spanEntity: ReadonlyMap<string, Entity>,
   excluded: ReadonlySet<number>,
 ): Frame[] {
   const frames: Frame[] = [];
   let current: Frame = { negated: false, sentence };
-  let pending: { id: string; token: Token } | undefined;
+  let pending: { id: string; span: LiveSpan } | undefined;
   const flush = (): void => {
     if (current.action === undefined && current.actor === undefined) {
       current = { negated: false, sentence };
@@ -955,36 +952,36 @@ function swoFrames(
     frames.push(current);
     current = { negated: false, sentence };
   };
-  for (let index = 0; index < tokens.length; index += 1) {
+  for (let index = 0; index < spans.length; index += 1) {
     if (excluded.has(index)) continue;
-    const token = tokens[index];
-    if (token === undefined) continue;
-    if (isNegation(token)) current.negated = true;
-    if (hasTag(token.tags, 'Verb') && isAuxiliary(token.tags)) continue;
-    if (isAdjectival(tokens, index)) continue;
-    const entity = tokenEntity.get(token.id);
+    const span = spans[index];
+    if (span === undefined) continue;
+    if (isNegation(span)) current.negated = true;
+    if (hasTag(span.tags, 'Verb') && isAuxiliary(span.tags)) continue;
+    if (isAdjectival(spans, index)) continue;
+    const entity = spanEntity.get(span.id);
     if (entity === undefined) continue;
     if (entity.kind === 'actor') {
       if (current.action?.passive === true && current.actor === undefined) {
-        current.actor = { id: entity.id, token };
+        current.actor = { id: entity.id, span };
         continue;
       }
       if (current.action !== undefined && current.object !== undefined) flush();
-      current.actor = { id: entity.id, token };
+      current.actor = { id: entity.id, span };
       continue;
     }
     if (entity.kind === 'action') {
       if (current.action !== undefined && (current.object !== undefined || current.action.passive)) flush();
-      const passive = hasTag(token.tags, 'Passive');
-      current.action = { id: entity.id, token, lemma: verbLemma(token.text), passive };
+      const passive = hasTag(span.tags, 'Passive');
+      current.action = { id: entity.id, span, lemma: verbLemma(span), passive };
       if (passive && pending !== undefined && current.object === undefined) current.object = pending;
       continue;
     }
     if (entity.kind === 'object') {
       if (current.action !== undefined && current.object === undefined && current.action.passive !== true) {
-        current.object = { id: entity.id, token };
+        current.object = { id: entity.id, span };
       } else if (current.action === undefined) {
-        pending = { id: entity.id, token };
+        pending = { id: entity.id, span };
       }
     }
   }
@@ -992,14 +989,14 @@ function swoFrames(
   return frames;
 }
 
-function orderFrames(frames: readonly Frame[], tokens: readonly Token[]): Frame[] {
+function orderFrames(frames: readonly Frame[], spans: readonly LiveSpan[]): Frame[] {
   const ordered = frames.slice();
   for (let index = 0; index < ordered.length - 1; index += 1) {
     const left = ordered[index];
     const right = ordered[index + 1];
     if (left?.object === undefined || right?.object === undefined || left.object.id !== right.object.id) continue;
     if (left.action === undefined || right.action === undefined) continue;
-    if (connectorBetween(tokens, left.action.token, right.action.token, 'after')) {
+    if (connectorBetween(spans, left.action.span, right.action.span, 'after')) {
       ordered[index] = right;
       ordered[index + 1] = left;
     }
@@ -1007,45 +1004,42 @@ function orderFrames(frames: readonly Frame[], tokens: readonly Token[]): Frame[
   return ordered;
 }
 
-function connectorBetween(tokens: readonly Token[], left: Token, right: Token, word: string): boolean {
+function connectorBetween(spans: readonly LiveSpan[], left: LiveSpan, right: LiveSpan, word: string): boolean {
   let start = -1;
   let end = -1;
-  for (let index = 0; index < tokens.length; index += 1) {
-    if (tokens[index] === left) start = index;
-    if (tokens[index] === right) end = index;
+  for (let index = 0; index < spans.length; index += 1) {
+    if (spans[index] === left) start = index;
+    if (spans[index] === right) end = index;
   }
   if (start < 0 || end < 0 || start > end) return false;
   for (let index = start + 1; index < end; index += 1) {
-    if (tokens[index]?.text.toLowerCase() === word) return true;
+    if (spans[index]?.surface.toLowerCase() === word) return true;
   }
   return false;
 }
 
-function sequencingWord(tokens: readonly Token[]): string | undefined {
-  const first = tokens[0];
+function sequencingWord(spans: readonly LiveSpan[]): string | undefined {
+  const first = spans[0];
   if (first === undefined) return undefined;
-  const word = first.text.toLowerCase();
+  const word = first.surface.toLowerCase();
   if (word === 'when' || word === 'after' || word === 'before' || word === 'once') return word;
   return undefined;
 }
 
-function conditionTokenIndexes(
-  tokens: readonly Token[],
+function conditionSpanIndexes(
+  spans: readonly LiveSpan[],
   sentence: Sentence,
-  spans: readonly ClauseSpan[],
   markers: readonly number[],
 ): Set<number> {
   const excluded = new Set<number>();
   for (const marker of markers) {
-    const token = tokens[marker];
-    if (token === undefined) continue;
-    const relative = token.span[0] - sentence.span[0];
-    const clause = spanCovering(spans, relative);
-    const end = clause === undefined ? sentence.span[1] : sentence.span[0] + clause.end;
-    for (let index = marker; index < tokens.length; index += 1) {
-      const candidate = tokens[index];
+    const span = spans[marker];
+    if (span === undefined) continue;
+    const end = sentence.span[0] + span.clause.end;
+    for (let index = marker; index < spans.length; index += 1) {
+      const candidate = spans[index];
       if (candidate === undefined) continue;
-      if (candidate.span[0] >= end) break;
+      if (candidate.range[0] >= end) break;
       excluded.add(index);
     }
   }
@@ -1062,7 +1056,7 @@ function nearestAction(actions: readonly { id: string; index: number }[], marker
   return (before ?? after)?.id;
 }
 
-function indexTokens(entities: readonly Entity[]): Map<string, Entity> {
+function indexSpans(entities: readonly Entity[]): Map<string, Entity> {
   const map = new Map<string, Entity>();
   for (const entity of entities) {
     if (entity.kind === 'condition') continue;
@@ -1078,6 +1072,14 @@ function indexTokens(entities: readonly Entity[]): Map<string, Entity> {
   return map;
 }
 
+function spansForSentence(spans: readonly LiveSpan[], sentenceId: string): LiveSpan[] {
+  const out: LiveSpan[] = [];
+  for (const span of spans) {
+    if (sourceSentenceId(span.firstTokenId) === sentenceId) out.push(span);
+  }
+  return out;
+}
+
 function usableEntities(entities: readonly Entity[]): Entity[] {
   const usable: Entity[] = [];
   for (const entity of entities) {
@@ -1087,26 +1089,20 @@ function usableEntities(entities: readonly Entity[]): Entity[] {
   return usable;
 }
 
-function isNegation(token: Token): boolean {
-  if (NEGATION.has(token.text.toLowerCase())) return true;
-  return hasTag(token.tags, 'Negative');
+function isNegation(span: LiveSpan): boolean {
+  if (NEGATION.has(span.surface.toLowerCase())) return true;
+  return hasTag(span.tags, 'Negative');
 }
 
-function isAdjectival(tokens: readonly Token[], index: number): boolean {
-  const token = tokens[index];
-  if (token === undefined || !hasTag(token.tags, 'Verb') || isAuxiliary(token.tags)) return false;
-  const previous = tokens[index - 1];
-  const next = tokens[index + 1];
+function isAdjectival(spans: readonly LiveSpan[], index: number): boolean {
+  const span = spans[index];
+  if (span === undefined || !hasTag(span.tags, 'Verb') || isAuxiliary(span.tags)) return false;
+  const previous = spans[index - 1];
+  const next = spans[index + 1];
   if (previous === undefined || next === undefined) return false;
   return hasTag(previous.tags, 'Determiner') && hasTag(next.tags, 'Noun');
 }
 
-function spanCovering(spans: readonly ClauseSpan[], relative: number): ClauseSpan | undefined {
-  for (const span of spans) {
-    if (relative >= span.start && relative < span.end) return span;
-  }
-  return undefined;
-}
 
 function matchingDraft(produced: Map<string, Fact>, fact: Fact): Fact | undefined {
   const exact = produced.get(factSignature(fact));
@@ -1147,12 +1143,11 @@ function agentFactConflict(id: string): Finding {
   };
 }
 
-function factTouches(fact: Fact, sentenceId: string, tagged: readonly TaggedSentence[]): boolean {
+function factTouches(fact: Fact, sentenceId: string, spans: readonly LiveSpan[]): boolean {
   if (fact.sources.includes(sentenceId)) return true;
-  const item = findTagged(tagged, sentenceId);
-  if (item === undefined) return false;
-  for (const token of item.tokens) {
-    if (fact.sources.includes(token.id)) return true;
+  for (const span of spans) {
+    if (sourceSentenceId(span.firstTokenId) !== sentenceId) continue;
+    if (fact.sources.includes(span.id)) return true;
   }
   return false;
 }
@@ -1248,12 +1243,6 @@ function findSentence(sentences: readonly Sentence[], id: string): Sentence | un
   return undefined;
 }
 
-function findTagged(tagged: readonly TaggedSentence[], id: string): TaggedSentence | undefined {
-  for (const item of tagged) {
-    if (item.id === id) return item;
-  }
-  return undefined;
-}
 
 function sameFact(left: Fact, right: Fact): boolean {
   if (left.id !== right.id || left.kind !== right.kind || left.origin !== right.origin) return false;

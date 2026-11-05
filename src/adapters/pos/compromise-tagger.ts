@@ -22,6 +22,12 @@ function tagList(tags: unknown): string[] {
   return list;
 }
 
+function verbInfinitive(text: string): string | undefined {
+  const infinitive = nlp(text).verbs().toInfinitive().text().trim().toLowerCase();
+  if (infinitive === '') return undefined;
+  return infinitive;
+}
+
 export const compromiseTagger: PosTaggerPort = {
   name: 'compromise',
   version: nlp.version,
@@ -38,18 +44,29 @@ export const compromiseTagger: PosTaggerPort = {
         const tags = tagList(term.tags);
         const offsetStart = typeof term.offset?.start === 'number' ? term.offset.start : undefined;
         const offsetLength = typeof term.offset?.length === 'number' ? term.offset.length : term.text.length;
+        let start = cursor;
+        let end = cursor;
         if (offsetStart !== undefined && text.slice(offsetStart, offsetStart + offsetLength) === term.text) {
-          tokens.push({ text: term.text, tags, start: offsetStart, end: offsetStart + offsetLength });
-          cursor = offsetStart + offsetLength;
-          continue;
+          start = offsetStart;
+          end = offsetStart + offsetLength;
+          cursor = end;
+        } else {
+          const found = text.indexOf(term.text, cursor);
+          if (found >= 0) {
+            start = found;
+            end = found + term.text.length;
+            cursor = end;
+          } else {
+            start = cursor;
+            end = cursor;
+          }
         }
-        const found = text.indexOf(term.text, cursor);
-        if (found >= 0) {
-          tokens.push({ text: term.text, tags, start: found, end: found + term.text.length });
-          cursor = found + term.text.length;
-          continue;
+        const token: PosToken = { text: term.text, tags, start, end };
+        if (tags.includes('Verb')) {
+          const lemma = verbInfinitive(term.text);
+          if (lemma !== undefined) token.lemma = lemma;
         }
-        tokens.push({ text: term.text, tags, start: cursor, end: cursor });
+        tokens.push(token);
       }
     }
     const clauseRaw: unknown = doc.clauses().out('array');

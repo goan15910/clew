@@ -77,15 +77,18 @@ export function spanViews(spans: readonly LiveSpan[]): SpecSpanView[] {
       sentence: sentenceIdOfToken(span.firstTokenId) ?? '',
       firstTokenId: span.firstTokenId,
       lastTokenId: span.lastTokenId,
+      range: [span.range[0], span.range[1]],
       surface: span.surface,
       tags,
       origin: span.origin,
       explicitlySet: span.explicitlySet,
       entityLinkExplicitlySet: span.entityLinkExplicitlySet,
+      clause: { text: span.clause.text, start: span.clause.start, end: span.clause.end },
     };
     if (span.lexiconEntryId !== undefined) view.lexiconEntryId = span.lexiconEntryId;
     if (span.entityId !== undefined) view.entityId = span.entityId;
     if (span.insignificant !== undefined) view.insignificant = span.insignificant;
+    if (span.lemma !== undefined) view.lemma = span.lemma;
     views.push(view);
   }
   return views;

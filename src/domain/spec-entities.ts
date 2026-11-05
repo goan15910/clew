@@ -1,79 +1,18 @@
-// Entity candidates from tagged tokens, and the agent edits that refine them.
-// Same-lemma nouns merge. Agent-owned entities are kept.
+// Entity candidates from live spans, and the agent edits that refine them.
+// Spans → entities. Same-lemma nouns merge. Agent-owned entities are kept.
 import { WORKFLOW_WORD_PATTERN } from './workflow.js';
 import type {
+  ClauseBound,
   Entity,
   EntityKind,
   EntityReview,
   Finding,
+  LiveSpan,
   Sentence,
-  TaggedSentence,
-  Token,
 } from './spec.js';
 
 const AUXILIARY = new Set(['Copula', 'Auxiliary', 'Modal']);
 const SKIP_OBJECT = new Set(['Actor', 'Pronoun', 'Currency', 'Unit', 'Determiner', 'Value']);
-const IRREGULAR_VERB: Readonly<Record<string, string>> = {
-  am: 'be', is: 'be', are: 'be', was: 'be', were: 'be', been: 'be', being: 'be',
-  has: 'have', had: 'have', having: 'have',
-  does: 'do', did: 'do', done: 'do', doing: 'do',
-  submits: 'submit', submitted: 'submit', submitting: 'submit',
-  approves: 'approve', approved: 'approve', approving: 'approve',
-  cancels: 'cancel', cancelled: 'cancel', canceled: 'cancel', cancelling: 'cancel', canceling: 'cancel',
-  ships: 'ship', shipped: 'ship', shipping: 'ship',
-  pays: 'pay', paid: 'pay', paying: 'pay',
-  goes: 'go', went: 'go', gone: 'go',
-  makes: 'make', made: 'make',
-  takes: 'take', took: 'take', taken: 'take',
-  gives: 'give', gave: 'give', given: 'give',
-  comes: 'come', came: 'come',
-  gets: 'get', got: 'get', gotten: 'get',
-  says: 'say', said: 'say',
-  sends: 'send', sent: 'send',
-  leaves: 'leave', left: 'leave',
-  feels: 'feel', felt: 'feel',
-  keeps: 'keep', kept: 'keep',
-  begins: 'begin', began: 'begin', begun: 'begin',
-  becomes: 'become', became: 'become',
-  closes: 'close', closed: 'close', closing: 'close',
-  creates: 'create', created: 'create', creating: 'create',
-  opens: 'open', opened: 'open', opening: 'open',
-  receives: 'receive', received: 'receive', receiving: 'receive',
-  archives: 'archive', archived: 'archive', archiving: 'archive',
-  completes: 'complete', completed: 'complete', completing: 'complete',
-  rejects: 'reject', rejected: 'reject', rejecting: 'reject',
-  accepts: 'accept', accepted: 'accept', accepting: 'accept',
-  reviews: 'review', reviewed: 'review', reviewing: 'review',
-  resolves: 'resolve', resolved: 'resolve', resolving: 'resolve',
-  refunds: 'refund', refunded: 'refund', refunding: 'refund',
-  books: 'book', booked: 'book', booking: 'book',
-  publishes: 'publish', published: 'publish', publishing: 'publish',
-  merges: 'merge', merged: 'merge', merging: 'merge',
-  starts: 'start', started: 'start', starting: 'start',
-  stops: 'stop', stopped: 'stop', stopping: 'stop',
-  pauses: 'pause', paused: 'pause', pausing: 'pause',
-  resumes: 'resume', resumed: 'resume', resuming: 'resume',
-  delivers: 'deliver', delivered: 'deliver', delivering: 'deliver',
-  confirms: 'confirm', confirmed: 'confirm', confirming: 'confirm',
-  expires: 'expire', expired: 'expire', expiring: 'expire',
-  renews: 'renew', renewed: 'renew', renewing: 'renew',
-  signs: 'sign', signed: 'sign', signing: 'sign',
-  registers: 'register', registered: 'register', registering: 'register',
-  removes: 'remove', removed: 'remove', removing: 'remove',
-  updates: 'update', updated: 'update', updating: 'update',
-  deletes: 'delete', deleted: 'delete', deleting: 'delete',
-  holds: 'hold', held: 'hold', holding: 'hold',
-  releases: 'release', released: 'release', releasing: 'release',
-  fails: 'fail', failed: 'fail', failing: 'fail',
-  passes: 'pass', passed: 'pass', passing: 'pass',
-  allows: 'allow', allowed: 'allow', allowing: 'allow',
-  denies: 'deny', denied: 'deny', denying: 'deny',
-  finishes: 'finish', finished: 'finish', finishing: 'finish',
-  assigns: 'assign', assigned: 'assign', assigning: 'assign',
-  invites: 'invite', invited: 'invite', inviting: 'invite',
-  reopens: 'reopen', reopened: 'reopen', reopening: 'reopen',
-  escalates: 'escalate', escalated: 'escalate', escalating: 'escalate',
-};
 
 const IRREGULAR_NOUN: Readonly<Record<string, string>> = {
   people: 'person', men: 'man', women: 'woman', children: 'child',
@@ -100,23 +39,14 @@ export function normalizeWord(value: string): { word?: string; changed: boolean 
   return { word, changed: word !== value };
 }
 
-export function verbLemma(text: string): string {
-  const word = text.toLowerCase();
-  const irregular = IRREGULAR_VERB[word];
-  if (irregular !== undefined) return irregular;
-  if (word.endsWith('ies') && word.length > 4) return `${word.slice(0, -3)}y`;
-  if (word.endsWith('ied') && word.length > 4) return `${word.slice(0, -3)}y`;
-  if (/(.)\1ed$/i.test(word) && word.length > 4) return word.slice(0, -3);
-  if (word.endsWith('eed') && word.length > 4) return word.slice(0, -1);
-  if (word.endsWith('ed') && word.length > 4) return word.slice(0, -2);
-  if (word.endsWith('ing') && word.length > 5) {
-    const stem = word.slice(0, -3);
-    if (/(.)\1$/.test(stem) && stem.length > 2) return stem.slice(0, -1);
-    return stem;
-  }
-  if (/(ches|shes|xes|zes|ses|oes)$/.test(word) && word.length > 4) return word.slice(0, -2);
-  if (word.endsWith('s') && !word.endsWith('ss') && word.length > 3) return word.slice(0, -1);
-  return word;
+/**
+ * Verb base form from the span's stored compromise infinitive.
+ * Falls back to the lowercased surface when no lemma was stored (synthetic fixtures).
+ */
+export function verbLemma(span: Pick<LiveSpan, 'surface' | 'lemma'> | string): string {
+  if (typeof span === 'string') return span.toLowerCase();
+  if (span.lemma !== undefined && span.lemma !== '') return span.lemma.toLowerCase();
+  return span.surface.toLowerCase();
 }
 
 export function nounLemma(text: string): string {
@@ -151,33 +81,8 @@ export function pastParticiple(lemma: string, surface?: string): string {
   return `${lemma}ed`;
 }
 
-export interface ClauseSpan {
-  text: string;
-  start: number;
-  end: number;
-}
-
-export function clauseSpans(sentence: Sentence, clauses: readonly string[]): ClauseSpan[] {
-  const spans: ClauseSpan[] = [];
-  let search = 0;
-  for (const clause of clauses) {
-    const at = sentence.text.indexOf(clause, search);
-    if (at < 0) continue;
-    spans.push({ text: clause, start: at, end: at + clause.length });
-    search = at + clause.length;
-  }
-  return spans;
-}
-
-export function clauseCovering(spans: readonly ClauseSpan[], relativeStart: number): ClauseSpan | undefined {
-  for (const span of spans) {
-    if (relativeStart >= span.start && relativeStart < span.end) return span;
-  }
-  return undefined;
-}
-
-interface PlacedToken {
-  token: Token;
+interface PlacedSpan {
+  span: LiveSpan;
   sentence: Sentence;
   ordinal: number;
 }
@@ -189,11 +94,11 @@ export interface DerivedEntities {
 
 export function deriveEntities(
   sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   existing: readonly Entity[],
 ): DerivedEntities {
-  const placed = placeTokens(sentences, tagged);
-  const extracted = extractEntities(placed, sentences, tagged);
+  const placed = placeSpans(sentences, spans);
+  const extracted = extractEntities(placed);
   return mergeDerived(existing, extracted, placed);
 }
 
@@ -239,17 +144,17 @@ export function entityFindings(entities: readonly Entity[]): Finding[] {
 
 export function reconcileEntities(
   sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
+  spans: readonly LiveSpan[],
   entities: readonly Entity[],
 ): Entity[] {
   const current = new Set<string>();
-  for (const item of tagged) {
-    if (item.status === 'stale') continue;
-    const sentence = findSentence(sentences, item.id);
-    if (sentence === undefined || sentence.status !== 'current') continue;
-    for (const token of item.tokens) {
-      if (token.status === 'current') current.add(token.id);
-    }
+  const bySentence = new Set<string>();
+  for (const sentence of sentences) {
+    if (sentence.status === 'current') bySentence.add(sentence.id);
+  }
+  for (const span of spans) {
+    const sentenceId = sentenceIdOf(span.firstTokenId);
+    if (sentenceId !== undefined && bySentence.has(sentenceId)) current.add(span.id);
   }
   const next: Entity[] = [];
   for (const entity of entities) {
@@ -292,20 +197,30 @@ export function entityReview(entity: Entity): EntityReview {
   return entity.status;
 }
 
-function extractEntities(
-  placed: readonly PlacedToken[],
-  sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
-): Entity[] {
+/** Condition marker check using the span's stored clause (no indexOf re-find). */
+export function isConditionMarker(
+  span: LiveSpan,
+  index: number,
+  spans: readonly LiveSpan[],
+): boolean {
+  const word = span.surface.toLowerCase();
+  if (word === 'if' || word === 'unless' || hasTag(span.tags, 'Condition')) return true;
+  if (word !== 'when') return false;
+  if (index !== 0) return true;
+  return !clauseHasContentVerb(spans, span.clause);
+}
+
+function extractEntities(placed: readonly PlacedSpan[]): Entity[] {
   const buckets = new Map<string, { entity: Entity; ordinal: number }>();
   const order: string[] = [];
   for (let index = 0; index < placed.length; index += 1) {
     const item = placed[index];
     if (item === undefined) continue;
+    if (item.span.insignificant === true) continue;
     if (isAdjectivalVerb(placed, index)) continue;
-    const kind = tokenKind(item.token);
+    const kind = spanKind(item.span);
     if (kind === undefined || kind === 'condition') continue;
-    const lemma = kind === 'action' ? verbLemma(item.token.text) : nounLemma(item.token.text);
+    const lemma = kind === 'action' ? verbLemma(item.span) : nounLemma(item.span.surface);
     const normalized = normalizeWord(lemma);
     if (normalized.word === undefined) continue;
     const id = `${kind}:${normalized.word}`;
@@ -323,7 +238,7 @@ function extractEntities(
       buckets.set(id, bucket);
       order.push(id);
     }
-    bucket.entity.sources.push(item.token.id);
+    bucket.entity.sources.push(item.span.id);
   }
   const entities: Entity[] = [];
   for (const id of order) {
@@ -332,17 +247,13 @@ function extractEntities(
     if (bucket.entity.sources.length > 1) bucket.entity.origin = 'rule';
     entities.push(bucket.entity);
   }
-  const conditions = extractConditions(sentences, tagged, placed);
+  const conditions = extractConditions(placed);
   for (const condition of conditions) entities.push(condition);
   return entities;
 }
 
-function extractConditions(
-  sentences: readonly Sentence[],
-  tagged: readonly TaggedSentence[],
-  placed: readonly PlacedToken[],
-): Entity[] {
-  const bySentence = new Map<string, PlacedToken[]>();
+function extractConditions(placed: readonly PlacedSpan[]): Entity[] {
+  const bySentence = new Map<string, PlacedSpan[]>();
   for (const item of placed) {
     const list = bySentence.get(item.sentence.id) ?? [];
     list.push(item);
@@ -350,27 +261,27 @@ function extractConditions(
   }
   const conditions: Entity[] = [];
   let number = 1;
-  for (const sentence of sentences) {
-    if (sentence.status !== 'current') continue;
-    const item = findTagged(tagged, sentence.id);
-    if (item === undefined || item.status !== 'current') continue;
-    const tokens = bySentence.get(sentence.id) ?? [];
-    const spans = clauseSpans(sentence, item.clauses);
-    for (let index = 0; index < tokens.length; index += 1) {
-      const placedToken = tokens[index];
-      if (placedToken === undefined || !isConditionMarker(placedToken.token, index, tokens, sentence, spans)) continue;
-      const relative = placedToken.token.span[0] - sentence.span[0];
-      const clause = clauseCovering(spans, relative);
-      const clauseEnd = clause === undefined ? sentence.text.length : clause.end;
-      const wordAt = sentence.text.toLowerCase().indexOf(placedToken.token.text.toLowerCase(), clause === undefined ? 0 : clause.start);
-      if (wordAt < 0) continue;
-      const text = sentence.text.slice(wordAt + placedToken.token.text.length, clauseEnd).replace(/^[\s,;:]+/, '').replace(/[.?!,"']+$/g, '').trim();
+  for (const [sentenceId, spans] of bySentence) {
+    const sentence = spans[0]?.sentence;
+    if (sentence === undefined || sentence.status !== 'current') continue;
+    for (let index = 0; index < spans.length; index += 1) {
+      const placedSpan = spans[index];
+      if (placedSpan === undefined || !isConditionMarker(placedSpan.span, index, spans.map((item) => item.span))) continue;
+      const clause = placedSpan.span.clause;
+      const markerRelative = placedSpan.span.range[0] - sentence.span[0];
+      const text = sentence.text
+        .slice(markerRelative + placedSpan.span.surface.length, clause.end)
+        .replace(/^[\s,;:]+/, '')
+        .replace(/[.?!,"']+$/g, '')
+        .trim();
       if (text === '') continue;
       const sources: string[] = [];
-      const absStart = sentence.span[0] + wordAt;
-      const absEnd = sentence.span[0] + clauseEnd;
-      for (const candidate of tokens) {
-        if (candidate.token.span[0] >= absStart && candidate.token.span[0] < absEnd) sources.push(candidate.token.id);
+      const absStart = placedSpan.span.range[0];
+      const absEnd = sentence.span[0] + clause.end;
+      for (const candidate of spans) {
+        if (candidate.span.range[0] >= absStart && candidate.span.range[0] < absEnd) {
+          sources.push(candidate.span.id);
+        }
       }
       conditions.push({
         id: `condition:c${number}`,
@@ -381,64 +292,48 @@ function extractConditions(
         status: 'candidate',
       });
       number += 1;
+      void sentenceId;
     }
   }
   return conditions;
 }
 
-export function isConditionMarker(
-  token: Token,
-  index: number,
-  tokens: readonly PlacedToken[],
-  sentence: Sentence,
-  spans: readonly ClauseSpan[],
-): boolean {
-  const word = token.text.toLowerCase();
-  if (word === 'if' || word === 'unless' || hasTag(token.tags, 'Condition')) return true;
-  if (word !== 'when') return false;
-  if (index !== 0) return true;
-  const relative = token.span[0] - sentence.span[0];
-  const clause = clauseCovering(spans, relative);
-  if (clause === undefined) return false;
-  return !clauseHasContentVerb(tokens, sentence, clause.start, clause.end);
-}
-
-function clauseHasContentVerb(tokens: readonly PlacedToken[], sentence: Sentence, start: number, end: number): boolean {
-  for (const item of tokens) {
-    const relative = item.token.span[0] - sentence.span[0];
-    if (relative < start || relative >= end) continue;
-    if (!hasTag(item.token.tags, 'Verb')) continue;
-    if (isAuxiliary(item.token.tags)) continue;
+function clauseHasContentVerb(spans: readonly LiveSpan[], clause: ClauseBound): boolean {
+  for (const span of spans) {
+    if (!sameClauseKey(span.clause, clause)) continue;
+    if (!hasTag(span.tags, 'Verb')) continue;
+    if (isAuxiliary(span.tags)) continue;
     return true;
   }
   return false;
 }
 
-function isAdjectivalVerb(tokens: readonly PlacedToken[], index: number): boolean {
-  const item = tokens[index];
-  if (item === undefined || !hasTag(item.token.tags, 'Verb') || isAuxiliary(item.token.tags)) return false;
-  const previous = tokens[index - 1];
-  const next = tokens[index + 1];
+function isAdjectivalVerb(spans: readonly PlacedSpan[], index: number): boolean {
+  const item = spans[index];
+  if (item === undefined || !hasTag(item.span.tags, 'Verb') || isAuxiliary(item.span.tags)) return false;
+  const previous = spans[index - 1];
+  const next = spans[index + 1];
   if (previous === undefined || next === undefined) return false;
   if (previous.sentence.id !== item.sentence.id || next.sentence.id !== item.sentence.id) return false;
-  return hasTag(previous.token.tags, 'Determiner') && hasTag(next.token.tags, 'Noun');
+  return hasTag(previous.span.tags, 'Determiner') && hasTag(next.span.tags, 'Noun');
 }
 
-function tokenKind(token: Token): EntityKind | undefined {
-  if (token.status !== 'current' || token.text === '' || token.skipped === true) return undefined;
-  if (hasTag(token.tags, 'Actor')) return 'actor';
-  if (hasTag(token.tags, 'Verb')) {
-    if (isAuxiliary(token.tags)) return undefined;
+function spanKind(span: LiveSpan): EntityKind | undefined {
+  if (span.surface === '') return undefined;
+  if (span.insignificant === true) return undefined;
+  if (hasTag(span.tags, 'Actor')) return 'actor';
+  if (hasTag(span.tags, 'Verb')) {
+    if (isAuxiliary(span.tags)) return undefined;
     return 'action';
   }
-  if (!hasTag(token.tags, 'Noun')) return undefined;
-  for (const tag of token.tags) {
+  if (!hasTag(span.tags, 'Noun')) return undefined;
+  for (const tag of span.tags) {
     if (SKIP_OBJECT.has(tag)) return undefined;
   }
   return 'object';
 }
 
-function mergeDerived(existing: readonly Entity[], derived: readonly Entity[], placed: readonly PlacedToken[]): DerivedEntities {
+function mergeDerived(existing: readonly Entity[], derived: readonly Entity[], placed: readonly PlacedSpan[]): DerivedEntities {
   const findings: Finding[] = [];
   const derivedById = new Map<string, Entity>();
   for (const entity of derived) {
@@ -567,12 +462,12 @@ function freshConditionId(used: ReadonlySet<string>): string {
   return `condition:c${number}`;
 }
 
-function settle(entity: Entity, placed: readonly PlacedToken[]): Entity {
+function settle(entity: Entity, placed: readonly PlacedSpan[]): Entity {
   const copy = copyEntity(entity);
   if (copy.sources.length === 0) return copy;
   let live = false;
   const known = new Set<string>();
-  for (const item of placed) known.add(item.token.id);
+  for (const item of placed) known.add(item.span.id);
   for (const source of copy.sources) {
     if (known.has(source)) live = true;
   }
@@ -612,44 +507,30 @@ function agentConflict(id: string): Finding {
   };
 }
 
-function placeTokens(sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): PlacedToken[] {
-  const placed: PlacedToken[] = [];
+function placeSpans(sentences: readonly Sentence[], spans: readonly LiveSpan[]): PlacedSpan[] {
+  const byId = new Map<string, Sentence>();
+  for (const sentence of sentences) byId.set(sentence.id, sentence);
+  const placed: PlacedSpan[] = [];
   let ordinal = 0;
-  for (const sentence of sentences) {
-    if (sentence.status !== 'current') continue;
-    const item = findTagged(tagged, sentence.id);
-    if (item === undefined || item.status !== 'current') continue;
-    for (const token of item.tokens) {
-      if (token.status !== 'current') continue;
-      ordinal += 1;
-      placed.push({ token, sentence, ordinal });
-    }
+  for (const span of spans) {
+    const sentenceId = sentenceIdOf(span.firstTokenId);
+    if (sentenceId === undefined) continue;
+    const sentence = byId.get(sentenceId);
+    if (sentence === undefined || sentence.status !== 'current') continue;
+    ordinal += 1;
+    placed.push({ span, sentence, ordinal });
   }
   return placed;
 }
 
-function entityOrdinal(entity: Entity, placed: readonly PlacedToken[]): number {
+function entityOrdinal(entity: Entity, placed: readonly PlacedSpan[]): number {
   let best = Number.MAX_SAFE_INTEGER;
   for (const source of entity.sources) {
     for (const item of placed) {
-      if (item.token.id === source && item.ordinal < best) best = item.ordinal;
+      if (item.span.id === source && item.ordinal < best) best = item.ordinal;
     }
   }
   return best;
-}
-
-function findSentence(sentences: readonly Sentence[], id: string): Sentence | undefined {
-  for (const sentence of sentences) {
-    if (sentence.id === id) return sentence;
-  }
-  return undefined;
-}
-
-function findTagged(tagged: readonly TaggedSentence[], id: string): TaggedSentence | undefined {
-  for (const item of tagged) {
-    if (item.id === id) return item;
-  }
-  return undefined;
 }
 
 function findEntity(entities: readonly Entity[], id: string): Entity | undefined {
@@ -657,6 +538,16 @@ function findEntity(entities: readonly Entity[], id: string): Entity | undefined
     if (entity.id === id) return entity;
   }
   return undefined;
+}
+
+function sameClauseKey(left: ClauseBound, right: ClauseBound): boolean {
+  return left.start === right.start && left.end === right.end;
+}
+
+function sentenceIdOf(tokenId: string): string | undefined {
+  const dot = tokenId.indexOf('.');
+  if (dot <= 0) return undefined;
+  return tokenId.slice(0, dot);
 }
 
 function isSingleSyllableCvc(lemma: string): boolean {

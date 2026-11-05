@@ -22,12 +22,12 @@ export function listEntities(command: ListEntitiesCommand, store: SpecStore): Ou
   let findings: Finding[] = [];
   const result = store.update(resolved.id, { create: false }, (current) => {
     if (current === undefined) return undefined;
-    if (!hasCurrentTokens(current)) {
-      input = 'no tokens; run clew spec tag first';
+    if (!hasCurrentSpans(current)) {
+      input = 'no spans; run clew spec tag first';
       return undefined;
     }
-    const derived = deriveEntities(current.sentences, current.tagged, current.entities ?? []);
-    const rebuilt = rebuildFacts(current.sentences, current.tagged, derived.entities, current.facts ?? []);
+    const derived = deriveEntities(current.sentences, current.spans ?? [], current.entities ?? []);
+    const rebuilt = rebuildFacts(current.sentences, current.spans ?? [], derived.entities, current.facts ?? []);
     findings = [...derived.findings, ...entityFindings(filterEntities(derived.entities, command))];
     if (sameEntities(current.entities, derived.entities) && sameFacts(current.facts, rebuilt.facts)) return undefined;
     const now = new Date().toISOString();
@@ -67,11 +67,8 @@ function filterEntities(entities: readonly Entity[], command: ListEntitiesComman
   return filtered;
 }
 
-function hasCurrentTokens(snapshot: SpecSnapshot): boolean {
-  for (const item of snapshot.tagged) {
-    if (item.status === 'current' && item.tokens.length > 0) return true;
-  }
-  return false;
+function hasCurrentSpans(snapshot: SpecSnapshot): boolean {
+  return (snapshot.spans ?? []).length > 0;
 }
 
 function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {

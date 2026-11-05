@@ -206,6 +206,19 @@ main { padding: 1rem 1.5rem 2.5rem; max-width: 1100px; }
 }
 .card .id { font-family: var(--mono); font-size: 0.84rem; color: var(--accent); }
 .card .blurb { margin: 0.35rem 0 0; color: var(--muted); }
+.card .span-clause,
+.card .span-lemma {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+.card .span-lemma {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+.card .span-lemma::before { content: "lemma "; color: var(--line); font-family: var(--sans); }
+.card .span-clause::before { content: "clause "; color: var(--line); }
 .pill {
   display: inline-block;
   font: 0.72rem/1 var(--mono);
@@ -607,6 +620,23 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return dot > 0 ? tokenId.slice(0, dot) : "";
   }
 
+  /** Sentence id for a fact/entity source: sentence id, token id, or span id. */
+  function sentenceIdOfSource(source) {
+    if (!source) return "";
+    if (/^sp:/.test(source)) {
+      const body = source.slice(3);
+      const first = body.split("..")[0] || body;
+      return sentenceIdOfToken(first);
+    }
+    if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) return sentenceIdOfToken(source);
+    if (/^s[1-9][0-9]*$/.test(source)) return source;
+    return "";
+  }
+
+  function sourceTouchesSentence(source, sentenceId) {
+    return sentenceIdOfSource(source) === sentenceId;
+  }
+
   function spanCoversToken(span, tokenId, order) {
     const first = order.get(span.firstTokenId);
     const last = order.get(span.lastTokenId);
@@ -821,7 +851,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       if (/^sp:/.test(source)) {
         span = indexSpans().get(source) || null;
         if (span) sentenceId = sentenceIdOfToken(span.firstTokenId);
-      } else if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
+      } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) {
         span = spanForToken(source);
         sentenceId = sentenceIdOfToken(source);
       }
@@ -909,7 +939,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
         rows.push(sentence
           ? sentenceRow(sentence)
           : { layer: "sentence", text: source, bits: [part("id", source)] });
-      } else if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source) || /^sp:/.test(source)) {
+      } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source) || /^sp:/.test(source)) {
         const span = /^sp:/.test(source) ? indexSpans().get(source) : spanForToken(source);
         const sentence = span ? sentenceById(sentenceIdOfToken(span.firstTokenId)) : null;
         if (sentence && span) rows.push(spanSentenceRow(sentence, [span]));
@@ -979,7 +1009,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
         ? { kind: "span", value: span.surface, span: span.id, skipped: span.insignificant === true }
         : part("ref", source);
     }
-    if (/^s[1-9][0-9]*\\.t[1-9][0-9]*$/.test(source)) {
+    if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) {
       const span = spanForToken(source);
       return span
         ? { kind: "span", value: span.surface, span: span.id, skipped: span.insignificant === true }
@@ -992,7 +1022,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     const rows = [];
     for (const entity of state.entities.filter(entityShown)) {
       for (const source of entity.sources || []) {
-        if (source === sentence.id || source.indexOf(sentence.id + ".") === 0) {
+        if (sourceTouchesSentence(source, sentence.id)) {
           rows.push({
             layer: "entity",
             text: entity.id + " via " + source,
@@ -1004,7 +1034,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     }
     for (const fact of state.facts) {
       for (const source of fact.sources || []) {
-        if (source === sentence.id || source.indexOf(sentence.id + ".") === 0) {
+        if (sourceTouchesSentence(source, sentence.id)) {
           rows.push({
             layer: "fact",
             text: fact.id + " " + factKind(fact) + " via " + source,
@@ -1309,6 +1339,21 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return lineageBlock(rows);
   }
 
+  function spanEntryMeta(entry) {
+    const clauses = [];
+    const lemmas = [];
+    for (const span of entry.spans) {
+      const clause = span.clause && span.clause.text ? String(span.clause.text) : "";
+      if (clause && clauses.indexOf(clause) < 0) clauses.push(clause);
+      const lemma = span.lemma ? String(span.lemma) : "";
+      if (lemma && lemmas.indexOf(lemma) < 0) lemmas.push(lemma);
+    }
+    let html = "";
+    for (const clause of clauses) html += '<p class="span-clause">' + esc(clause) + "</p>";
+    for (const lemma of lemmas) html += '<p class="span-lemma">' + esc(lemma) + "</p>";
+    return html;
+  }
+
   function spanEntryCard(entry) {
     const pos = coarsePos(entry.tags);
     const others = otherTags(entry.tags);
@@ -1322,6 +1367,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       '<article class="card' + skippedClass + '" data-entry-key="' + esc(entryKey) + '">' +
       "<h2><span class=\\"id\\">" + esc(entry.surface) + "</span>" + pills + "</h2>" +
       '<p class="blurb">' + esc(count === 1 ? "1 occurrence" : count + " occurrences") + "</p>" +
+      spanEntryMeta(entry) +
       spanEntryLineage(entry) +
       "</article>"
     );

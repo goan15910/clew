@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "sentences": [
     {
       "id": "s1",
@@ -9,7 +9,7 @@
         101
       ],
       "hash": "sha256:6b67fe8afd6b389bf48c5470a768995095fe1d1082a0956c62d483ecbf82b98f",
-      "section": "happy-path",
+      "section": "",
       "origin": "rule",
       "status": "current",
       "sources": []
@@ -19,10 +19,10 @@
       "text": "A clerk must not cancel a shipped package.",
       "span": [
         102,
-        143
+        144
       ],
-      "hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "section": "forbidden",
+      "hash": "sha256:80830bc3d3c8433d54c49675fc9b89b05851e25ce05ffab41420d9d75b996117",
+      "section": "",
       "origin": "rule",
       "status": "current",
       "sources": []
