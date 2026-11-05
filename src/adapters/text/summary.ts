@@ -1,5 +1,5 @@
 // Short stdout for humans. `--json` skips this and prints the command document.
-import type { CommandDocument, ConceptView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
+import type { CommandDocument, ConceptView, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import { formatIssues } from '../../application/documents.js';
 import { ROLE_NAMES } from '../../domain/spec-frames.js';
 import { CLEW_AUTHOR } from '../../domain/spec.js';
@@ -160,6 +160,7 @@ export function humanSummary(document: CommandDocument): string {
     if (document.fault !== undefined || document.session === undefined || document.coverage === undefined) return '';
     const sentences = document.coverage.sentences;
     const lines = [`session ${document.session}: ${sentences.mapped.length} mapped, ${sentences.pending.length} pending, ${sentences.deleted.length} deleted`];
+    for (const clause of document.clauses ?? []) lines.push(`  clause ${clause.frame} ${clause.event} ${reachText(clause)}`);
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
@@ -310,6 +311,13 @@ function frameLines(frames: readonly FrameView[]): string[] {
       const from = compiled.from === undefined ? '' : `${compiled.from} -> `;
       lines.push(`    ${verb} ${compiled.event}: ${compiled.object} ${from}${compiled.to} by ${compiled.actor}`);
     }
+    if (frame.reach !== undefined) lines.push(`    ${reachText(frame.reach)}`);
   }
   return lines;
+}
+
+function reachText(reach: FrameReachView): string {
+  if (reach.status === 'reachable') return `reachable via ${(reach.witness ?? []).join(' → ')}`;
+  if (reach.status === 'unreachable') return `unreachable: ${(reach.blockedBy ?? []).length === 0 ? 'its guard never holds' : (reach.blockedBy ?? []).join(', ')}`;
+  return 'unexplored: the search reached its state bound';
 }

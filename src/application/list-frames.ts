@@ -1,6 +1,7 @@
 // Use case: derive one clause frame per clause, store them, and list them with what they compile to.
 import { compileFrames } from '../domain/spec-compile.js';
 import { sameFrames } from '../domain/spec-frames.js';
+import { clauseReach } from '../domain/spec-kernel.js';
 import { refinementFindings, refreshConcepts, refreshFrames, sameGroups, type RefinementDrop } from '../domain/spec-refine.js';
 import { sameSpans } from '../domain/spec-spans.js';
 import { liveSentences, type Finding, type SpecSnapshot } from '../domain/spec.js';
@@ -70,7 +71,7 @@ export function listFrames(command: ListFramesCommand, store: SpecStore): Outcom
       command: 'spec.frames.list',
       ok: true,
       session: result.snapshot.id,
-      frames: frameViews(frames, compilation.compiled.items, compilation.restated),
+      frames: frameViews(frames, compilation.compiled.items, compilation.restated, clauseReach(compilation.compiled)),
       findings,
       issues: [],
     },
