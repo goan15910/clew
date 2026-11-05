@@ -38,7 +38,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
 
       seedFromDraft(dir);
       const leftover = sessionFile(dir, 'graph.json');
-      writeFileSync(leftover, '{"schemaVersion":2,"objects":[],"states":[],"transitions":[],"flows":[]}\n');
+      writeFileSync(leftover, '{"schemaVersion":3,"objects":[],"states":[],"transitions":[],"flows":[]}\n');
       const built = run(dir, ['spec', 'graph', 'build', '--json']);
       assert.equal(built.status, 0, built.stderr);
       assert.equal(built.stderr, '');

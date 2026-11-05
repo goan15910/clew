@@ -1,4 +1,4 @@
-// Use case: propose draft facts from entities and tokens.
+// Use case: propose draft facts from entities and live spans.
 import { hasBlocking, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import { proposeFacts, sameFacts } from '../domain/spec-facts.js';
 import type { Outcome, SpecFactsDocument } from './documents.js';
@@ -19,8 +19,8 @@ export function proposeSpecFacts(command: ProposeFactsCommand, store: SpecStore)
   let findings: Finding[] = [];
   const result = store.update(resolved.id, { create: false }, (current) => {
     if (current === undefined) return undefined;
-    if (!hasCurrentTokens(current)) {
-      problem = 'no tokens; run clew spec tag first';
+    if (!hasCurrentSpans(current)) {
+      problem = 'no spans; run clew spec tag first';
       return undefined;
     }
     if (current.entities === undefined) {
@@ -31,7 +31,7 @@ export function proposeSpecFacts(command: ProposeFactsCommand, store: SpecStore)
       problem = `unknown sentence "${command.sentenceId}"`;
       return undefined;
     }
-    const proposed = proposeFacts(current.sentences, current.tagged, current.entities, current.facts ?? [], command.sentenceId);
+    const proposed = proposeFacts(current.sentences, current.spans ?? [], current.entities, current.facts ?? [], command.sentenceId);
     findings = proposed.findings;
     if (sameFacts(current.facts, proposed.facts)) return undefined;
     const now = new Date().toISOString();
@@ -61,11 +61,8 @@ export function proposeSpecFacts(command: ProposeFactsCommand, store: SpecStore)
   };
 }
 
-function hasCurrentTokens(snapshot: SpecSnapshot): boolean {
-  for (const item of snapshot.tagged) {
-    if (item.status === 'current' && item.tokens.length > 0) return true;
-  }
-  return false;
+function hasCurrentSpans(snapshot: SpecSnapshot): boolean {
+  return (snapshot.spans ?? []).length > 0;
 }
 
 function hasSentence(snapshot: SpecSnapshot, id: string): boolean {

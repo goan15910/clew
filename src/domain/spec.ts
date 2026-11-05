@@ -2,7 +2,7 @@
 // Pure data and rules. No tagger, no files, no Zod.
 import type { Patch, Predicate } from './valuation.js';
 
-export const SPEC_SCHEMA_VERSION = 2 as const;
+export const SPEC_SCHEMA_VERSION = 3 as const;
 
 export const SPEC_SESSION_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const SPEC_SESSION_ID_MESSAGE = 'session ids start with a letter and then use letters, digits, underscores, or hyphens';
@@ -55,6 +55,13 @@ export interface SentenceDraft {
   section: string;
 }
 
+/** Compromise clause cover relative to the sentence text. */
+export interface ClauseBound {
+  text: string;
+  start: number;
+  end: number;
+}
+
 export interface Token {
   id: string;
   text: string;
@@ -68,6 +75,10 @@ export interface Token {
    * Token stays in tokens.json with positions; promotes to an insignificant span.
    */
   skipped?: boolean;
+  /** Verb infinitive from compromise when the tagger tagged this token as a Verb. */
+  lemma?: string;
+  /** Clause covering this token, assigned once at tag time. */
+  clause?: ClauseBound;
 }
 
 export interface TaggedSentence {
@@ -88,6 +99,8 @@ export interface LiveSpan {
   id: string;
   firstTokenId: string;
   lastTokenId: string;
+  /** Absolute character range covering the tokens (from first through last). */
+  range: [number, number];
   /** Display / underline surface (original spec casing for the cover). */
   surface: string;
   tags: string[];
@@ -99,6 +112,13 @@ export interface LiveSpan {
   /** True when an agent or human last wrote the entity link (including explicit none). */
   entityLinkExplicitlySet: boolean;
   insignificant?: boolean;
+  /**
+   * Clause covering this span: the union of its tokens' clause bounds.
+   * Cross-clause merges are rejected, so this is always a single compromise clause.
+   */
+  clause: ClauseBound;
+  /** Verb infinitive when this span carries a Verb (from compromise via the token). */
+  lemma?: string;
 }
 
 export interface Entity {
@@ -258,6 +278,8 @@ export interface PosToken {
   tags: string[];
   start: number;
   end: number;
+  /** Verb infinitive from compromise when tagged as a Verb. */
+  lemma?: string;
 }
 
 export interface PosTagging {
@@ -374,15 +396,23 @@ export function staleFindings(sentences: readonly Sentence[]): Finding[] {
   return findings;
 }
 
-export function tagFindings(sentenceId: string, text: string, tokens: readonly { tags: readonly string[] }[], clauses: readonly string[]): Finding[] {
+export function tagFindings(
+  sentenceId: string,
+  text: string,
+  tokens: readonly { tags: readonly string[]; clause?: ClauseBound }[],
+  /** @deprecated Prefer reading stored span/token clause bounds; kept for call-site clarity. */
+  _clauses?: readonly string[],
+): Finding[] {
   const findings: Finding[] = [];
   let verb = false;
   let actor = false;
+  const clauseKeys = new Set<string>();
   for (const token of tokens) {
     for (const tag of token.tags) {
       if (tag === 'Verb') verb = true;
       if (tag === 'Actor') actor = true;
     }
+    if (token.clause !== undefined) clauseKeys.add(`${token.clause.start}:${token.clause.end}`);
   }
   if (!verb) {
     findings.push({
@@ -406,7 +436,7 @@ export function tagFindings(sentenceId: string, text: string, tokens: readonly {
   }
   const condition = CONDITION_WORD.exec(text);
   const word = condition?.[1];
-  if (word !== undefined && clauses.length < 2) {
+  if (word !== undefined && clauseKeys.size < 2) {
     findings.push({
       id: `condition-without-clause:${sentenceId}`,
       kind: 'coverage',
@@ -433,12 +463,16 @@ export function taggerVersionFinding(previous: { name: string; version: string }
 }
 
 export function tokensFromTagging(sentence: Sentence, tagging: PosTagging): Token[] {
+  const clauseBounds = locateClauseBounds(sentence.text, tagging.clauses);
   const tokens: Token[] = [];
   let index = 1;
   for (const token of tagging.tokens) {
     const id = `${sentence.id}.t${index}`;
     index += 1;
-    tokens.push({
+    const relative = token.start;
+    const clause = clauseCoveringRelative(clauseBounds, relative)
+      ?? { text: sentence.text, start: 0, end: sentence.text.length };
+    const next: Token = {
       id,
       text: token.text,
       tags: token.tags.slice(),
@@ -446,9 +480,32 @@ export function tokensFromTagging(sentence: Sentence, tagging: PosTagging): Toke
       origin: 'tagger',
       status: 'current',
       sources: [sentence.id],
-    });
+      clause: { text: clause.text, start: clause.start, end: clause.end },
+    };
+    if (token.lemma !== undefined && token.lemma !== '') next.lemma = token.lemma;
+    tokens.push(next);
   }
   return tokens;
+}
+
+/** Locate compromise clause strings once inside the sentence text. */
+export function locateClauseBounds(sentenceText: string, clauses: readonly string[]): ClauseBound[] {
+  const bounds: ClauseBound[] = [];
+  let search = 0;
+  for (const clause of clauses) {
+    const at = sentenceText.indexOf(clause, search);
+    if (at < 0) continue;
+    bounds.push({ text: clause, start: at, end: at + clause.length });
+    search = at + clause.length;
+  }
+  return bounds;
+}
+
+export function clauseCoveringRelative(bounds: readonly ClauseBound[], relativeStart: number): ClauseBound | undefined {
+  for (const bound of bounds) {
+    if (relativeStart >= bound.start && relativeStart < bound.end) return bound;
+  }
+  return undefined;
 }
 
 export function taggingDiffers(existing: TaggedSentence, clauses: readonly string[], tokens: readonly Token[]): boolean {
@@ -463,6 +520,8 @@ export function taggingDiffers(existing: TaggedSentence, clauses: readonly strin
     if (left === undefined || right === undefined) return true;
     if (left.text !== right.text || left.span[0] !== right.span[0] || left.span[1] !== right.span[1]) return true;
     if ((left.skipped === true) !== (right.skipped === true)) return true;
+    if (left.lemma !== right.lemma) return true;
+    if (!sameClauseBound(left.clause, right.clause)) return true;
     if (left.tags.length !== right.tags.length) return true;
     for (let tag = 0; tag < left.tags.length; tag += 1) {
       if (left.tags[tag] !== right.tags[tag]) return true;
@@ -597,11 +656,19 @@ export function sameTagged(left: readonly TaggedSentence[], right: readonly Tagg
       if (leftToken.id !== rightToken.id || leftToken.text !== rightToken.text) return false;
       if (leftToken.origin !== rightToken.origin || leftToken.status !== rightToken.status) return false;
       if ((leftToken.skipped === true) !== (rightToken.skipped === true)) return false;
+      if (leftToken.lemma !== rightToken.lemma) return false;
+      if (!sameClauseBound(leftToken.clause, rightToken.clause)) return false;
       if (leftToken.span[0] !== rightToken.span[0] || leftToken.span[1] !== rightToken.span[1]) return false;
       if (!sameStrings(leftToken.tags, rightToken.tags) || !sameStrings(leftToken.sources, rightToken.sources)) return false;
     }
   }
   return true;
+}
+
+export function sameClauseBound(left: ClauseBound | undefined, right: ClauseBound | undefined): boolean {
+  if (left === undefined && right === undefined) return true;
+  if (left === undefined || right === undefined) return false;
+  return left.text === right.text && left.start === right.start && left.end === right.end;
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
@@ -637,6 +704,10 @@ function retarget(item: TaggedSentence, status: SpecItemStatus, delta: number): 
       sources,
     };
     if (token.skipped === true) next.skipped = true;
+    if (token.lemma !== undefined) next.lemma = token.lemma;
+    if (token.clause !== undefined) {
+      next.clause = { text: token.clause.text, start: token.clause.start, end: token.clause.end };
+    }
     tokens.push(next);
   }
   return { id: item.id, status, clauses, tokens };

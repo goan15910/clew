@@ -1,10 +1,14 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "spans": [
     {
       "id": "sp:s1.t1..s1.t1",
       "firstTokenId": "s1.t1",
       "lastTokenId": "s1.t1",
+      "range": [
+        0,
+        4
+      ],
       "surface": "When",
       "tags": [
         "Connector",
@@ -12,12 +16,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "When the customer submits an order,",
+        "start": 0,
+        "end": 35
+      }
     },
     {
       "id": "sp:s1.t2..s1.t2",
       "firstTokenId": "s1.t2",
       "lastTokenId": "s1.t2",
+      "range": [
+        5,
+        8
+      ],
       "surface": "the",
       "tags": [
         "Determiner"
@@ -25,12 +38,21 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "When the customer submits an order,",
+        "start": 0,
+        "end": 35
+      },
       "insignificant": true
     },
     {
       "id": "sp:s1.t3..s1.t3",
       "firstTokenId": "s1.t3",
       "lastTokenId": "s1.t3",
+      "range": [
+        9,
+        17
+      ],
       "surface": "customer",
       "tags": [
         "Noun",
@@ -39,12 +61,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "When the customer submits an order,",
+        "start": 0,
+        "end": 35
+      }
     },
     {
       "id": "sp:s1.t4..s1.t4",
       "firstTokenId": "s1.t4",
       "lastTokenId": "s1.t4",
+      "range": [
+        18,
+        25
+      ],
       "surface": "submits",
       "tags": [
         "Verb",
@@ -52,12 +83,22 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "When the customer submits an order,",
+        "start": 0,
+        "end": 35
+      },
+      "lemma": "submit"
     },
     {
       "id": "sp:s1.t5..s1.t5",
       "firstTokenId": "s1.t5",
       "lastTokenId": "s1.t5",
+      "range": [
+        26,
+        28
+      ],
       "surface": "an",
       "tags": [
         "Determiner"
@@ -65,12 +106,21 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "When the customer submits an order,",
+        "start": 0,
+        "end": 35
+      },
       "insignificant": true
     },
     {
       "id": "sp:s1.t6..s1.t6",
       "firstTokenId": "s1.t6",
       "lastTokenId": "s1.t6",
+      "range": [
+        29,
+        34
+      ],
       "surface": "order",
       "tags": [
         "Noun",
@@ -78,12 +128,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "When the customer submits an order,",
+        "start": 0,
+        "end": 35
+      }
     },
     {
       "id": "sp:s1.t7..s1.t7",
       "firstTokenId": "s1.t7",
       "lastTokenId": "s1.t7",
+      "range": [
+        36,
+        39
+      ],
       "surface": "the",
       "tags": [
         "Determiner"
@@ -91,12 +150,21 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the manager approves",
+        "start": 36,
+        "end": 56
+      },
       "insignificant": true
     },
     {
       "id": "sp:s1.t8..s1.t8",
       "firstTokenId": "s1.t8",
       "lastTokenId": "s1.t8",
+      "range": [
+        40,
+        47
+      ],
       "surface": "manager",
       "tags": [
         "Noun",
@@ -105,12 +173,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the manager approves",
+        "start": 36,
+        "end": 56
+      }
     },
     {
       "id": "sp:s1.t9..s1.t9",
       "firstTokenId": "s1.t9",
       "lastTokenId": "s1.t9",
+      "range": [
+        48,
+        56
+      ],
       "surface": "approves",
       "tags": [
         "Verb",
@@ -118,12 +195,22 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the manager approves",
+        "start": 36,
+        "end": 56
+      },
+      "lemma": "approve"
     },
     {
       "id": "sp:s1.t10..s1.t10",
       "firstTokenId": "s1.t10",
       "lastTokenId": "s1.t10",
+      "range": [
+        57,
+        60
+      ],
       "surface": "the",
       "tags": [
         "Determiner"
@@ -131,12 +218,21 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      },
       "insignificant": true
     },
     {
       "id": "sp:s1.t11..s1.t11",
       "firstTokenId": "s1.t11",
       "lastTokenId": "s1.t11",
+      "range": [
+        61,
+        66
+      ],
       "surface": "order",
       "tags": [
         "Noun",
@@ -144,12 +240,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      }
     },
     {
       "id": "sp:s1.t12..s1.t12",
       "firstTokenId": "s1.t12",
       "lastTokenId": "s1.t12",
+      "range": [
+        67,
+        69
+      ],
       "surface": "if",
       "tags": [
         "Connector",
@@ -158,12 +263,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      }
     },
     {
       "id": "sp:s1.t13..s1.t13",
       "firstTokenId": "s1.t13",
       "lastTokenId": "s1.t13",
+      "range": [
+        70,
+        73
+      ],
       "surface": "the",
       "tags": [
         "Determiner"
@@ -171,12 +285,21 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      },
       "insignificant": true
     },
     {
       "id": "sp:s1.t14..s1.t14",
       "firstTokenId": "s1.t14",
       "lastTokenId": "s1.t14",
+      "range": [
+        74,
+        79
+      ],
       "surface": "total",
       "tags": [
         "Noun",
@@ -184,12 +307,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      }
     },
     {
       "id": "sp:s1.t15..s1.t15",
       "firstTokenId": "s1.t15",
       "lastTokenId": "s1.t15",
+      "range": [
+        80,
+        82
+      ],
       "surface": "is",
       "tags": [
         "Verb",
@@ -199,12 +331,22 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
-      "insignificant": true
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      },
+      "insignificant": true,
+      "lemma": "be"
     },
     {
       "id": "sp:s1.t16..s1.t16",
       "firstTokenId": "s1.t16",
       "lastTokenId": "s1.t16",
+      "range": [
+        83,
+        88
+      ],
       "surface": "under",
       "tags": [
         "Adjective"
@@ -212,12 +354,21 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      },
       "insignificant": true
     },
     {
       "id": "sp:s1.t17..s1.t17",
       "firstTokenId": "s1.t17",
       "lastTokenId": "s1.t17",
+      "range": [
+        89,
+        92
+      ],
       "surface": "500",
       "tags": [
         "Value",
@@ -227,12 +378,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      }
     },
     {
       "id": "sp:s1.t18..s1.t18",
       "firstTokenId": "s1.t18",
       "lastTokenId": "s1.t18",
+      "range": [
+        93,
+        100
+      ],
       "surface": "dollars",
       "tags": [
         "Noun",
@@ -242,12 +402,21 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "the order if the total is under 500 dollars.",
+        "start": 57,
+        "end": 101
+      }
     },
     {
       "id": "sp:s2.t1..s2.t1",
       "firstTokenId": "s2.t1",
       "lastTokenId": "s2.t1",
+      "range": [
+        102,
+        103
+      ],
       "surface": "A",
       "tags": [
         "Determiner"
@@ -255,12 +424,21 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      },
       "insignificant": true
     },
     {
       "id": "sp:s2.t2..s2.t2",
       "firstTokenId": "s2.t2",
       "lastTokenId": "s2.t2",
+      "range": [
+        104,
+        109
+      ],
       "surface": "clerk",
       "tags": [
         "Noun",
@@ -269,48 +447,90 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      }
     },
     {
       "id": "sp:s2.t3..s2.t3",
       "firstTokenId": "s2.t3",
       "lastTokenId": "s2.t3",
+      "range": [
+        110,
+        114
+      ],
       "surface": "must",
       "tags": [
-        "Verb"
+        "Verb",
+        "Modal",
+        "Auxiliary"
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      },
+      "lemma": "must"
     },
     {
       "id": "sp:s2.t4..s2.t4",
       "firstTokenId": "s2.t4",
       "lastTokenId": "s2.t4",
+      "range": [
+        115,
+        118
+      ],
       "surface": "not",
       "tags": [
         "Negative"
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      }
     },
     {
       "id": "sp:s2.t5..s2.t5",
       "firstTokenId": "s2.t5",
       "lastTokenId": "s2.t5",
+      "range": [
+        119,
+        125
+      ],
       "surface": "cancel",
       "tags": [
-        "Verb"
+        "Verb",
+        "PresentTense",
+        "Infinitive"
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      },
+      "lemma": "cancel"
     },
     {
       "id": "sp:s2.t6..s2.t6",
       "firstTokenId": "s2.t6",
       "lastTokenId": "s2.t6",
+      "range": [
+        126,
+        127
+      ],
       "surface": "a",
       "tags": [
         "Determiner"
@@ -318,24 +538,44 @@
       "origin": "promote",
       "explicitlySet": false,
       "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      },
       "insignificant": true
     },
     {
       "id": "sp:s2.t7..s2.t7",
       "firstTokenId": "s2.t7",
       "lastTokenId": "s2.t7",
+      "range": [
+        128,
+        135
+      ],
       "surface": "shipped",
       "tags": [
-        "Adjective"
+        "Verb",
+        "PastTense"
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      },
+      "lemma": "ship"
     },
     {
       "id": "sp:s2.t8..s2.t8",
       "firstTokenId": "s2.t8",
       "lastTokenId": "s2.t8",
+      "range": [
+        136,
+        143
+      ],
       "surface": "package",
       "tags": [
         "Noun",
@@ -343,7 +583,12 @@
       ],
       "origin": "promote",
       "explicitlySet": false,
-      "entityLinkExplicitlySet": false
+      "entityLinkExplicitlySet": false,
+      "clause": {
+        "text": "A clerk must not cancel a shipped package.",
+        "start": 0,
+        "end": 42
+      }
     }
   ]
 }

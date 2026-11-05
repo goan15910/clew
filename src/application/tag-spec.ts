@@ -1,7 +1,7 @@
 // Use case: tag current sentences through PosTaggerPort and store the tokens.
 import { reconcileEntities, sameEntities } from '../domain/spec-entities.js';
 import { reconcileFacts, sameFacts } from '../domain/spec-facts.js';
-import { promoteTaggedToSpans, replaceSentenceSpans, sameSpans, validatePartition } from '../domain/spec-spans.js';
+import { replaceSentenceSpans, sameSpans, validatePartition } from '../domain/spec-spans.js';
 import { markSkippedTokens } from '../domain/spec-stop-words.js';
 import {
   currentSentences,
@@ -76,10 +76,7 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
     const tagged = mergeTagged(current.sentences, current.tagged, replacements);
     const replacedSentenceIds = new Set<string>();
     for (const id of replacements.keys()) replacedSentenceIds.add(id);
-    // Sessions tagged before the span layer still need a 1:1 promote even when tokens are unchanged.
-    const spans = current.spans === undefined && replacedSentenceIds.size === 0
-      ? promoteTaggedToSpans(tagged)
-      : replaceSentenceSpans(current.spans, tagged, replacedSentenceIds);
+    const spans = replaceSentenceSpans(current.spans, tagged, replacedSentenceIds);
     const partitionProblem = validatePartition(spans, tagged);
     if (partitionProblem !== undefined) {
       produced.push({
@@ -93,8 +90,8 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       findings = produced;
       return undefined;
     }
-    const entities = current.entities === undefined ? undefined : reconcileEntities(current.sentences, tagged, current.entities);
-    const facts = current.facts === undefined ? undefined : reconcileFacts(current.sentences, tagged, entities ?? [], current.facts);
+    const entities = current.entities === undefined ? undefined : reconcileEntities(current.sentences, spans, current.entities);
+    const facts = current.facts === undefined ? undefined : reconcileFacts(current.sentences, spans, entities ?? [], current.facts);
     const taggerSame = current.tagger !== undefined && current.tagger.name === tagger.name && current.tagger.version === tagger.version;
     if (
       sameTagged(current.tagged, tagged)

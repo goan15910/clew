@@ -31,6 +31,7 @@ export function viewSpecGraph(
     snapshot.facts ?? [],
     snapshot.sentences,
     snapshot.tagged,
+    snapshot.spans ?? [],
   );
   const charts: DraftGraphChartImage[] = [];
   const workflows: DraftGraphWorkflowImage[] = [];
