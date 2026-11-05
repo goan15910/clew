@@ -1,5 +1,5 @@
 // Unfold from Spec/facts, path cover, and the workflow-set draft.
-// One accepted path per object lifecycle (or short cross-object scenario), plus rejected forbidden paths.
+// One accepted flow covers every transition on an object. Cross-object stitch is a short scenario.
 // Flows overlay is keyed by fact id so split/group survive a rebuild.
 // Gap findings are recomputed, not stored. There is no stale-graph.
 import type { Issue } from './issue.js';
@@ -356,29 +356,37 @@ function coverAcceptedPaths(
     byObject.set(transition.object, list);
   }
   const flows: SpecFlow[] = [];
-  const remaining = new Map<string, GraphTransition>();
-  for (const transition of uncovered) remaining.set(transition.id, transition);
   for (const locals of byObject.values()) {
     locals.sort((left, right) => factNumber(left.fact) - factNumber(right.fact));
-    const open = new Set<string>();
-    for (const transition of locals) open.add(transition.id);
-    while (open.size > 0) {
-      const start = pickLifecycleStart(locals, open);
-      if (start === undefined) break;
-      const path = growLifecycle(start, locals, open);
-      for (const id of path) {
-        open.delete(id);
-        remaining.delete(id);
-        covered.add(id);
-      }
-      flows.push(acceptedFlow(freshFlowId(used), path, transitions, 'rule'));
-    }
-  }
-  for (const transition of remaining.values()) {
-    covered.add(transition.id);
-    flows.push(acceptedFlow(freshFlowId(used), [transition.id], transitions, 'rule'));
+    const path = coverObjectLifecycle(locals);
+    if (path.length === 0) continue;
+    for (const id of path) covered.add(id);
+    flows.push(acceptedFlow(freshFlowId(used), path, transitions, 'rule'));
   }
   return stitchScenarios(flows, transitions, used);
+}
+
+function coverObjectLifecycle(locals: readonly GraphTransition[]): string[] {
+  const open = new Set<string>();
+  for (const transition of locals) open.add(transition.id);
+  const path: string[] = [];
+  while (open.size > 0) {
+    const start = pickLifecycleStart(locals, open);
+    if (start === undefined) {
+      for (const transition of locals) {
+        if (!open.has(transition.id)) continue;
+        path.push(transition.id);
+        open.delete(transition.id);
+      }
+      break;
+    }
+    const grown = growLifecycle(start, locals, open);
+    for (const id of grown) {
+      path.push(id);
+      open.delete(id);
+    }
+  }
+  return path;
 }
 
 function pickLifecycleStart(
@@ -1161,12 +1169,6 @@ function chainTransitions(ids: readonly string[], transitions: readonly GraphTra
 }
 
 function chainObjects(transitions: readonly GraphTransition[]): boolean {
-  for (let index = 1; index < transitions.length; index += 1) {
-    const previous = transitions[index - 1];
-    const current = transitions[index];
-    if (previous === undefined || current === undefined) return false;
-    if (previous.object === current.object && previous.to !== current.from) return false;
-  }
   return transitions.length > 0;
 }
 

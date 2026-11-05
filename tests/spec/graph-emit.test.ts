@@ -371,6 +371,87 @@ describe('spec graph and emit', { concurrency: false }, () => {
     assert.match(emitHelp.stdout, /clew spec emit --out flows.yaml --chart spec.yaml --json/);
   });
 
+  test('same-object branches fold into one lifecycle', () => {
+    const entities = [
+      { id: 'object:order', kind: 'object' as const, name: 'order', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'actor:customer', kind: 'actor' as const, name: 'customer', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'actor:manager', kind: 'actor' as const, name: 'manager', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'action:submit', kind: 'action' as const, name: 'submit', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'action:approve', kind: 'action' as const, name: 'approve', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'action:cancel', kind: 'action' as const, name: 'cancel', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+    ];
+    const facts = [
+      {
+        id: 'f1',
+        kind: 'action' as const,
+        event: 'SUBMIT',
+        actor: 'actor:customer',
+        when: { op: 'eq' as const, var: varId('order'), value: { t: 'null' as const } },
+        assign: { order: valueOf('atom', 'submit') },
+        origin: 'rule' as const,
+        confidence: 1,
+        sources: ['s1'],
+        status: 'current' as const,
+      },
+      {
+        id: 'f2',
+        kind: 'action' as const,
+        event: 'APPROVE',
+        actor: 'actor:manager',
+        when: { op: 'eq' as const, var: varId('order'), value: valueOf('atom', 'submit') },
+        assign: { order: valueOf('atom', 'approve') },
+        origin: 'rule' as const,
+        confidence: 1,
+        sources: ['s2'],
+        status: 'current' as const,
+      },
+      {
+        id: 'f3',
+        kind: 'action' as const,
+        event: 'CANCEL',
+        actor: 'actor:customer',
+        when: { op: 'eq' as const, var: varId('order'), value: valueOf('atom', 'submit') },
+        assign: { order: valueOf('atom', 'cancel') },
+        origin: 'rule' as const,
+        confidence: 1,
+        sources: ['s3'],
+        status: 'current' as const,
+      },
+    ];
+    const built = buildGraph(entities, facts, undefined, 5000);
+    const accepted = (built.graph.flows ?? []).filter((flow) => flow.expect === 'accepted');
+    assert.equal(accepted.length, 1);
+    assert.equal(accepted[0]?.title, 'Order lifecycle');
+    assert.deepEqual(accepted[0]?.transitions, ['f1', 'f2', 'f3']);
+  });
+
+  test('a lone edge on an object stays a single-edge workflow', () => {
+    const entities = [
+      { id: 'object:order', kind: 'object' as const, name: 'order', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'actor:customer', kind: 'actor' as const, name: 'customer', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'action:submit', kind: 'action' as const, name: 'submit', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+    ];
+    const facts = [
+      {
+        id: 'f1',
+        kind: 'action' as const,
+        event: 'SUBMIT',
+        actor: 'actor:customer',
+        when: { op: 'eq' as const, var: varId('order'), value: { t: 'null' as const } },
+        assign: { order: valueOf('atom', 'submit') },
+        origin: 'rule' as const,
+        confidence: 1,
+        sources: ['s1'],
+        status: 'current' as const,
+      },
+    ];
+    const built = buildGraph(entities, facts, undefined, 5000);
+    const accepted = (built.graph.flows ?? []).filter((flow) => flow.expect === 'accepted');
+    assert.equal(accepted.length, 1);
+    assert.equal(accepted[0]?.title, 'Submit order');
+    assert.deepEqual(accepted[0]?.transitions, ['f1']);
+  });
+
   test('when null is the initial overlay from, not a missing source', () => {
     const entities = [
       { id: 'object:order', kind: 'object' as const, name: 'order', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
