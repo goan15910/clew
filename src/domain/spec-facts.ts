@@ -13,16 +13,18 @@ import {
   verbLemma,
   type ClauseSpan,
 } from './spec-entities.js';
-import type {
-  ActionFact,
-  ConfigurationFact,
-  Entity,
-  Fact,
-  FactKind,
-  Finding,
-  Sentence,
-  TaggedSentence,
-  Token,
+import {
+  UNSPECIFIED_ACTOR_ID,
+  UNSPECIFIED_ACTOR_NAME,
+  type ActionFact,
+  type ConfigurationFact,
+  type Entity,
+  type Fact,
+  type FactKind,
+  type Finding,
+  type Sentence,
+  type TaggedSentence,
+  type Token,
 } from './spec.js';
 import {
   eventName,
@@ -44,6 +46,8 @@ import {
 const NEGATION = new Set(['not', 'cannot', "can't", 'never', "won't", 'wont']);
 const EVENT_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 const VAR_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
+/** Overlay location for the default atom initial (`{ t: 'null' }`) when `when` is null. */
+export const DEFAULT_INITIAL_ATOM = 'null';
 
 export interface FactDraft {
   kind?: FactKind;
@@ -446,7 +450,7 @@ export function assembleSpecFromFacts(entities: readonly Entity[], facts: readon
   }
 }
 
-export function overlayOf(fact: ActionFact, entities: readonly Entity[]): {
+export function overlayOf(fact: ActionFact, entities: readonly Entity[], initial: Patch): {
   object: string;
   from: string | undefined;
   to: string;
@@ -461,20 +465,30 @@ export function overlayOf(fact: ActionFact, entities: readonly Entity[]): {
   const objectEntity = objectEntityForVar(objectVar, entities);
   if (objectEntity?.name === undefined) return undefined;
   const fromValue = eqValue(fact.when, objectVar);
-  const from = fromValue === undefined || fromValue.t === 'null'
-    ? undefined
-    : fromValue.t === 'atom'
-      ? fromValue.v
-      : undefined;
-  const actorEntity = findEntity(entities, fact.actor);
   return {
     object: objectEntity.name,
-    from,
+    from: fromAtom(fromValue, objectVar, initial),
     to: assigned.v,
     event: fact.event,
-    actor: actorEntity?.name,
+    actor: overlayActor(fact.actor, entities),
     guard: booleanGuard(fact.when, entities),
   };
+}
+
+function fromAtom(fromValue: Value | undefined, objectVar: string, initial: Patch): string | undefined {
+  if (fromValue === undefined) return undefined;
+  if (fromValue.t === 'atom') return fromValue.v;
+  if (fromValue.t !== 'null') return undefined;
+  const value = initial[objectVar];
+  if (value?.t === 'atom') return value.v;
+  return DEFAULT_INITIAL_ATOM;
+}
+
+function overlayActor(id: string, entities: readonly Entity[]): string | undefined {
+  const entity = findEntity(entities, id);
+  if (entity?.name !== undefined) return entity.name;
+  if (id === UNSPECIFIED_ACTOR_ID) return UNSPECIFIED_ACTOR_NAME;
+  return undefined;
 }
 
 export function draftFrom(fact: Fact): FactDraft {
@@ -617,11 +631,10 @@ function collectDrafts(
       assign[objectVar] = assigned;
       const sources: string[] = [frame.action.token.id, frame.object.token.id];
       if (frame.negated) {
-        if (frame.actor === undefined) continue;
         const forbidden: ConfigurationFact = {
           id: 'f0',
           kind: 'forbidden',
-          actor: frame.actor.id,
+          actor: frame.actor?.id ?? UNSPECIFIED_ACTOR_ID,
           when: andAll(whenParts),
           assign,
           origin: 'rule',
@@ -632,7 +645,6 @@ function collectDrafts(
         drafts.push(forbidden);
         continue;
       }
-      if (frame.actor === undefined) continue;
       const note = previous === undefined
         ? undefined
         : sequencingWord(parsed.tokens) === 'when'
@@ -644,7 +656,7 @@ function collectDrafts(
         id: 'f0',
         kind: 'action',
         event,
-        actor: frame.actor.id,
+        actor: frame.actor?.id ?? UNSPECIFIED_ACTOR_ID,
         when: andAll(whenParts),
         assign,
         origin: 'rule',
@@ -697,6 +709,7 @@ function applyDrafts(
       if (fact.note !== undefined && created.note === undefined) created.note = fact.note;
       next.push(created);
       consumed.add(signature);
+      consumed.add(factSignature(draft));
       continue;
     }
     if (fact.origin === 'agent' || (onlySentence !== undefined && !factTouches(fact, onlySentence, tagged))) {
@@ -1006,6 +1019,12 @@ function matchingDraft(produced: Map<string, Fact>, fact: Fact): Fact | undefine
   for (const draft of produced.values()) {
     if (isActionFact(draft) && draft.event === fact.event && draft.actor === fact.actor) return draft;
   }
+  if (fact.actor !== UNSPECIFIED_ACTOR_ID) return undefined;
+  for (const draft of produced.values()) {
+    if (!isActionFact(draft) || draft.event !== fact.event) continue;
+    if (!samePredicate(draft.when, fact.when) || !samePatch(draft.assign, fact.assign)) continue;
+    return draft;
+  }
   return undefined;
 }
 
@@ -1051,6 +1070,7 @@ function freshFactId(used: Set<string>): string {
 }
 
 function checkRef(id: string, kind: Entity['kind'], entities: readonly Entity[], findings: Finding[]): void {
+  if (kind === 'actor' && id === UNSPECIFIED_ACTOR_ID) return;
   const entity = findEntity(entities, id);
   if (entity === undefined) {
     findings.push(blocking('unknown-entity', `unknown entity ${id}`, [id]));
@@ -1327,6 +1347,7 @@ function booleanGuard(predicate: Predicate, entities: readonly Entity[]): string
 }
 
 function actorName(id: string, entities: readonly Entity[]): string | undefined {
+  if (id === UNSPECIFIED_ACTOR_ID) return UNSPECIFIED_ACTOR_NAME;
   return findEntity(entities, id)?.name;
 }
 

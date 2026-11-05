@@ -20,6 +20,9 @@ export type FindingSeverity = 'blocking' | 'warning' | 'info';
 
 export const SPEC_ENTITY_ID_PATTERN = /^(actor|object|action|condition):[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 export const SPEC_ENTITY_ID_MESSAGE = 'entity ids look like actor:customer or condition:c1';
+/** Entity-id-shaped stand-in when propose mints a fact with no Actor tag. Not an entity row. */
+export const UNSPECIFIED_ACTOR_ID = 'actor:unspecified';
+export const UNSPECIFIED_ACTOR_NAME = 'unspecified';
 export const SPEC_FACT_ID_PATTERN = /^f[1-9][0-9]*$/;
 export const SPEC_FACT_ID_MESSAGE = 'fact ids look like f1';
 export const FACT_KINDS = ['action', 'init', 'terminal', 'forbidden'] as const;

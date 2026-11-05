@@ -115,13 +115,22 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
   return snapshot;
 }
 
-function changedFactIds(before: readonly { id: string; status: string }[], after: readonly { id: string; status: string }[]): string[] {
-  const previous = new Map<string, string>();
-  for (const fact of before) previous.set(fact.id, fact.status);
+function changedFactIds(
+  before: readonly { id: string; status: string; actor?: string; kind: string; event?: string }[],
+  after: readonly { id: string; status: string; actor?: string; kind: string; event?: string }[],
+): string[] {
+  const previous = new Map<string, (typeof before)[number]>();
+  for (const fact of before) previous.set(fact.id, fact);
   const ids: string[] = [];
   for (const fact of after) {
-    const status = previous.get(fact.id);
-    if (status !== fact.status || status === undefined) ids.push(fact.id);
+    const prior = previous.get(fact.id);
+    if (prior === undefined
+      || prior.status !== fact.status
+      || prior.actor !== fact.actor
+      || prior.kind !== fact.kind
+      || prior.event !== fact.event) {
+      ids.push(fact.id);
+    }
   }
   return ids;
 }
