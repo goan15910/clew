@@ -316,6 +316,7 @@ function frameObjectVar(
   frame: Frame,
   entities: readonly Entity[],
   lastObject: string | undefined,
+  sentenceHasObject: boolean,
 ): { varName: string; sources: string[]; mentioned: boolean } | undefined {
   if (frame.action === undefined) return undefined;
   if (frame.object !== undefined) {
@@ -324,7 +325,8 @@ function frameObjectVar(
     if (objectVar === undefined) return undefined;
     return { varName: objectVar, sources: [frame.action.token.id, frame.object.token.id], mentioned: true };
   }
-  if (lastObject === undefined) return undefined;
+  if (sentenceHasObject || lastObject === undefined) return undefined;
+  if (hasTag(frame.action.token.tags, 'Infinitive')) return undefined;
   return { varName: lastObject, sources: [frame.action.token.id], mentioned: false };
 }
 
@@ -607,6 +609,7 @@ function collectDrafts(
     const parsed = parseSentence(sentence, item, tokenEntity);
     for (const finding of parsed.findings) findings.push(finding);
     const ordered = orderFrames(parsed.frames, parsed.tokens);
+    const sentenceHasObject = ordered.some((frame) => frame.object !== undefined);
     const guardsByAction = new Map<string, string[]>();
     for (const guard of parsed.guards) {
       const list = guardsByAction.get(guard.action) ?? [];
@@ -628,7 +631,7 @@ function collectDrafts(
         });
         continue;
       }
-      const target = frameObjectVar(frame, entities, lastObject);
+      const target = frameObjectVar(frame, entities, lastObject, sentenceHasObject);
       if (target === undefined) continue;
       if (target.mentioned) lastObject = target.varName;
       const assigned: Value = { t: 'atom', v: actionEntity?.name ?? frame.action.lemma };
@@ -686,7 +689,83 @@ function collectDrafts(
       lastValue.set(target.varName, assigned);
     }
   }
-  return { drafts, findings };
+  return { drafts: foldSingletonDrafts(drafts, entities), findings };
+}
+
+function foldSingletonDrafts(drafts: readonly Fact[], entities: readonly Entity[]): Fact[] {
+  const counts = objectFactCounts(drafts);
+  const folded: Fact[] = [];
+  for (const draft of drafts) {
+    if (!isActionFact(draft)) {
+      folded.push(draft);
+      continue;
+    }
+    const fromVar = primaryObjectVar(draft.assign, entities);
+    if (fromVar === undefined || (counts.get(fromVar) ?? 0) !== 1) {
+      folded.push(draft);
+      continue;
+    }
+    const sentenceId = sourceSentenceId(draft.sources[0]);
+    const toVar = sentenceId === undefined ? undefined : lifecycleVarInSentence(sentenceId, fromVar, entities, counts);
+    if (toVar === undefined) {
+      folded.push(draft);
+      continue;
+    }
+    const when = rewritePredicateVar(draft.when, fromVar, toVar);
+    const assign = rewritePatchVar(draft.assign, fromVar, toVar);
+    if (!when.changed && !assign.changed) {
+      folded.push(draft);
+      continue;
+    }
+    const next = copyFact(draft);
+    next.when = when.predicate;
+    next.assign = assign.patch;
+    folded.push(next);
+  }
+  return folded;
+}
+
+function objectFactCounts(drafts: readonly Fact[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const draft of drafts) {
+    if (!isActionFact(draft)) continue;
+    for (const name of Object.keys(draft.assign)) {
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function lifecycleVarInSentence(
+  sentenceId: string,
+  exclude: string,
+  entities: readonly Entity[],
+  counts: ReadonlyMap<string, number>,
+): string | undefined {
+  let best: { name: string; n: number } | undefined;
+  for (const entity of entities) {
+    if (entity.kind !== 'object' || entity.status === 'rejected' || entity.status === 'stale') continue;
+    const name = varNameForEntity(entity);
+    if (name === undefined || name === exclude) continue;
+    const n = counts.get(name) ?? 0;
+    if (n < 2) continue;
+    if (!entityTouchesSentence(entity, sentenceId)) continue;
+    if (best === undefined || n > best.n) best = { name, n };
+  }
+  return best?.name;
+}
+
+function entityTouchesSentence(entity: Entity, sentenceId: string): boolean {
+  for (const source of entity.sources) {
+    if (sourceSentenceId(source) === sentenceId) return true;
+  }
+  return false;
+}
+
+function sourceSentenceId(source: string | undefined): string | undefined {
+  if (source === undefined) return undefined;
+  const dot = source.indexOf('.');
+  return dot === -1 ? source : source.slice(0, dot);
 }
 
 function applyDrafts(
