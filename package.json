@@ -20,7 +20,8 @@
     "test:e2e": "playwright test",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-interactive-graph-assets.mjs",
     "prepack": "npm run build",
-    "test": "node dist/cli.js verify examples/todo/b-full.yaml examples/todo/workflows.yaml"
+    "test": "node dist/cli.js verify examples/todo/b-full.yaml examples/todo/workflows.yaml",
+    "check:private-corpus": "node scripts/check-private-corpus-guard.mjs"
   },
   "keywords": [],
   "author": "",

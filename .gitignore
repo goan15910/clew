@@ -17,3 +17,7 @@ venom-results/
 /allure-report/
 /ctrf/
 /build-info.json
+
+# Private offline corpora must never enter the public tree
+.clew-private/
+private-corpus/

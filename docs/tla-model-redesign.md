@@ -6,7 +6,7 @@
 >
 > **Identity.** A state is one complete valuation of the closed variable set. Labels, workflow node ids, and fact ids are not identity. Equal valuations are the same state.
 >
-> **Offline corpus rule.** Private product specs stay offline. Never commit private corpus text or derived private tables.
+> **Offline corpus rule.** Private product specs and golden corpora stay offline (Agent Store / Project machines only). Never commit private corpus text, paraphrases, distinctive entity names, or private metric tables to this public repo. CI uses the committed synthetic fixture under `tests/fixtures/synthetic-pipeline.md`.
 >
 > **Stack.** Ordered open PRs live in Project context (`docs/project-context.md` in the Agent Store), not in this public doc.
 
@@ -167,6 +167,10 @@ Fact shapes after entities (discriminated union; no `performs` join):
 | `domain/verification.ts` | next-state replay via `step` |
 | `adapters/yaml/spec-loader.ts` | Zod `clew.spec.v1` |
 | `adapters/spec-store/*` | schema 2, FactSchema, unlink `graph.json` |
+
+## Offline evaluation
+
+Private product corpora stay offline. Public CI runs `tests/spec/synthetic-pipeline.harness.ts` against `tests/fixtures/synthetic-pipeline.md` (invented logistics sentences, no private product content).
 
 ## Results
 
