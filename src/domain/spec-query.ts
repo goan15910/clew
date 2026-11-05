@@ -41,12 +41,6 @@ export interface StatusResult {
 export function traceItem(snapshot: SpecSnapshot, id: string): TraceResult | undefined {
   const entity = findEntity(snapshot.entities ?? [], id);
   if (entity !== undefined) return finish(traceEntity(snapshot, entity));
-  const fact = findFact(snapshot.facts ?? [], id);
-  if (fact !== undefined) return finish(traceFact(snapshot, fact));
-  const token = findToken(snapshot, id);
-  if (token !== undefined) return finish([tokenLink(token.token), sentenceLink(token.sentence)]);
-  const sentence = findSentence(snapshot.sentences, id);
-  if (sentence !== undefined) return finish([sentenceLink(sentence)]);
   const transition = findTransition(snapshot, id);
   if (transition !== undefined) {
     const links: TraceLink[] = [transitionLink(transition)];
@@ -55,6 +49,12 @@ export function traceItem(snapshot: SpecSnapshot, id: string): TraceResult | und
     }
     return finish(links);
   }
+  const fact = findFact(snapshot.facts ?? [], id);
+  if (fact !== undefined) return finish(traceFact(snapshot, fact));
+  const token = findToken(snapshot, id);
+  if (token !== undefined) return finish([tokenLink(token.token), sentenceLink(token.sentence)]);
+  const sentence = findSentence(snapshot.sentences, id);
+  if (sentence !== undefined) return finish([sentenceLink(sentence)]);
   const flow = findFlow(snapshot, id);
   if (flow !== undefined) return finish(traceFlow(snapshot, flow));
   const stateFacts = factsForState(snapshot.facts ?? [], id);

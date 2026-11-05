@@ -168,7 +168,7 @@ export interface GraphState {
   facts: string[];
 }
 
-/** One overlay edge assembled from an action fact. `fact` is that fact's id. */
+/** One overlay edge assembled from an action fact. `id` and `fact` are that fact's id. */
 export interface GraphTransition {
   id: string;
   from: string;
@@ -183,8 +183,8 @@ export interface GraphTransition {
 
 /**
  * One named path through the graph.
- * Accepted paths list transition ids. A rejected path may list one transition,
- * or only `forbidden` when the refusal has no matching transition yet.
+ * Accepted paths list action fact ids. A rejected path may list one fact,
+ * or only `forbidden` when the refusal has no matching action yet.
  */
 export interface SpecFlow {
   id: string;

@@ -19,9 +19,9 @@
 // clew spec facts propose [--sentence s1] [--session id] [--json]
 // clew spec facts add|edit|remove [--from file.json] [--session id] [--json]
 // clew spec graph build [--session id] [--json]
-// clew spec graph split --id W1 --at 2 [--session id] [--json]
+// clew spec graph split --id W1 --at f2 [--session id] [--json]
 // clew spec graph group --id W1 --id W2 [--title text] [--session id] [--json]
-// clew spec emit (--dry-run | --out file) [--force] [--session id] [--json]
+// clew spec emit (--dry-run | --out file) [--chart file] [--force] [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show tagged|tokens|entities|facts [--session id] [--json]
@@ -65,6 +65,7 @@ import { locatedErrors } from './adapters/yaml/issue-lines.js';
 import { yamlModelLoader } from './adapters/yaml/model-loader.js';
 import { yamlSpecLoader } from './adapters/yaml/spec-loader.js';
 import { yamlWorkflowLoader } from './adapters/yaml/workflow-loader.js';
+import { yamlSpecWriter } from './adapters/yaml/spec-writer.js';
 import { yamlWorkflowWriter } from './adapters/yaml/workflow-writer.js';
 import { analyzeChart } from './application/analyze-chart.js';
 import { buildSpecGraph } from './application/build-graph.js';
@@ -307,7 +308,7 @@ const SpecGraphGroupFlags = z.object({
   session: SessionOption,
   from: z.string().min(1).optional(),
   id: z.array(FlowIdOption).optional(),
-  transition: z.array(z.string().regex(/^tr[1-9][0-9]*$/, 'transition ids look like tr1')).optional(),
+  transition: z.array(z.string().regex(/^f[1-9][0-9]*$/, 'transition ids are fact ids')).optional(),
   title: z.string().min(1).optional(),
   into: FlowIdOption.optional(),
 }).superRefine((value, context) => {
@@ -328,9 +329,11 @@ const SpecEmitFlags = z.object({
   session: SessionOption,
   dryRun: z.boolean().optional(),
   out: z.string().min(1).optional(),
+  chart: z.string().min(1).optional(),
   force: z.boolean().optional(),
 }).superRefine((value, context) => {
   if (value.out === '-') context.addIssue({ code: 'custom', message: 'emit writes a file; Clew never writes the workflow set to stdout', path: ['out'] });
+  if (value.chart === '-') context.addIssue({ code: 'custom', message: 'emit writes a file; Clew never writes the chart to stdout', path: ['chart'] });
   if (value.dryRun === true && value.out !== undefined) context.addIssue({ code: 'custom', message: 'pass --dry-run or --out, not both', path: ['out'] });
   if (value.dryRun !== true && (value.out === undefined || value.out === '')) context.addIssue({ code: 'custom', message: 'emit needs --dry-run or --out', path: ['out'] });
 });
@@ -1142,8 +1145,8 @@ setManual(graph
   .command('split')
   .description('Split one accepted path into two. --at is the first edge of the second path.')
   .option('--id <id>', 'flow to split, for example W1')
-  .option('--at <edge>', '1-based edge number or transition id, for example 2 or tr2')
-  .option('--from <file>', 'JSON { "id": "W1", "at": 2 }')
+  .option('--at <edge>', '1-based edge number or fact id, for example 2 or f2')
+  .option('--from <file>', 'JSON { "id": "W1", "at": "f2" }')
   .option('--session <id>', 'session to edit; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
@@ -1158,7 +1161,7 @@ setManual(graph
     if (flags.id === undefined || flags.at === undefined) usage('spec.graph.split', opts, new z.ZodError([{ code: 'custom', message: 'split needs --id and --at', path: ['id'] }]));
     emit(editGraph({ action: 'split', sessionId: flags.session, id: flags.id, at: flags.at }, jsonSpecStore), flags.json === true);
   }), {
-  examples: ['clew spec graph split --id W1 --at tr2 --json'],
+  examples: ['clew spec graph split --id W1 --at f2 --json'],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
 });
@@ -1170,7 +1173,7 @@ setManual(graph
   .option('--transition <id>', 'transition to join, in walk order (repeatable)', collectFlow, [] as string[])
   .option('--title <text>', 'title of the grouped path')
   .option('--into <id>', 'flow id to keep')
-  .option('--from <file>', 'JSON { "ids": ["W1", "W2"], "title": "..." } or { "transitions": ["tr1", "tr2"] }')
+  .option('--from <file>', 'JSON { "ids": ["W1", "W2"], "title": "..." } or { "transitions": ["f1", "f2"] }')
   .option('--session <id>', 'session to edit; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
@@ -1198,9 +1201,10 @@ setManual(graph
 
 setManual(spec
   .command('emit')
-  .description('Write the chosen paths as a workflow set. Refuses while blocking findings remain.')
+  .description('Write the chosen paths as a workflow set, and optionally the unfolded spec.')
   .option('--dry-run', 'print the YAML and check it without writing a file')
   .option('--out <file>', 'write the workflow set to this file')
+  .option('--chart <file>', 'write the unfolded spec as clew.spec.v1 YAML')
   .option('--force', 'write even when blocking findings remain, and list them')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
@@ -1212,15 +1216,16 @@ setManual(spec
       sessionId: flags.session,
       dryRun: flags.dryRun === true,
       out: flags.out,
+      chart: flags.chart,
       force: flags.force === true,
-    }, jsonSpecStore, yamlWorkflowWriter), flags.json === true);
+    }, jsonSpecStore, yamlWorkflowWriter, yamlSpecWriter), flags.json === true);
   }), {
   examples: [
     'clew spec emit --dry-run --json',
-    'clew spec emit --out flows.yaml --json',
+    'clew spec emit --out flows.yaml --chart spec.yaml --json',
   ],
   exitCodes: specExits,
-  notes: [jsonNote, sessionNote, '--force writes the file while blocking findings remain and lists them.'],
+  notes: [jsonNote, sessionNote, '--force writes the file while blocking findings remain and lists them. --chart writes the same Spec that verify replays.'],
 });
 
 setManual(spec

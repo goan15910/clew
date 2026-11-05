@@ -73,7 +73,11 @@ test('short help omits examples and clew help prints them for every command', ()
       assert.ok(examples.includes('clew workflows view examples/todo/workflows.yaml --open'));
     }
     if (label === 'verify') assert.ok(examples.some((line) => line.includes('--heatmap --replay --out out')));
-    if (label === 'spec graph split') assert.ok(examples.includes('clew spec graph split --id W1 --at tr2 --json'));
+    if (label === 'spec graph split') assert.ok(examples.includes('clew spec graph split --id W1 --at f2 --json'));
+    if (label === 'spec emit') {
+      assert.ok(examples.includes('clew spec emit --dry-run --json'));
+      assert.ok(examples.includes('clew spec emit --out flows.yaml --chart spec.yaml --json'));
+    }
     if (label === 'spec trace') assert.ok(examples.includes('clew spec trace actor:customer --json'));
     if (label === 'spec facts') {
       assert.ok(examples.some((line) => line.startsWith('clew spec facts propose')));

@@ -90,16 +90,22 @@ export function copyPatch(assign: Patch): Patch {
   return copy;
 }
 
-/** Display name for a visit: the phase atom when present, otherwise a single atom value. */
+/** Display name for a visit: the phase atom when present, otherwise the object atom. */
 export function assignDisplay(assign: Patch): string {
   const phase = assign.phase;
   if (phase !== undefined && phase.t === 'atom') return phase.v;
-  const keys = Object.keys(assign);
-  if (keys.length === 1) {
-    const value = assign[keys[0]!];
-    if (value !== undefined && value.t === 'atom') return value.v;
+  const atoms: string[] = [];
+  const keys = Object.keys(assign).slice().sort();
+  for (const key of keys) {
+    const value = assign[key];
+    if (value !== undefined && value.t === 'atom') atoms.push(value.v);
   }
-  return keys.slice().sort().join(',');
+  if (atoms.length === 1) {
+    const atom = atoms[0];
+    if (atom !== undefined) return atom;
+  }
+  if (atoms.length > 1) return atoms.join(',');
+  return keys.join(',');
 }
 
 function buildChain(workflow: WorkflowDraft, workflowIndex: number): ChainBuild {

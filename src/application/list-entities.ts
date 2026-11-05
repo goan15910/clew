@@ -2,6 +2,7 @@
 import { hasBlocking, type Entity, type EntityKind, type EntityStatus, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import { deriveEntities, entityFindings, sameEntities } from '../domain/spec-entities.js';
 import { rebuildFacts, sameFacts } from '../domain/spec-facts.js';
+import { overlayGraph } from '../domain/spec-graph.js';
 import type { Outcome, SpecEntitiesDocument } from './documents.js';
 import { specInput } from './documents.js';
 import type { SpecStore } from './ports.js';
@@ -85,6 +86,8 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
   if (current.spans !== undefined) snapshot.spans = current.spans;
+  const overlay = overlayGraph(current.graph);
+  if (overlay !== undefined) snapshot.graph = overlay;
   return snapshot;
 }
 

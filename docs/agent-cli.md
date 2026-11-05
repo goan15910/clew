@@ -12,7 +12,7 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 
 **Accepted flows start reachable from `initial`.** The first node's assign must be a valuation `explore` can reach from the spec's initial valuation. Starting at an unreachable valuation fails that flow. Labels are display on the spec and on traces. They never feed `step` or `valuationId`.
 
-**Naming contract between workflow sets and charts.** Spec sessions and the draft graph keep kebab-case words (`mark-shipped`, `in-progress`). `spec emit` writes a node's `assign` and an edge's `event` as `UPPER_SNAKE` (`MARK_SHIPPED`). Node ids, and edge `from`, `to`, and `start`, stay kebab-case. Emit currently writes `{ phase: <chartStateId> }`, which verifies against a one-var spec.
+**Naming contract between workflow sets and charts.** Spec sessions and the draft graph keep kebab-case words (`mark-shipped`, `in-progress`). `spec emit` writes a node's `assign` as a full valuation of the unfolded spec vars, and an edge's `event` as `UPPER_SNAKE` (`MARK_SHIPPED`). Node ids, and edge `from`, `to`, and `start`, stay kebab-case. `--chart` writes the same `clew.spec.v1` Spec that `verify` replays.
 
 **The first analyses are the chart-only checks already in Clew:** states reachable from the initial state, unreachable states, dead ends (non-final states with no outgoing transition), and the shortest event path to each reachable state. Transitions no selected flow exercises are reported by `verify`, because that check needs a workflow set. Further analyses are not in this command set.
 
@@ -48,7 +48,7 @@ clew spec facts remove (--id <id> ... | --from <file.json>) [--session <id>] [--
 clew spec graph build [--session <id>] [--json]
 clew spec graph split (--id <id> --at <edge> | --from <file.json>) [--session <id>] [--json]
 clew spec graph group (--id <id> --id <id> | --transition <id> --transition <id> | --from <file.json>) [--title <text>] [--into <id>] [--session <id>] [--json]
-clew spec emit (--dry-run | --out <file>) [--force] [--session <id>] [--json]
+clew spec emit (--dry-run | --out <file>) [--chart <file>] [--force] [--session <id>] [--json]
 clew spec trace <id> [--session <id>] [--json]
 clew spec status [--session <id>] [--json]
 clew spec show tagged [--session <id>] [--json]
@@ -97,7 +97,7 @@ spec/<session-id>/
   tokens.json
   entities.json
   facts.json
-  graph.json
+  flows.json
   history.jsonl
   viewer.html
 ```
@@ -106,9 +106,9 @@ spec/<session-id>/
 
 `spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Facts, Entities, Sentences, and Graph tabs. Facts, Entities, and Sentences have collapsed lineage drawers. Filters cover entity kind, fact type, fact status, and text search, and they apply to Facts, Entities, and Sentences. The Graph tab draws the session draft graph and the workflows that graph can render, as images. It needs Graphviz (`dot`) on the machine serving the page. The page does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
 
-Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `entities.json`, `facts.json`, and `graph.json`. The Graph tab also requests `draft-graph.json`. The server draws that response when the page asks, and does not write the file into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
+Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `entities.json`, `facts.json`, and `flows.json`. The Graph tab requests `graph.json` and `draft-graph.json`. The server unfolds those responses when the page asks, and does not write them into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
 
-`spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence is `status: current`. A live fact is current and is not a removed tombstone. Flows are the paths stored in `graph.json`; a session with no graph counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
+`spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence is `status: current`. A live fact is current and is not a removed tombstone. Flows are the paths stored in `flows.json`; a session with no overlay counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
 
 `spec session remove <id>` deletes that session directory and nothing else. An unknown id is exit 2. A live lock is exit 2 and the directory stays. A lock whose process is gone is taken over, the same way as any other write, and then the directory is deleted. The id is one session name: a letter, then letters, digits, underscores, or hyphens. `..`, a slash, or any other unsafe id is exit 2. Clew deletes the directory only when its real path is `<spec-root>/<id>`. A symlink is left in place. Sessions for other repos are not touched.
 
@@ -192,7 +192,7 @@ Facts are a discriminated union. An `action` fact has `event` (UPPER_SNAKE from 
 | `normalized-name` | info | a state name was normalized |
 | `contradicting-facts` | blocking | the signature is already recorded by a live fact |
 
-`spec trace <id>` walks provenance. A transition id (`tr1`) or a flow id (`W1`) is resolved first. Otherwise it walks a state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
+`spec trace <id>` walks provenance. An overlay fact id (`f1`) that is also a transition, or a flow id (`W1`), is resolved first. Otherwise it walks a state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
 
 `spec show sentences`, `spec show tagged`, `spec show tokens`, `spec show spans`, `spec show entities`, and `spec show facts` print one stored layer. The command values are `spec.show.sentences`, `spec.show.tagged`, `spec.show.tokens`, `spec.show.spans`, `spec.show.entities`, and `spec.show.facts`.
 
@@ -208,7 +208,7 @@ The stderr message names only the first missing layer. Tagged sentences and uniq
 
 `spec show tagged` prints `sentences`, the same tagged view as `spec tag`, for the current sentences. `spec show tokens` prints `tokens`. Each item has the lower-cased `text`, a `count`, the original `forms` in first-seen order, and `readings`. A reading has `tags` and the token ids. Unique tokens are grouped words with tag readings and sN.tM ids, not a second entity list. `spec show entities` prints `entities` in stored order, including rejected and stale entities. `spec show facts` prints `facts` and leaves removed facts out.
 
-`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and stale. A current sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is true after `spec graph build` has written `graph.json`. A missing entities, facts, or graph layer is an info `entities-absent`, `facts-absent`, or `graph-absent` finding. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
+`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and stale. A current sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is true after `spec graph build` has written `flows.json`. A missing entities, facts, or graph layer is an info `entities-absent`, `facts-absent`, or `graph-absent` finding. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
 
 `spec trace` and `spec status` findings:
 
@@ -218,20 +218,20 @@ The stderr message names only the first missing layer. Tagged sentences and uniq
 | `removed-fact` | info | the traced fact is a tombstone |
 | `stale-entity` | warning | an entity is stale after the spec changed |
 | `stale-fact` | warning | a fact is stale |
-| `transition-without-from` | warning | status still sees a current transition with no source state |
+| `transition-without-from` | blocking | an action fact has no source valuation for its object var |
 | `entities-absent` | info | `spec entities list` has not been run |
 | `facts-absent` | info | `spec entities list` has not written facts yet |
 | `graph-absent` | info | `spec graph build` has not been run |
 
-`spec graph build` reads the current facts and writes a temporary overlay `graph.json`. Schema version is 2. A schema 1 session is exit 2 with no migration. `graph.json` appears only after a build, and an entity write that omits the graph unlinks it. Running build again, when the graph and the paths are unchanged, does not append history. A build history line’s `before` lists the flow ids already stored, and `after` lists the flow ids written. The first build has an empty `before`. Split and group record the same way. Transition ids stay with the action fact that produced them (`tr1` keeps `f1`). Overlay `from` and `to` are assign atoms (the action lemma, not a past participle). Overlay `event` is the ActionFact event (`SUBMIT`). An action whose `when` is still `null` for the object var is left out, with a blocking `transition-without-from` finding.
+`spec graph build` unfolds overlay states and transitions from current facts and writes a flows overlay keyed by fact id (`flows.json`). Truncation uses `reachableFromInitial` on `specFromFacts`. Schema version is 2. A schema 1 session is exit 2 with no migration. States and transitions are recomputed on every read. A leftover `graph.json` is read as-is until the next write, which unlinks it and stores `flows.json`. Entity writes keep the overlay when fact ids remain. Running build again, when the paths are unchanged, does not append history. A build history line’s `before` lists the flow ids already stored, and `after` lists the flow ids written. The first build has an empty `before`. Split and group record the same way. Transition `from` and `to` are assign atoms (the action lemma, not a past participle). Transition `event` is the ActionFact event (`SUBMIT`). An action whose `when` is still `null` for the object var is left out, with a blocking `transition-without-from` finding. Truncation at the reach bound is a blocking `state-space-truncated`.
 
 The path cover is one accepted flow per provable transition (`Submit order` for event `SUBMIT` on object `order`) and one rejected flow per `forbidden` fact (`Cannot approve order`, `rejectAt` 1). A condition entity is a boolean var, so the false value is the else and `guard-without-else` is not raised for `condition:` guards. A forbidden fact that matches a transition cites that transition. A forbidden fact with no transition is a rejected flow with an empty transition list; emit draws it from the object’s initial state to the attempted assign atom (`cancel`) and uses the source sentence as the edge text. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden fact, keep their ids.
 
-`spec graph split --id W1 --at 2` cuts an accepted path before the second edge. `--at tr2` names that edge instead. The first path keeps `W1`. The second path gets the next workflow id. Both become `origin: agent`. A rejected path is a blocking `rejected-split` and is not written. A cut that would leave a path with no edge is `unsplittable` and is not written. An unknown flow or split point is exit 2.
+`spec graph split --id W1 --at 2` cuts an accepted path before the second edge. `--at f2` names that fact instead. The first path keeps `W1`. The second path gets the next workflow id. Both become `origin: agent`. A rejected path is a blocking `rejected-split` and is not written. A cut that would leave a path with no edge is `unsplittable` and is not written. An unknown flow or split point is exit 2.
 
-`spec graph group` joins accepted paths into one linear workflow. `--id W1 --id W2` walks the flows in that order. `--transition tr1 --transition tr2` walks those edges. The two modes are not combined. `--into` defaults to the first flow, or to the flow that already contains the first transition. `--title` sets the title; otherwise the titles are joined with ` and `. The result is `origin: agent`. A rejected input is `rejected-group`. Paths that do not chain are `not-linear`. A flow that shares some of the named transitions and keeps others is `overlap`. An `--into` id that already exists and is not one of the inputs is `duplicate-flow`. Those findings do not write. A successful edit writes even when other graph findings are still blocking, and the exit is 1.
+`spec graph group` joins accepted paths into one linear workflow. `--id W1 --id W2` walks the flows in that order. `--transition f1 --transition f2` walks those edges. The two modes are not combined. `--into` defaults to the first flow, or to the flow that already contains the first fact. `--title` sets the title; otherwise the titles are joined with ` and `. The result is `origin: agent`. A rejected input is `rejected-group`. Paths that do not chain are `not-linear`. A flow that shares some of the named facts and keeps others is `overlap`. An `--into` id that already exists and is not one of the inputs is `duplicate-flow`. Those findings do not write. A successful edit writes even when other graph findings are still blocking, and the exit is 1.
 
-`spec graph split` and `group` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. A split patch is `{ "id": "W1", "at": 2 }` or `{ "id": "W1", "at": "tr2" }`. A group patch is `{ "ids": ["W1", "W2"], "title": "..." }` or `{ "transitions": ["tr1", "tr2"] }`, with optional `into`.
+`spec graph split` and `group` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. A split patch is `{ "id": "W1", "at": 2 }` or `{ "id": "W1", "at": "f2" }`. A group patch is `{ "ids": ["W1", "W2"], "title": "..." }` or `{ "transitions": ["f1", "f2"] }`, with optional `into`.
 
 `spec graph build` findings:
 
@@ -251,6 +251,7 @@ The path cover is one accepted flow per provable transition (`Submit order` for 
 | `same-state-two-objects` | warning | two objects use the same state name |
 | `agent-flow` | warning | an agent-owned flow was kept |
 | `stale-flow` | warning | an agent-owned flow no longer matched and was dropped |
+| `state-space-truncated` | blocking | `explore` stopped at the reach bound |
 
 `spec graph split` and `group` findings, besides the graph findings above:
 
@@ -263,15 +264,14 @@ The path cover is one accepted flow per provable transition (`Submit order` for 
 | `overlap` | blocking | a flow shares some named transitions and keeps others |
 | `duplicate-flow` | blocking | `--into` names a flow that is not one of the inputs |
 
-`spec emit` renders the workflow set only. It does not write a chart. It writes the naming contract above: camelCase state ids and `UPPER_SNAKE` events. The draft graph stays kebab-case. `--dry-run` prints the YAML in the JSON document and does not write a file, even with `--force`. `--out` is required otherwise. `--dry-run` and `--out` together are exit 2. `--out -` is rejected. Edge text is the clause that contains the action, extended through the object, with a leading when, after, before, or once removed. A guard’s text is appended when the clause does not already contain it. A rejected flow that cites a transition uses the forbidden fact’s source sentence.
+`spec emit` writes the chosen paths as a workflow set of full valuation maps. `--chart` writes the unfolded Spec as `clew.spec.v1` YAML. The draft overlay stays kebab-case fact ids. `--dry-run` prints the YAML in the JSON document (`yaml` and `chartYaml`) and does not write a file, even with `--force`. `--out` is required otherwise. `--dry-run` and `--out` together are exit 2. `--out -` and `--chart -` are rejected. Emit walks each flow with the `when` equalities that no action assigns, so a later guard can still produce a total map. `--chart` writes `specFromFacts` (one initial). A flow whose start is not reachable from that initial fails `verify`. Edge text is the clause that contains the action, extended through the object, with a leading when, after, before, or once removed. A guard’s text is appended when the clause does not already contain it. A rejected flow that cites a fact uses the forbidden fact’s source sentence.
 
-Emit refuses while a blocking finding remains on the graph layer. `--force` writes the file anyway, sets `forced: true`, lists the findings, and still exits 1. Earlier-layer warnings, such as an unreviewed entity, do not block emit. There is no per-finding waiver. A graph that no longer matches the facts is a blocking `stale-graph`; rebuild before emit. Emit does not write the session. Check failures from the workflow-set rules are `workflow-check` findings, with refs to the flow, its transitions, its facts, and their sources. They are not `issues`. The set id is the object name plus `Flows` (`order` becomes `orderFlows`). Two objects join as `orderAndShipmentFlows`.
+Emit refuses while a blocking finding remains on the graph layer. `--force` writes the file anyway, sets `forced: true`, lists the findings, and still exits 1. Earlier-layer warnings, such as an unreviewed entity, do not block emit. There is no per-finding waiver. There is no `stale-graph`: unfold recomputes on read, and split/group overlays survive when fact ids remain. Emit does not write the session. Check failures from the workflow-set rules are `workflow-check` findings, with refs to the flow, its facts, and their sources. They are not `issues`. The set id is the object name plus `Flows` (`order` becomes `orderFlows`). Two objects join as `orderAndShipmentFlows`.
 
 `spec emit` findings:
 
 | Code | Severity | When |
 |---|---|---|
-| `stale-graph` | blocking | stored states or transitions differ from a fresh assembly |
 | `uncovered-transition` | blocking | a provable transition is not on an accepted path. A guard with no else is `guard-without-else` instead |
 | `overlap` | blocking | a transition is on more than one accepted path |
 | `path-not-linear` | blocking | a flow does not chain |
@@ -680,13 +680,13 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
       { "id": "approve", "object": "order", "facts": ["f2"] }
     ],
     "transitions": [
-      { "id": "tr1", "from": "draft", "event": "SUBMIT", "to": "submit", "actor": "customer", "object": "order", "fact": "f1", "facts": ["f1"] },
-      { "id": "tr2", "from": "submit", "event": "APPROVE", "to": "approve", "actor": "manager", "guard": "condition:c1", "object": "order", "fact": "f2", "facts": ["f2"] }
+      { "id": "f1", "from": "draft", "event": "SUBMIT", "to": "submit", "actor": "customer", "object": "order", "fact": "f1", "facts": ["f1"] },
+      { "id": "f2", "from": "submit", "event": "APPROVE", "to": "approve", "actor": "manager", "guard": "condition:c1", "object": "order", "fact": "f2", "facts": ["f2"] }
     ]
   },
   "flows": [
-    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["tr1"], "origin": "rule" },
-    { "id": "W2", "title": "Approve order", "expect": "accepted", "transitions": ["tr2"], "origin": "rule" }
+    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["f1"], "origin": "rule" },
+    { "id": "W2", "title": "Approve order", "expect": "accepted", "transitions": ["f2"], "origin": "rule" }
   ],
   "findings": [
     { "id": "no-final-state:order:approve", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approve has no outgoing transition and is not marked final", "refs": ["approve"] }
@@ -713,8 +713,8 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
         "expect": "accepted",
         "start": "draft",
         "nodes": [
-          { "id": "draft", "assign": { "phase": "draft" }, "state": "draft" },
-          { "id": "submit", "assign": { "phase": "submit" }, "state": "submit" }
+          { "id": "draft", "assign": { "order": "draft", "c1": false, "total": null }, "state": "draft" },
+          { "id": "submit", "assign": { "order": "submit", "c1": false, "total": null }, "state": "submit" }
         ],
         "edges": [
           {
@@ -729,7 +729,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
       }
     ]
   },
-  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", assign: { phase: \"draft\" } }\n      - { id: \"submit\", assign: { phase: \"submit\" } }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submit\", text: \"The customer submits an order\" }\n",
+  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", assign: { order: \"draft\", c1: false, total: null } }\n      - { id: \"submit\", assign: { order: \"submit\", c1: false, total: null } }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submit\", text: \"The customer submits an order\" }\n",
   "findings": [],
   "issues": []
 }

@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import type { SpecEmitDocument, SpecFactsDocument, SpecGraphDocument, SpecStatusDocument, SpecTraceDocument, VerifyDocument } from '../../src/application/documents.js';
 import { chartEventName, chartStateId } from '../../src/domain/model.js';
+import { buildGraph } from '../../src/domain/spec-graph.js';
+import { varId, valueOf } from '../../src/domain/valuation.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -32,8 +34,11 @@ describe('spec graph and emit', { concurrency: false }, () => {
       run(dir, ['spec', 'status', '--json']);
       assert.equal(historyCount(dir, 'order-sentence'), historyBefore);
       assert.equal(existsSync(sessionFile(dir, 'graph.json')), false);
+      assert.equal(existsSync(sessionFile(dir, 'flows.json')), false);
 
       seedFromDraft(dir);
+      const leftover = sessionFile(dir, 'graph.json');
+      writeFileSync(leftover, '{"schemaVersion":2,"objects":[],"states":[],"transitions":[],"flows":[]}\n');
       const built = run(dir, ['spec', 'graph', 'build', '--json']);
       assert.equal(built.status, 0, built.stderr);
       assert.equal(built.stderr, '');
@@ -49,15 +54,15 @@ describe('spec graph and emit', { concurrency: false }, () => {
         { id: 'approve', object: 'order', facts: ['f2'] },
       ]);
       assert.deepEqual(graph.graph?.transitions, [
-        { id: 'tr1', from: 'draft', event: 'SUBMIT', to: 'submit', actor: 'customer', object: 'order', fact: 'f1', facts: ['f1'] },
+        { id: 'f1', from: 'draft', event: 'SUBMIT', to: 'submit', actor: 'customer', object: 'order', fact: 'f1', facts: ['f1'] },
         {
-          id: 'tr2', from: 'submit', event: 'APPROVE', to: 'approve', actor: 'manager', guard: 'condition:c1',
+          id: 'f2', from: 'submit', event: 'APPROVE', to: 'approve', actor: 'manager', guard: 'condition:c1',
           object: 'order', fact: 'f2', facts: ['f2'],
         },
       ]);
       assert.deepEqual(graph.flows, [
-        { id: 'W1', title: 'Submit order', expect: 'accepted', transitions: ['tr1'], origin: 'rule' },
-        { id: 'W2', title: 'Approve order', expect: 'accepted', transitions: ['tr2'], origin: 'rule' },
+        { id: 'W1', title: 'Submit order', expect: 'accepted', transitions: ['f1'], origin: 'rule' },
+        { id: 'W2', title: 'Approve order', expect: 'accepted', transitions: ['f2'], origin: 'rule' },
       ]);
       const buildHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.graph.build');
       assert.deepEqual(buildHistory[0]?.before, []);
@@ -67,7 +72,8 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const again = run(dir, ['spec', 'graph', 'build', '--json']);
       assert.equal(again.status, 0);
       assert.equal(historyCount(dir, 'order-sentence'), afterBuild);
-      assert.equal(existsSync(sessionFile(dir, 'graph.json')), true);
+      assert.equal(existsSync(leftover), false);
+      assert.equal(existsSync(sessionFile(dir, 'flows.json')), true);
 
       const present = json<SpecStatusDocument>(run(dir, ['spec', 'status', '--json']));
       assert.equal(present.layers?.graph, true);
@@ -76,11 +82,11 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(present.findings.some((finding) => finding.code === 'graph-absent'), false);
       assert.equal(historyCount(dir, 'order-sentence'), afterBuild);
 
-      const traced = run(dir, ['spec', 'trace', 'tr1', '--json']);
+      const traced = run(dir, ['spec', 'trace', 'f1', '--json']);
       assert.equal(traced.status, 0, traced.stderr);
       const trace = json<SpecTraceDocument>(traced);
       assert.equal(trace.chain?.[0]?.layer, 'transition');
-      assert.equal(trace.chain?.[0]?.id, 'tr1');
+      assert.equal(trace.chain?.[0]?.id, 'f1');
       assert.equal(trace.chain?.[0]?.text, 'draft → submit');
       assert.deepEqual(trace.chain?.[0]?.refs, ['f1']);
 
@@ -93,12 +99,20 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(preview.dryRun, true);
       assert.equal(preview.id, 'orderFlows');
       assert.equal(preview.written, undefined);
+      assert.equal(preview.chartWritten, undefined);
       assert.match(preview.yaml ?? '', /id: orderFlows/);
       assert.match(preview.yaml ?? '', new RegExp(SUBMIT));
       assert.match(preview.yaml ?? '', /event: "SUBMIT"/);
       assert.match(preview.yaml ?? '', /event: "APPROVE"/);
+      assert.match(preview.chartYaml ?? '', /kind: clew.spec.v1/);
+      assert.match(preview.chartYaml ?? '', /event: SUBMIT/);
       assert.equal(preview.workflowSet?.id, 'orderFlows');
       assert.deepEqual(preview.workflowSet?.workflows.map((workflow) => workflow.id), ['W1', 'W2']);
+      assert.equal(preview.workflowSet?.workflows[0]?.nodes[0]?.assign.order, 'draft');
+      assert.equal(preview.workflowSet?.workflows[0]?.nodes[0]?.assign.c1, false);
+      assert.equal(preview.workflowSet?.workflows[0]?.nodes[1]?.assign.order, 'submit');
+      assert.equal(preview.workflowSet?.workflows[0]?.nodes[1]?.assign.c1, false);
+      assert.equal('phase' in (preview.workflowSet?.workflows[0]?.nodes[0]?.assign ?? {}), false);
       assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.event, 'SUBMIT');
       assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.stateFrom, 'draft');
       assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.stateTo, 'submit');
@@ -136,7 +150,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.ok(rejected);
       assert.equal(rejected.title, 'Cannot approve order');
       assert.equal(rejected.rejectAt, 1);
-      assert.deepEqual(rejected.transitions, ['tr2']);
+      assert.deepEqual(rejected.transitions, ['f2']);
       assert.equal(rejected.origin, 'rule');
       const approved = graph.graph?.states.find((state) => state.id === 'approve');
       assert.equal(approved?.final, true);
@@ -167,13 +181,13 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(run(dir, ['spec', 'graph', 'build', '--json']).status, 0);
       assert.equal(historyCount(dir, 'order-sentence'), kept);
       const splitPatch = join(dir, 'split.json');
-      writeFileSync(splitPatch, `${JSON.stringify({ id: 'W1', at: 'tr2' })}\n`);
+      writeFileSync(splitPatch, `${JSON.stringify({ id: 'W1', at: 'f2' })}\n`);
       const split = run(dir, ['spec', 'graph', 'split', '--from', splitPatch, '--json']);
       assert.equal(split.status, 0, split.stderr);
       const paths = json<SpecGraphDocument>(split);
       assert.deepEqual(paths.changed, ['W1', 'W2']);
-      assert.equal(paths.flows?.find((flow) => flow.id === 'W1')?.transitions.join(','), 'tr1');
-      assert.equal(paths.flows?.find((flow) => flow.id === 'W2')?.transitions.join(','), 'tr2');
+      assert.equal(paths.flows?.find((flow) => flow.id === 'W1')?.transitions.join(','), 'f1');
+      assert.equal(paths.flows?.find((flow) => flow.id === 'W2')?.transitions.join(','), 'f2');
       assert.equal(paths.flows?.find((flow) => flow.id === 'W2')?.origin, 'agent');
       assert.equal(paths.flows?.some((flow) => flow.expect === 'rejected'), true);
       const splitHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.graph.split');
@@ -184,11 +198,17 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(json<SpecTraceDocument>(flow).chain?.[0]?.id, 'W1');
 
       run(dir, ['spec', 'facts', 'edit', '--id', 'f2', '--when', '{"op":"eq","var":"order","value":"draft"}', '--assign', '{"order":"approve"}', '--json']);
-      const stale = run(dir, ['spec', 'emit', '--dry-run', '--json']);
-      assert.equal(stale.status, 1);
-      assert.equal(stale.stderr, '');
-      assert.equal(json<SpecEmitDocument>(stale).findings.some((finding) => finding.code === 'stale-graph' && finding.severity === 'blocking'), true);
-      assert.equal(existsSync(join(dir, 'not-written.yaml')), false);
+      const rebuilt = run(dir, ['spec', 'graph', 'build', '--json']);
+      assert.equal(rebuilt.status, 0, rebuilt.stderr);
+      const overlay = json<SpecGraphDocument>(rebuilt);
+      assert.equal(overlay.flows?.find((flow) => flow.id === 'W1')?.origin, 'agent');
+      assert.equal(overlay.flows?.find((flow) => flow.id === 'W1')?.transitions.join(','), 'f1');
+      assert.equal(overlay.flows?.find((flow) => flow.id === 'W2')?.origin, 'agent');
+      assert.equal(overlay.flows?.find((flow) => flow.id === 'W2')?.transitions.join(','), 'f2');
+      const afterEdit = run(dir, ['spec', 'emit', '--dry-run', '--json']);
+      assert.equal(afterEdit.status, 0, afterEdit.stderr);
+      assert.equal(json<SpecEmitDocument>(afterEdit).findings.some((finding) => finding.code === 'stale-graph'), false);
+      assert.equal(existsSync(sessionFile(dir, 'graph.json')), false);
     });
   });
 
@@ -236,6 +256,9 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const stdin = run(dir, ['spec', 'graph', 'split', '--from', '-', '--json']);
       assert.equal(stdin.status, 2);
       assert.match(stdin.stderr, /stdin/);
+      const chartStdout = run(dir, ['spec', 'emit', '--dry-run', '--chart', '-', '--json']);
+      assert.equal(chartStdout.status, 2);
+      assert.match(chartStdout.stderr, /never writes the chart to stdout/);
     });
     withData((dir) => {
       prepare(dir, sample);
@@ -301,31 +324,28 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(built.status, 0, `${built.stderr}\n${built.stdout}`);
       assert.equal(json<SpecGraphDocument>(built).graph?.transitions[0]?.event, 'MARK_SHIPPED');
       const flows = join(dir, 'flows.yaml');
-      const dry = run(dir, ['spec', 'emit', '--out', flows, '--json']);
+      const chart = join(dir, 'spec.yaml');
+      const previewChart = join(dir, 'preview-spec.yaml');
+      const preview = run(dir, ['spec', 'emit', '--dry-run', '--chart', previewChart, '--json']);
+      assert.equal(preview.status, 0, `${preview.stderr}\n${preview.stdout}`);
+      assert.equal(existsSync(previewChart), false);
+      assert.equal(existsSync(flows), false);
+      assert.match(json<SpecEmitDocument>(preview).chartYaml ?? '', /kind: clew.spec.v1/);
+      const dry = run(dir, ['spec', 'emit', '--out', flows, '--chart', chart, '--json']);
       assert.equal(dry.status, 0, `${dry.stderr}\n${dry.stdout}`);
       const yaml = readFileSync(flows, 'utf8');
       assert.match(yaml, /id: "in-progress"/);
-      assert.match(yaml, /phase: "inProgress"/);
+      assert.match(yaml, /order: "in-progress"/);
       assert.match(yaml, /event: "MARK_SHIPPED"/);
       assert.doesNotMatch(yaml, /event: "mark-shipped"/);
-      const chart = join(dir, 'chart.yaml');
-      writeFileSync(chart, [
-        'kind: clew.spec.v1',
-        'id: parcel',
-        'vars:',
-        '  - { id: phase, type: atom }',
-        'initial:',
-        '  phase: draft',
-        'actions:',
-        '  - event: MARK_SHIPPED',
-        '    actor: customer',
-        '    when: { op: eq, var: phase, value: draft }',
-        '    assign: { phase: inProgress }',
-        'labels:',
-        '  - { id: draft, match: { phase: draft }, text: Draft }',
-        '  - { id: inProgress, match: { phase: inProgress }, text: In Progress, final: true }',
-        '',
-      ].join('\n'));
+      assert.doesNotMatch(yaml, /phase:/);
+      const emitted = json<SpecEmitDocument>(dry);
+      assert.equal(emitted.chartWritten, chart);
+      assert.equal(existsSync(chart), true);
+      const spec = readFileSync(chart, 'utf8');
+      assert.match(spec, /kind: clew.spec.v1/);
+      assert.match(spec, /id: order/);
+      assert.match(spec, /event: MARK_SHIPPED/);
       const proof = run(dir, ['verify', chart, flows, '--json']);
       assert.equal(proof.status, 0, `${proof.stderr}\n${proof.stdout}`);
       const verified = json<VerifyDocument>(proof);
@@ -350,6 +370,45 @@ describe('spec graph and emit', { concurrency: false }, () => {
     assert.match(help.stdout, /spec graph split/);
     assert.match(help.stdout, /spec graph group/);
     assert.match(help.stdout, /spec emit/);
+    const emitHelp = clew(['help', 'spec', 'emit'], tmpdir());
+    assert.equal(emitHelp.status, 0);
+    assert.match(emitHelp.stdout, /--chart/);
+    assert.match(emitHelp.stdout, /clew spec emit --out flows.yaml --chart spec.yaml --json/);
+  });
+
+  test('reach bound truncation is blocking', () => {
+    const entities = [
+      { id: 'object:order', kind: 'object' as const, name: 'order', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'actor:customer', kind: 'actor' as const, name: 'customer', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+      { id: 'action:submit', kind: 'action' as const, name: 'submit', sources: [], origin: 'rule' as const, status: 'confirmed' as const },
+    ];
+    const facts = [
+      {
+        id: 'f1',
+        kind: 'action' as const,
+        event: 'SUBMIT',
+        actor: 'actor:customer',
+        when: { op: 'eq' as const, var: varId('order'), value: valueOf('atom', 'draft') },
+        assign: { order: valueOf('atom', 'submit') },
+        origin: 'rule' as const,
+        confidence: 1,
+        sources: ['s1'],
+        status: 'current' as const,
+      },
+      {
+        id: 'f2',
+        kind: 'init' as const,
+        assign: { order: valueOf('atom', 'draft') },
+        origin: 'agent' as const,
+        confidence: 1,
+        sources: [],
+        status: 'current' as const,
+      },
+    ];
+    const truncated = buildGraph(entities, facts, undefined, 1);
+    assert.equal(truncated.findings.some((finding) => finding.code === 'state-space-truncated'), true);
+    const open = buildGraph(entities, facts, undefined, 5000);
+    assert.equal(open.findings.some((finding) => finding.code === 'state-space-truncated'), false);
   });
 });
 
