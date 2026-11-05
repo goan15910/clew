@@ -5,6 +5,7 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { chartInteractive, workflowInteractive } from '../../src/application/interactive-graph.js';
 import { draftChains, draftCharts, draftLabelModel } from '../../src/domain/spec-graph-view.js';
+import { compileSnapshot } from '../../src/domain/spec-facts.js';
 import { toWorkflowSetDraft } from '../../src/domain/spec-graph.js';
 import type { DraftGraph, Entity, Sentence, SpecSnapshot, TaggedSentence } from '../../src/domain/spec.js';
 import { SPEC_SCHEMA_VERSION, liveSentences } from '../../src/domain/spec.js';
@@ -36,8 +37,7 @@ describe('interactive graph', () => {
     const snapshot = loadSnapshot();
     const built = toWorkflowSetDraft(
       snapshot.graph!,
-      snapshot.entities ?? [],
-      snapshot.facts ?? [],
+      compileSnapshot(snapshot),
       liveSentences(snapshot.sentences),
       snapshot.tagged,
     );

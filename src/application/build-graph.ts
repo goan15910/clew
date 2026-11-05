@@ -1,4 +1,5 @@
 // Use case: assemble the draft graph and a deterministic path cover.
+import { compileFacts } from '../domain/spec-facts.js';
 import { buildGraph, sameGraph } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import type { Outcome, SpecGraphDocument } from './documents.js';
@@ -26,7 +27,7 @@ export function buildSpecGraph(command: BuildGraphCommand, store: SpecStore): Ou
       problem = 'no facts; run clew spec entities list first';
       return undefined;
     }
-    const built = buildGraph(current.entities, current.facts, current.graph);
+    const built = buildGraph(compileFacts(current.entities, current.facts), current.graph);
     findings = built.findings;
     if (sameGraph(current.graph, built.graph)) return undefined;
     const now = new Date().toISOString();

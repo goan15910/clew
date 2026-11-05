@@ -1,23 +1,28 @@
-// Unfold from Spec/facts, path cover, and the workflow-set draft.
+// Unfold from the compiled spec, path cover, and the workflow-set draft.
 // One accepted flow covers every transition on an object. Cross-object stitch is a short scenario.
-// Flows overlay is keyed by fact id so split/group survive a rebuild.
+// Flows overlay is keyed by compiled item id so split/group survive a rebuild.
 // Gap findings are recomputed, not stored. There is no stale-graph.
 import type { Issue } from './issue.js';
 import { chartEventName, chartStateId } from './model.js';
+import {
+  compiledSpec,
+  findItem,
+  type CompiledAction,
+  type CompiledForbidden,
+  type CompiledItem,
+  type CompiledMark,
+  type CompiledSpec,
+} from './spec-actions.js';
 import type {
   DraftGraph,
-  Entity,
-  Fact,
   Finding,
   GraphState,
   GraphTransition,
   LiveSpan,
   LiveSentence,
   SpecFlow,
-  SpecSnapshot,
   TaggedSentence,
 } from './spec.js';
-import { assembleSpecFromFacts, eventFromAction, isActionFact, overlayOf, specFromFacts, varNameForEntity, visibleFacts } from './spec-facts.js';
 import type { Spec, SpecDraft } from './spec-model.js';
 import { exploreSpecComponents } from './spec-model.js';
 import {
@@ -57,13 +62,12 @@ interface Assembled {
 }
 
 export function buildGraph(
-  entities: readonly Entity[],
-  facts: readonly Fact[],
+  compiled: CompiledSpec,
   existing: DraftGraph | undefined,
   bound = DEFAULT_REACH_BOUND,
 ): GraphBuild {
-  const assembled = assembleGraph(entities, facts);
-  const covered = proposeFlows(assembled, entities, facts, existing);
+  const assembled = assembleGraph(compiled);
+  const covered = proposeFlows(assembled, compiled.items, existing);
   const graph: DraftGraph = {
     objects: assembled.objects,
     states: assembled.states,
@@ -72,22 +76,20 @@ export function buildGraph(
   };
   return {
     graph,
-    findings: [...assembled.findings, ...truncationFindings(entities, facts, bound), ...covered.findings, ...flowCoverage(graph, facts, entities)],
+    findings: [...assembled.findings, ...truncationFindings(compiled, bound), ...covered.findings, ...flowCoverage(graph, compiled.items)],
   };
 }
 
-export function graphLayerFindings(snapshot: SpecSnapshot, bound = DEFAULT_REACH_BOUND): Finding[] {
-  if (snapshot.graph === undefined) return [absentGraph()];
-  const entities = snapshot.entities ?? [];
-  const facts = snapshot.facts ?? [];
-  const fresh = assembleGraph(entities, facts);
+export function graphLayerFindings(compiled: CompiledSpec, stored: DraftGraph | undefined, bound = DEFAULT_REACH_BOUND): Finding[] {
+  if (stored === undefined) return [absentGraph()];
+  const fresh = assembleGraph(compiled);
   const graph: DraftGraph = {
     objects: fresh.objects,
     states: fresh.states,
     transitions: fresh.transitions,
-    flows: snapshot.graph.flows,
+    flows: stored.flows,
   };
-  return [...fresh.findings, ...truncationFindings(entities, facts, bound), ...flowCoverage(graph, facts, entities)];
+  return [...fresh.findings, ...truncationFindings(compiled, bound), ...flowCoverage(graph, compiled.items)];
 }
 
 /** Persistable overlay: flows keyed by fact id. States and transitions are recomputed on read. */
@@ -98,9 +100,9 @@ export function overlayGraph(graph: DraftGraph | undefined): DraftGraph | undefi
   return { objects: [], states: [], transitions: [], flows };
 }
 
-/** Recompute states and transitions from facts. Keep the stored flow overlay as-is. */
-export function attachOverlay(entities: readonly Entity[], facts: readonly Fact[], flows: readonly SpecFlow[]): DraftGraph {
-  const assembled = assembleGraph(entities, facts);
+/** Recompute states and transitions from the compiled spec. Keep the stored flow overlay as-is. */
+export function attachOverlay(compiled: CompiledSpec, flows: readonly SpecFlow[]): DraftGraph {
+  const assembled = assembleGraph(compiled);
   const kept: SpecFlow[] = [];
   for (const flow of flows) kept.push(copyFlow(flow));
   return {
@@ -111,14 +113,14 @@ export function attachOverlay(entities: readonly Entity[], facts: readonly Fact[
   };
 }
 
-export function chartDraftFromFacts(entities: readonly Entity[], facts: readonly Fact[]): SpecDraft {
-  const draft = specFromFacts(entities, facts);
+export function chartDraft(compiled: CompiledSpec): SpecDraft {
+  const draft = compiled.draft;
   return {
     id: draft.id,
     vars: draft.vars,
     initial: draft.initial,
     actions: draft.actions,
-    labels: labelsFromFacts(entities, facts, draft),
+    labels: stateLabels(compiled.items, draft),
   };
 }
 
@@ -166,17 +168,16 @@ export function groupFlows(graph: DraftGraph, request: GroupRequest): GraphEdit 
 
 export function toWorkflowSetDraft(
   graph: DraftGraph,
-  entities: readonly Entity[],
-  facts: readonly Fact[],
+  compiled: CompiledSpec,
   sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
   spans: readonly LiveSpan[] = [],
 ): { draft?: WorkflowSetDraft; findings: Finding[] } {
-  const spec = assembleSpecFromFacts(entities, facts);
+  const spec = compiledSpec(compiled);
   const workflows: WorkflowSetDraft['workflows'][number][] = [];
   const findings: Finding[] = [];
   for (const flow of graph.flows) {
-    const built = flowDraft(flow, graph, entities, facts, sentences, tagged, spans, spec);
+    const built = flowDraft(flow, graph, compiled.items, sentences, tagged, spans, spec);
     if (built.problem !== undefined) {
       findings.push(blocked('path-not-linear', built.problem, [flow.id, ...flow.transitions]));
       continue;
@@ -187,7 +188,7 @@ export function toWorkflowSetDraft(
   return { draft: { id: workflowSetId(graph.objects), workflows }, findings };
 }
 
-export function workflowCheckFindings(issues: readonly Issue[], draft: WorkflowSetDraft, graph: DraftGraph, facts: readonly Fact[]): Finding[] {
+export function workflowCheckFindings(issues: readonly Issue[], draft: WorkflowSetDraft, graph: DraftGraph, items: readonly CompiledItem[]): Finding[] {
   const findings: Finding[] = [];
   for (let index = 0; index < issues.length; index += 1) {
     const issue = issues[index];
@@ -203,11 +204,11 @@ export function workflowCheckFindings(issues: readonly Issue[], draft: WorkflowS
           refs.push(transitionId);
           const transition = findTransition(graph.transitions, transitionId);
           if (transition === undefined) continue;
-          for (const factId of transition.facts) {
-            refs.push(factId);
-            const fact = findFact(facts, factId);
-            if (fact === undefined) continue;
-            for (const source of fact.sources) refs.push(source);
+          for (const itemId of transition.facts) {
+            refs.push(itemId);
+            const item = findItem(items, itemId);
+            if (item === undefined) continue;
+            for (const source of item.sources) refs.push(source);
           }
         }
         if (flow.forbidden !== undefined) refs.push(flow.forbidden);
@@ -242,20 +243,18 @@ export function workflowSetId(objects: readonly string[]): string {
   return `${id}Flows`;
 }
 
-function assembleGraph(entities: readonly Entity[], facts: readonly Fact[]): Assembled {
-  const live = currentFacts(facts);
+function assembleGraph(compiled: CompiledSpec): Assembled {
+  const live = compiled.items;
   const findings: Finding[] = [];
-  const initial = specFromFacts(entities, facts).initial;
-  const actionFacts: Fact[] = [];
-  for (const fact of live) {
-    if (!isActionFact(fact)) continue;
-    if (!readyAction(fact, entities, initial, findings)) continue;
-    actionFacts.push(fact);
+  const ready: CompiledAction[] = [];
+  for (const item of live) {
+    if (item.kind !== 'action') continue;
+    if (!readyAction(item, findings)) continue;
+    ready.push(item);
   }
   const transitions: GraphTransition[] = [];
-  for (const fact of actionFacts) {
-    if (!isActionFact(fact)) continue;
-    const built = makeTransition(fact, live, entities, initial, fact.id);
+  for (const action of ready) {
+    const built = makeTransition(action, action.id);
     if (built === undefined) continue;
     transitions.push(built.transition);
     for (const finding of built.findings) findings.push(finding);
@@ -267,25 +266,24 @@ function assembleGraph(entities: readonly Entity[], facts: readonly Fact[]): Ass
     ensureState(states, transition.object, transition.from);
     ensureState(states, transition.object, transition.to);
   }
-  for (const fact of live) {
-    if (fact.kind !== 'init' && fact.kind !== 'terminal') continue;
-    const named = namedState(fact, entities, findings);
+  for (const item of live) {
+    if (item.kind !== 'init' && item.kind !== 'terminal') continue;
+    const named = namedState(item, findings);
     if (named === undefined) continue;
     rememberObject(objects, named.object);
     const state = ensureState(states, named.object, named.state);
-    if (fact.kind === 'init') state.initial = true;
+    if (item.kind === 'init') state.initial = true;
     else state.final = true;
   }
-  for (const state of states) state.facts = factsForState(state, live, entities, transitions);
+  for (const state of states) state.facts = itemsForState(state, live, transitions);
   for (const finding of reachability(states, transitions, objects)) findings.push(finding);
-  for (const finding of guardFindings(transitions, live, entities)) findings.push(finding);
+  for (const finding of guardFindings(transitions, live)) findings.push(finding);
   for (const finding of sameStateNames(states)) findings.push(finding);
   return { objects, states, transitions, findings };
 }
 
-function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: readonly Fact[], existing: DraftGraph | undefined): { flows: SpecFlow[]; findings: Finding[] } {
+function proposeFlows(assembled: Assembled, live: readonly CompiledItem[], existing: DraftGraph | undefined): { flows: SpecFlow[]; findings: Finding[] } {
   const findings: Finding[] = [];
-  const live = currentFacts(facts);
   const covered = new Set<string>();
   const keptForbidden = new Set<string>();
   const validAgent = new Set<string>();
@@ -318,7 +316,7 @@ function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: 
       used.add(flow.id);
       continue;
     }
-    const kept = keepRuleFlow(flow, assembled, entities, live, covered, keptForbidden);
+    const kept = keepRuleFlow(flow, assembled, live, covered, keptForbidden);
     if (kept === undefined) continue;
     flows.push(kept);
     used.add(kept.id);
@@ -326,12 +324,12 @@ function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: 
       for (const id of kept.transitions) covered.add(id);
     } else if (kept.forbidden !== undefined) keptForbidden.add(kept.forbidden);
   }
-  for (const flow of coverAcceptedPaths(assembled.transitions, live, entities, covered, used)) {
+  for (const flow of coverAcceptedPaths(assembled.transitions, live, covered, used)) {
     flows.push(flow);
   }
-  for (const fact of live) {
-    if (fact.kind !== 'forbidden' || keptForbidden.has(fact.id)) continue;
-    const rejected = rejectedFlow(fact, assembled, entities, used);
+  for (const item of live) {
+    if (item.kind !== 'forbidden' || keptForbidden.has(item.id)) continue;
+    const rejected = rejectedFlow(item, assembled, used);
     if (rejected !== undefined) flows.push(rejected);
   }
   return { flows, findings };
@@ -339,15 +337,14 @@ function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: 
 
 function coverAcceptedPaths(
   transitions: readonly GraphTransition[],
-  live: readonly Fact[],
-  entities: readonly Entity[],
+  live: readonly CompiledItem[],
   covered: Set<string>,
   used: Set<string>,
 ): SpecFlow[] {
   const uncovered: GraphTransition[] = [];
   for (const transition of transitions) {
     if (transition.from === transition.to || covered.has(transition.id)) continue;
-    if (!provableTransition(transition, transitions, live, entities)) continue;
+    if (!provableTransition(transition, transitions, live)) continue;
     uncovered.push(transition);
   }
   const byObject = new Map<string, GraphTransition[]>();
@@ -514,8 +511,7 @@ function minFactNumber(flow: SpecFlow, transitions: readonly GraphTransition[]):
 function keepRuleFlow(
   flow: SpecFlow,
   assembled: Assembled,
-  entities: readonly Entity[],
-  live: readonly Fact[],
+  live: readonly CompiledItem[],
   covered: ReadonlySet<string>,
   keptForbidden: ReadonlySet<string>,
 ): SpecFlow | undefined {
@@ -524,29 +520,29 @@ function keepRuleFlow(
       if (covered.has(id)) return undefined;
       const transition = findTransition(assembled.transitions, id);
       if (transition === undefined || transition.from === transition.to) return undefined;
-      if (!provableTransition(transition, assembled.transitions, live, entities)) return undefined;
+      if (!provableTransition(transition, assembled.transitions, live)) return undefined;
     }
     if (!chainTransitions(flow.transitions, assembled.transitions)) return undefined;
     return acceptedFlow(flow.id, flow.transitions, assembled.transitions, 'rule');
   }
   if (flow.expect !== 'rejected' || flow.forbidden === undefined || keptForbidden.has(flow.forbidden)) return undefined;
-  const fact = findFact(live, flow.forbidden);
-  if (fact === undefined) return undefined;
-  const refreshed = rejectedFlow(fact, assembled, entities, new Set());
+  const item = findItem(live, flow.forbidden);
+  if (item?.kind !== 'forbidden') return undefined;
+  const refreshed = rejectedFlow(item, assembled, new Set());
   if (refreshed === undefined) return undefined;
   refreshed.id = flow.id;
   return refreshed;
 }
 
-function rejectedFlowHolds(flow: SpecFlow, transitions: readonly GraphTransition[], live: readonly Fact[]): boolean {
-  if (flow.forbidden === undefined || findFact(live, flow.forbidden)?.kind !== 'forbidden') return false;
+function rejectedFlowHolds(flow: SpecFlow, transitions: readonly GraphTransition[], live: readonly CompiledItem[]): boolean {
+  if (flow.forbidden === undefined || findItem(live, flow.forbidden)?.kind !== 'forbidden') return false;
   for (const id of flow.transitions) {
     if (findTransition(transitions, id) === undefined) return false;
   }
   return true;
 }
 
-function flowCoverage(graph: DraftGraph, facts: readonly Fact[], entities: readonly Entity[]): Finding[] {
+function flowCoverage(graph: DraftGraph, live: readonly CompiledItem[]): Finding[] {
   const findings: Finding[] = [];
   const accepted = new Map<string, string[]>();
   for (const flow of graph.flows) {
@@ -564,7 +560,7 @@ function flowCoverage(graph: DraftGraph, facts: readonly Fact[], entities: reado
     if (transition.from === transition.to) continue;
     const owners = accepted.get(transition.id) ?? [];
     if (owners.length === 0) {
-      if (!provableTransition(transition, graph.transitions, currentFacts(facts), entities)) continue;
+      if (!provableTransition(transition, graph.transitions, live)) continue;
       findings.push(blocked('uncovered-transition', `${transition.id} is not on an accepted path`, [transition.id]));
     } else if (owners.length > 1) {
       findings.push(blocked('overlap', `${transition.id} is on ${owners.join(' and ')}`, [transition.id, ...owners]));
@@ -582,20 +578,20 @@ function flowCoverage(graph: DraftGraph, facts: readonly Fact[], entities: reado
       findings.push(blocked('missing-reject-at', `${flow.id} is rejected and needs rejectAt on its path`, [flow.id]));
     }
   }
-  for (const fact of currentFacts(facts)) {
-    if (fact.kind !== 'forbidden') continue;
+  for (const item of live) {
+    if (item.kind !== 'forbidden') continue;
     let covered = false;
     for (const flow of graph.flows) {
-      if (flow.expect === 'rejected' && flow.forbidden === fact.id) covered = true;
+      if (flow.expect === 'rejected' && flow.forbidden === item.id) covered = true;
     }
     if (covered) continue;
-    const object = objectLabel(fact, entities);
+    const object = item.object;
     findings.push(blocked(
       'forbidden-uncovered',
       object === undefined
-        ? `${fact.id} has no rejected path`
-        : `${fact.id} has no rejected path; ${object} needs an initial state or a matching transition`,
-      [fact.id],
+        ? `${item.id} has no rejected path`
+        : `${item.id} has no rejected path; ${object} needs an initial state or a matching transition`,
+      [item.id],
     ));
   }
   if (graph.flows.length === 0) {
@@ -690,9 +686,9 @@ function groupByTransitions(graph: DraftGraph, transitionIds: readonly string[],
   return { graph: replaceFlows(graph, flows), findings: [], changed: [survivor] };
 }
 
-function rejectedFlow(fact: Fact, assembled: Assembled, entities: readonly Entity[], used: Set<string>): SpecFlow | undefined {
-  const object = objectLabel(fact, entities);
-  const event = actionLabel(fact, entities);
+function rejectedFlow(forbidden: CompiledForbidden, assembled: Assembled, used: Set<string>): SpecFlow | undefined {
+  const object = forbidden.object;
+  const event = forbidden.event;
   if (object === undefined || event === undefined) return undefined;
   const matched = assembled.transitions.find((transition) => transition.object === object && transition.event === event);
   const id = freshFlowId(used);
@@ -703,7 +699,7 @@ function rejectedFlow(fact: Fact, assembled: Assembled, entities: readonly Entit
       expect: 'rejected',
       rejectAt: 1,
       transitions: [matched.id],
-      forbidden: fact.id,
+      forbidden: forbidden.id,
       origin: 'rule',
     };
   }
@@ -715,7 +711,7 @@ function rejectedFlow(fact: Fact, assembled: Assembled, entities: readonly Entit
     expect: 'rejected',
     rejectAt: 1,
     transitions: [],
-    forbidden: fact.id,
+    forbidden: forbidden.id,
     origin: 'rule',
   };
 }
@@ -723,15 +719,14 @@ function rejectedFlow(fact: Fact, assembled: Assembled, entities: readonly Entit
 function flowDraft(
   flow: SpecFlow,
   graph: DraftGraph,
-  entities: readonly Entity[],
-  facts: readonly Fact[],
+  items: readonly CompiledItem[],
   sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
   spans: readonly LiveSpan[],
   spec: Spec | undefined,
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
   if (flow.expect === 'rejected' && flow.transitions.length === 0) {
-    return syntheticRejected(flow, graph, entities, facts, sentences, tagged, spans, spec);
+    return syntheticRejected(flow, graph, items, sentences, tagged, spec);
   }
   const transitions: GraphTransition[] = [];
   for (const id of flow.transitions) {
@@ -741,7 +736,7 @@ function flowDraft(
   }
   if (transitions.length === 0) return { problem: `${flow.id} has no transitions` };
   if (!chainObjects(transitions)) return { problem: `${flow.id} is not a linear path` };
-  const walked = walkValuations(spec, transitions, facts);
+  const walked = walkValuations(spec, transitions, items);
   if (walked.problem !== undefined) return { problem: `${flow.id} ${walked.problem}` };
   const nodes: WorkflowNodeDraft[] = [];
   const used = new Set<string>();
@@ -761,7 +756,7 @@ function flowDraft(
       from: cursor,
       event: chartEventName(transition.event),
       to,
-      text: transitionText(transition, flow, entities, facts, sentences, tagged, spans),
+      text: transitionText(transition, flow, items, sentences, tagged, spans),
     });
     cursor = to;
   }
@@ -780,28 +775,25 @@ function flowDraft(
 function syntheticRejected(
   flow: SpecFlow,
   graph: DraftGraph,
-  entities: readonly Entity[],
-  facts: readonly Fact[],
+  items: readonly CompiledItem[],
   sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
-  _spans: readonly LiveSpan[],
   spec: Spec | undefined,
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
-  const fact = flow.forbidden === undefined ? undefined : findFact(facts, flow.forbidden);
+  const fact = flow.forbidden === undefined ? undefined : findItem(items, flow.forbidden);
   if (fact === undefined || fact.kind !== 'forbidden') return { problem: `${flow.id} has no forbidden fact` };
-  const object = objectLabel(fact, entities);
-  const event = actionLabel(fact, entities);
+  const object = fact.object;
+  const event = fact.event;
   if (object === undefined || event === undefined) return { problem: `${flow.id} has no object or action` };
   const initial = graph.states.find((state) => state.object === object && state.initial === true);
   if (initial === undefined) return { problem: `${flow.id} has no initial state on ${object}` };
-  let to = attemptedAtom(fact) ?? event.toLowerCase().replace(/_/g, '-');
+  let to = fact.attempted ?? event.toLowerCase().replace(/_/g, '-');
   if (!WORKFLOW_WORD_PATTERN.test(to)) return { problem: `${flow.id} has no workflow name for ${event}` };
   if (to === initial.id) to = `${to}-refused`;
-  const actor = fact.actor === undefined ? undefined : findEntity(entities, fact.actor);
   const sentence = sentenceFor(fact, sentences, tagged);
   const text = sentence !== undefined
     ? cleanClause(sentence.text)
-    : `The ${actor?.name ?? 'actor'} cannot ${event} the ${object}`;
+    : `The ${fact.actor ?? 'actor'} cannot ${event} the ${object}`;
   const startAssign = spec === undefined
     ? phaseAssign(initial.id)
     : patchFromValuation(startFromWhen(spec, fact.when));
@@ -826,37 +818,33 @@ function syntheticRejected(
 function transitionText(
   transition: GraphTransition,
   flow: SpecFlow,
-  entities: readonly Entity[],
-  facts: readonly Fact[],
+  items: readonly CompiledItem[],
   sentences: readonly LiveSentence[],
   tagged: readonly TaggedSentence[],
   spans: readonly LiveSpan[],
 ): string {
   if (flow.expect === 'rejected' && flow.forbidden !== undefined) {
-    const forbidden = findFact(facts, flow.forbidden);
+    const forbidden = findItem(items, flow.forbidden);
     const sentence = forbidden === undefined ? undefined : sentenceFor(forbidden, sentences, tagged);
     if (sentence !== undefined) return cleanClause(sentence.text);
     const actor = transition.actor ?? 'actor';
     return `The ${actor} cannot ${transition.event} the ${transition.object}`;
   }
-  const fact = findFact(facts, transition.fact);
-  const sentence = fact === undefined ? undefined : sentenceFor(fact, sentences, tagged);
+  const action = findItem(items, transition.fact);
+  const sentence = action === undefined ? undefined : sentenceFor(action, sentences, tagged);
   if (sentence === undefined) {
     const actor = transition.actor === undefined ? '' : `The ${transition.actor} `;
     return `${actor}${transition.event} ${transition.object}`.trim();
   }
-  const action = findEntityByName(entities, 'action', transition.event);
-  const object = findEntityByName(entities, 'object', transition.object);
-  const actionSpan = spanForEntity(action, spans, sentence.id);
-  const objectSpan = spanForEntity(object, spans, sentence.id, actionSpan);
+  const evidence = action?.kind === 'action' ? action.evidence : { event: [], object: [] };
+  const actionSpan = spanFromSources(evidence.event, spans, sentence.id);
+  const objectSpan = spanFromSources(evidence.object, spans, sentence.id, actionSpan);
   let text = sentence.text;
   if (actionSpan !== undefined) text = clauseTextFromSpans(actionSpan, objectSpan, spans) ?? sentence.text;
   text = cleanClause(text);
-  if (transition.guard !== undefined) {
-    const condition = findEntity(entities, transition.guard);
-    if (condition?.text !== undefined && !text.toLowerCase().includes(condition.text.toLowerCase())) {
-      text = `${text} if ${condition.text}`;
-    }
+  const guardText = action?.kind === 'action' ? action.overlay?.guardText : undefined;
+  if (transition.guard !== undefined && guardText !== undefined && !text.toLowerCase().includes(guardText.toLowerCase())) {
+    text = `${text} if ${guardText}`;
   }
   return text;
 }
@@ -886,15 +874,14 @@ function clauseTextFromSpans(
   return parts.length > 0 ? parts.join(' ') : action.clause.text;
 }
 
-function spanForEntity(
-  entity: Entity | undefined,
+function spanFromSources(
+  sources: readonly string[],
   spans: readonly LiveSpan[],
   sentenceId: string,
   after?: LiveSpan,
 ): LiveSpan | undefined {
-  if (entity === undefined) return undefined;
   let fallback: LiveSpan | undefined;
-  for (const source of entity.sources) {
+  for (const source of sources) {
     for (const span of spans) {
       if (span.id !== source) continue;
       if (!span.firstTokenId.startsWith(`${sentenceId}.`) && !span.id.includes(`:${sentenceId}.`)) continue;
@@ -914,9 +901,8 @@ function cleanClause(text: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function readyAction(fact: Fact, entities: readonly Entity[], initial: Patch, findings: Finding[]): boolean {
-  if (!isActionFact(fact)) return false;
-  const overlay = overlayOf(fact, entities, initial);
+function readyAction(fact: CompiledAction, findings: Finding[]): boolean {
+  const overlay = fact.overlay;
   if (overlay === undefined || overlay.to === '') {
     findings.push(blocked('type-mismatch', `${fact.id} has no target assign`, [fact.id]));
     return false;
@@ -939,9 +925,8 @@ function readyAction(fact: Fact, entities: readonly Entity[], initial: Patch, fi
   return true;
 }
 
-function makeTransition(fact: Fact, _live: readonly Fact[], entities: readonly Entity[], initial: Patch, id: string): { transition: GraphTransition; findings: Finding[] } | undefined {
-  if (!isActionFact(fact)) return undefined;
-  const overlay = overlayOf(fact, entities, initial);
+function makeTransition(fact: CompiledAction, id: string): { transition: GraphTransition; findings: Finding[] } | undefined {
+  const overlay = fact.overlay;
   if (overlay === undefined || overlay.from === undefined) return undefined;
   const findings: Finding[] = [];
   if (overlay.actor === undefined) {
@@ -960,7 +945,7 @@ function makeTransition(fact: Fact, _live: readonly Fact[], entities: readonly E
   const transition: GraphTransition = {
     id,
     from: overlay.from,
-    event: overlay.event,
+    event: fact.event,
     to: overlay.to,
     object: overlay.object,
     fact: fact.id,
@@ -971,37 +956,13 @@ function makeTransition(fact: Fact, _live: readonly Fact[], entities: readonly E
   return { transition, findings };
 }
 
-function namedState(fact: Fact, entities: readonly Entity[], findings: Finding[]): { object: string; state: string } | undefined {
-  if (fact.assign === undefined) return undefined;
-  for (const key of Object.keys(fact.assign)) {
-    const value = fact.assign[key];
-    if (value === undefined || value.t !== 'atom') continue;
-    const entity = objectEntityNamed(key, entities);
-    if (entity?.name === undefined) continue;
-    if (!WORKFLOW_WORD_PATTERN.test(value.v)) {
-      findings.push(blocked('vocabulary', `${fact.id} uses a state name that is not workflow vocabulary`, [fact.id]));
-      return undefined;
-    }
-    return { object: entity.name, state: value.v };
+function namedState(mark: CompiledMark, findings: Finding[]): { object: string; state: string } | undefined {
+  if (mark.state === undefined) return undefined;
+  if (!WORKFLOW_WORD_PATTERN.test(mark.state.value)) {
+    findings.push(blocked('vocabulary', `${mark.id} uses a state name that is not workflow vocabulary`, [mark.id]));
+    return undefined;
   }
-  return undefined;
-}
-
-function objectEntityNamed(varName: string, entities: readonly Entity[]): Entity | undefined {
-  for (const entity of entities) {
-    if (entity.kind !== 'object') continue;
-    if (varNameForEntity(entity) === varName) return entity;
-  }
-  return undefined;
-}
-
-function attemptedAtom(fact: Fact): string | undefined {
-  if (fact.assign === undefined) return undefined;
-  for (const key of Object.keys(fact.assign)) {
-    const value = fact.assign[key];
-    if (value !== undefined && value.t === 'atom') return value.v;
-  }
-  return undefined;
+  return { object: mark.state.object, state: mark.state.value };
 }
 
 function reachability(states: readonly GraphState[], transitions: readonly GraphTransition[], objects: readonly string[]): Finding[] {
@@ -1067,16 +1028,17 @@ function reachability(states: readonly GraphState[], transitions: readonly Graph
   return findings;
 }
 
-function guardFindings(transitions: readonly GraphTransition[], live: readonly Fact[], entities: readonly Entity[]): Finding[] {
+function guardFindings(transitions: readonly GraphTransition[], live: readonly CompiledItem[]): Finding[] {
   const findings: Finding[] = [];
   for (const transition of transitions) {
     if (transition.guard === undefined) continue;
     // Condition entities are boolean vars, so false is the else value.
     if (transition.guard.startsWith('condition:')) continue;
-    if (hasElse(transition, transitions, live, entities)) continue;
-    const condition = findEntity(entities, transition.guard);
+    if (hasElse(transition, transitions, live)) continue;
+    const action = findItem(live, transition.fact);
+    const guardText = action?.kind === 'action' ? action.overlay?.guardText : undefined;
     const short = transition.guard.includes(':') ? transition.guard.split(':')[1] ?? transition.guard : transition.guard;
-    const detail = condition?.text === undefined ? short : `${short} (${condition.text})`;
+    const detail = guardText === undefined ? short : `${short} (${guardText})`;
     findings.push(blocked(
       'guard-without-else',
       `${transition.event} is guarded by ${detail}; nothing says what happens to a ${transition.from} ${transition.object} otherwise`,
@@ -1086,20 +1048,20 @@ function guardFindings(transitions: readonly GraphTransition[], live: readonly F
   return findings;
 }
 
-function provableTransition(transition: GraphTransition, transitions: readonly GraphTransition[], live: readonly Fact[], entities: readonly Entity[]): boolean {
+function provableTransition(transition: GraphTransition, transitions: readonly GraphTransition[], live: readonly CompiledItem[]): boolean {
   if (transition.guard === undefined || transition.guard.startsWith('condition:')) return true;
-  return hasElse(transition, transitions, live, entities);
+  return hasElse(transition, transitions, live);
 }
 
-function hasElse(transition: GraphTransition, transitions: readonly GraphTransition[], live: readonly Fact[], entities: readonly Entity[]): boolean {
+function hasElse(transition: GraphTransition, transitions: readonly GraphTransition[], live: readonly CompiledItem[]): boolean {
   for (const other of transitions) {
     if (other.id === transition.id) continue;
     if (other.object !== transition.object || other.from !== transition.from || other.event !== transition.event) continue;
     if (other.guard !== transition.guard) return true;
   }
-  for (const fact of live) {
-    if (fact.kind !== 'forbidden') continue;
-    if (objectLabel(fact, entities) === transition.object && actionLabel(fact, entities) === transition.event) return true;
+  for (const item of live) {
+    if (item.kind !== 'forbidden') continue;
+    if (item.object === transition.object && item.event === transition.event) return true;
   }
   return false;
 }
@@ -1126,12 +1088,12 @@ function sameStateNames(states: readonly GraphState[]): Finding[] {
   return findings;
 }
 
-function factsForState(state: GraphState, live: readonly Fact[], entities: readonly Entity[], transitions: readonly GraphTransition[]): string[] {
+function itemsForState(state: GraphState, live: readonly CompiledItem[], transitions: readonly GraphTransition[]): string[] {
   const ids: string[] = [];
-  for (const fact of live) {
-    if ((fact.kind === 'init' || fact.kind === 'terminal') && objectLabel(fact, entities) === state.object) {
-      const named = namedState(fact, entities, []);
-      if (named?.state === state.id) ids.push(fact.id);
+  for (const item of live) {
+    if ((item.kind === 'init' || item.kind === 'terminal') && item.object === state.object) {
+      const named = namedState(item, []);
+      if (named?.state === state.id) ids.push(item.id);
     }
   }
   for (const transition of transitions) {
@@ -1193,27 +1155,7 @@ function splitIndex(flow: SpecFlow, transitions: readonly GraphTransition[], at:
   return { index };
 }
 
-function objectLabel(fact: Fact, entities: readonly Entity[]): string | undefined {
-  if (isActionFact(fact)) return overlayOf(fact, entities, {})?.object;
-  if (fact.assign === undefined) return undefined;
-  for (const key of Object.keys(fact.assign)) {
-    const entity = objectEntityNamed(key, entities);
-    if (entity?.name !== undefined) return entity.name;
-  }
-  return undefined;
-}
-
-function actionLabel(fact: Fact, _entities: readonly Entity[]): string | undefined {
-  if (isActionFact(fact)) return fact.event;
-  if (fact.assign === undefined) return undefined;
-  for (const key of Object.keys(fact.assign)) {
-    const value = fact.assign[key];
-    if (value !== undefined && value.t === 'atom') return value.v.replace(/-/g, '_').toUpperCase();
-  }
-  return undefined;
-}
-
-function sentenceFor(fact: Fact, sentences: readonly LiveSentence[], tagged: readonly TaggedSentence[]): LiveSentence | undefined {
+function sentenceFor(fact: { sources: readonly string[] }, sentences: readonly LiveSentence[], tagged: readonly TaggedSentence[]): LiveSentence | undefined {
   for (const source of fact.sources) {
     const direct = findSentence(sentences, source);
     if (direct !== undefined) return direct;
@@ -1314,15 +1256,6 @@ function copyFlow(flow: SpecFlow): SpecFlow {
   if (flow.rejectAt !== undefined) copy.rejectAt = flow.rejectAt;
   if (flow.forbidden !== undefined) copy.forbidden = flow.forbidden;
   return copy;
-}
-
-function currentFacts(facts: readonly Fact[]): Fact[] {
-  const live: Fact[] = [];
-  for (const fact of visibleFacts(facts)) {
-    if (fact.status === 'current') live.push(fact);
-  }
-  live.sort((left, right) => factNumber(left.id) - factNumber(right.id));
-  return live;
 }
 
 function flowIds(flows: readonly SpecFlow[]): Set<string> {
@@ -1431,8 +1364,8 @@ function blocked(code: string, message: string, refs: string[]): Finding {
   return { id, kind, code, severity: 'blocking', message, refs };
 }
 
-function truncationFindings(entities: readonly Entity[], facts: readonly Fact[], bound: number): Finding[] {
-  const spec = assembleSpecFromFacts(entities, facts);
+function truncationFindings(compiled: CompiledSpec, bound: number): Finding[] {
+  const spec = compiledSpec(compiled);
   if (spec === undefined) return [];
   const explored = exploreSpecComponents(spec, bound);
   const findings: Finding[] = [];
@@ -1450,11 +1383,11 @@ function truncationFindings(entities: readonly Entity[], facts: readonly Fact[],
   return findings;
 }
 
-function labelsFromFacts(entities: readonly Entity[], facts: readonly Fact[], draft: SpecDraft): SpecDraft['labels'] {
+function stateLabels(items: readonly CompiledItem[], draft: SpecDraft): SpecDraft['labels'] {
   const labels: SpecDraft['labels'][number][] = [];
   const used = new Set<string>();
   const terminals = new Set<string>();
-  for (const fact of currentFacts(facts)) {
+  for (const fact of items) {
     if (fact.kind !== 'terminal' || fact.assign === undefined) continue;
     for (const key of Object.keys(fact.assign)) {
       const value = fact.assign[key];
@@ -1466,14 +1399,11 @@ function labelsFromFacts(entities: readonly Entity[], facts: readonly Fact[], dr
     const initial = draft.initial[decl.id];
     if (initial?.t === 'atom') atoms.push({ varName: decl.id, atom: initial.v });
   }
-  for (const fact of currentFacts(facts)) {
-    if (!isActionFact(fact)) continue;
-    const overlay = overlayOf(fact, entities, draft.initial);
-    if (overlay === undefined) continue;
-    const objectEntity = findEntityByName(entities, 'object', overlay.object);
-    const name = objectEntity === undefined ? overlay.object.replace(/-/g, '_') : (varNameForEntity(objectEntity) ?? overlay.object.replace(/-/g, '_'));
-    if (overlay.from !== undefined) atoms.push({ varName: name, atom: overlay.from });
-    atoms.push({ varName: name, atom: overlay.to });
+  for (const item of items) {
+    if (item.kind !== 'action' || item.overlay === undefined) continue;
+    const overlay = item.overlay;
+    if (overlay.from !== undefined) atoms.push({ varName: overlay.objectVar, atom: overlay.from });
+    atoms.push({ varName: overlay.objectVar, atom: overlay.to });
   }
   for (const item of atoms) {
     const key = `${item.varName}:${item.atom}`;
@@ -1495,24 +1425,23 @@ function labelsFromFacts(entities: readonly Entity[], facts: readonly Fact[], dr
 function walkValuations(
   spec: Spec | undefined,
   transitions: readonly GraphTransition[],
-  facts: readonly Fact[],
+  items: readonly CompiledItem[],
 ): { assigns: Patch[]; problem?: string } {
-  const actionFacts: Fact[] = [];
+  const actionFacts: CompiledAction[] = [];
   for (const transition of transitions) {
-    const fact = findFact(facts, transition.fact);
-    if (fact === undefined || !isActionFact(fact)) return overlayAssigns(transitions);
+    const fact = findItem(items, transition.fact);
+    if (fact?.kind !== 'action') return overlayAssigns(transitions);
     actionFacts.push(fact);
   }
   if (spec === undefined) return overlayAssigns(transitions);
   const first = actionFacts[0];
   const env = first !== undefined ? envEqs([first]) : {};
   let current = applySafe(spec.initial, env);
-  if (first !== undefined && isActionFact(first) && !holds(first.when, current)) {
+  if (first !== undefined && !holds(first.when, current)) {
     current = applySafe(current, eqPatch(first.when));
   }
   const assigns: Patch[] = [patchFromValuation(current)];
   for (const fact of actionFacts) {
-    if (!isActionFact(fact)) continue;
     if (!holds(fact.when, current)) current = applySafe(current, eqPatch(fact.when));
     current = applySafe(current, fact.assign);
     assigns.push(patchFromValuation(current));
@@ -1567,15 +1496,13 @@ function collectEq(predicate: Predicate, patch: Record<string, Value>): void {
   }
 }
 
-function envEqs(facts: readonly Fact[]): Patch {
+function envEqs(facts: readonly CompiledAction[]): Patch {
   const assigned = new Set<string>();
   for (const fact of facts) {
-    if (!isActionFact(fact)) continue;
     for (const key of Object.keys(fact.assign)) assigned.add(key);
   }
   const patch: Record<string, Value> = {};
   for (const fact of facts) {
-    if (!isActionFact(fact)) continue;
     const eqs: Record<string, Value> = {};
     collectEq(fact.when, eqs);
     for (const key of Object.keys(eqs)) {
@@ -1597,29 +1524,6 @@ function findFlow(flows: readonly SpecFlow[], id: string): SpecFlow | undefined 
 function findTransition(transitions: readonly GraphTransition[], id: string): GraphTransition | undefined {
   for (const transition of transitions) {
     if (transition.id === id) return transition;
-  }
-  return undefined;
-}
-
-function findFact(facts: readonly Fact[], id: string): Fact | undefined {
-  for (const fact of facts) {
-    if (fact.id === id) return fact;
-  }
-  return undefined;
-}
-
-function findEntity(entities: readonly Entity[], id: string): Entity | undefined {
-  for (const entity of entities) {
-    if (entity.id === id) return entity;
-  }
-  return undefined;
-}
-
-function findEntityByName(entities: readonly Entity[], kind: Entity['kind'], name: string): Entity | undefined {
-  for (const entity of entities) {
-    if (entity.kind !== kind || entity.status === 'rejected' || entity.status === 'stale') continue;
-    if (entity.name === name) return entity;
-    if (kind === 'action' && eventFromAction(entity) === name) return entity;
   }
   return undefined;
 }

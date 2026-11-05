@@ -1,4 +1,5 @@
 // Use case: the agent splits or groups the proposed paths.
+import { compileSnapshot } from '../domain/spec-facts.js';
 import { graphLayerFindings, groupFlows, sameGraph, splitFlow, type GroupRequest } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import type { Outcome, SpecGraphDocument } from './documents.js';
@@ -32,7 +33,7 @@ export function editGraph(command: EditGraphCommand, store: SpecStore): Outcome<
       return undefined;
     }
     const next = edited.graph === undefined ? current : replaceGraph(current, edited.graph);
-    findings = [...edited.findings, ...graphLayerFindings(next)];
+    findings = [...edited.findings, ...graphLayerFindings(compileSnapshot(next), next.graph)];
     changed = edited.changed;
     if (edited.graph === undefined || sameGraph(current.graph, edited.graph)) return undefined;
     const now = new Date().toISOString();
