@@ -281,7 +281,8 @@ test.describe('span tab', () => {
   test('ignores single-token spans on the default fixture', async ({ page }) => {
     expect(expectedSpanTabEntries()).toEqual([]);
     await selectView(page, 'spans');
-    await expect(page.locator('#panel-spans .empty')).toHaveText('No spans match these filters.');
+    await expect(page.locator('#panel-spans .empty')).toContainText('all single-token');
+    await expect(page.locator('#panel-spans .empty')).toContainText('clew spec spans merge --lexicon');
     await expect(page.locator('#panel-spans article.card')).toHaveCount(0);
   });
 

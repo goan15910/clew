@@ -1336,7 +1336,15 @@ details.lineage[open] > summary::before { content: "▾ "; }
       return matchesText([entry.surface, posLabel(entry.tags), ...(entry.tags || []), ...ids]);
     }).sort(compareSpanEntries);
     if (entries.length === 0) {
-      els.spans.innerHTML = '<p class="empty">No spans match these filters.</p>';
+      const multi = state.spans.filter(isMultiTokenSpan);
+      let message = "No spans match these filters.";
+      if (multi.length === 0) {
+        message = state.spans.length + " live spans, all single-token; the Span tab lists multi-token spans only. " +
+          "Merge spans with clew spec spans merge --lexicon <file> (or --id … --tags …), then refresh.";
+      } else if (!showInsignificant && multi.every(function (span) { return span.insignificant === true; })) {
+        message = "Every multi-token span is insignificant; check Show insignificant spans to list them.";
+      }
+      els.spans.innerHTML = '<p class="empty">' + esc(message) + "</p>";
       return;
     }
     const pages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
