@@ -230,6 +230,8 @@ type PlantedSpan = {
   explicitlySet: boolean;
   entityLinkExplicitlySet: boolean;
   insignificant?: boolean;
+  lemma?: string;
+  clause?: { text: string; start: number; end: number };
 };
 
 function multiTokenSpan(
@@ -237,7 +239,7 @@ function multiTokenSpan(
   last: string,
   surface: string,
   tags: string[],
-  extras: { insignificant?: boolean } = {},
+  extras: { insignificant?: boolean; lemma?: string; clause?: PlantedSpan['clause'] } = {},
 ): PlantedSpan {
   const span: PlantedSpan = {
     id: `sp:${first}..${last}`,
@@ -250,6 +252,8 @@ function multiTokenSpan(
     entityLinkExplicitlySet: false,
   };
   if (extras.insignificant) span.insignificant = true;
+  if (extras.lemma) span.lemma = extras.lemma;
+  if (extras.clause) span.clause = extras.clause;
   return span;
 }
 
@@ -410,6 +414,36 @@ test.describe('span tab', () => {
       await panel.locator('nav.pager button[data-page="next"]').first().click();
       await expect(panel.locator('nav.pager').first()).toContainText('31–40 of 40');
       await expect(panel.locator('article.card')).toHaveCount(10);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('shows clause and lemma from the viewer-matrix spans', async ({ page, viewer }) => {
+    const verb = fixture.spans.find((span) => span.surface === 'submits' && span.lemma)!;
+    const noun = fixture.spans.find((span) => span.surface === 'order' && span.clause && !span.lemma)!;
+    expect(verb.clause?.text).toBeTruthy();
+    expect(noun.clause?.text).toBeTruthy();
+    const spans = [
+      multiTokenSpan('s1.t3', 's1.t4', 'customer submits', ['Verb', 'PresentTense'], {
+        clause: verb.clause,
+        lemma: verb.lemma,
+      }),
+      multiTokenSpan('s1.t5', 's1.t6', 'an order', ['Noun', 'Singular'], {
+        clause: noun.clause,
+      }),
+    ];
+    const dir = plantSpanSession(viewer.sessionDir, 'zz-span-clause-lemma', spans);
+    try {
+      await openPlantedSession(page, 'zz-span-clause-lemma');
+      await selectView(page, 'spans');
+      const panel = page.locator('#panel-spans');
+      const verbCard = panel.locator('article.card[data-entry-key="customer submits|Verb|PresentTense"]');
+      await expect(verbCard.locator('.span-clause')).toHaveText(verb.clause!.text);
+      await expect(verbCard.locator('.span-lemma')).toHaveText(verb.lemma!);
+      const nounCard = panel.locator('article.card[data-entry-key="an order|Noun|Singular"]');
+      await expect(nounCard.locator('.span-clause')).toHaveText(noun.clause!.text);
+      await expect(nounCard.locator('.span-lemma')).toHaveCount(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

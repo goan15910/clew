@@ -206,6 +206,19 @@ main { padding: 1rem 1.5rem 2.5rem; max-width: 1100px; }
 }
 .card .id { font-family: var(--mono); font-size: 0.84rem; color: var(--accent); }
 .card .blurb { margin: 0.35rem 0 0; color: var(--muted); }
+.card .span-clause,
+.card .span-lemma {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+.card .span-lemma {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+.card .span-lemma::before { content: "lemma "; color: var(--line); font-family: var(--sans); }
+.card .span-clause::before { content: "clause "; color: var(--line); }
 .pill {
   display: inline-block;
   font: 0.72rem/1 var(--mono);
@@ -1326,6 +1339,21 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return lineageBlock(rows);
   }
 
+  function spanEntryMeta(entry) {
+    const clauses = [];
+    const lemmas = [];
+    for (const span of entry.spans) {
+      const clause = span.clause && span.clause.text ? String(span.clause.text) : "";
+      if (clause && clauses.indexOf(clause) < 0) clauses.push(clause);
+      const lemma = span.lemma ? String(span.lemma) : "";
+      if (lemma && lemmas.indexOf(lemma) < 0) lemmas.push(lemma);
+    }
+    let html = "";
+    for (const clause of clauses) html += '<p class="span-clause">' + esc(clause) + "</p>";
+    for (const lemma of lemmas) html += '<p class="span-lemma">' + esc(lemma) + "</p>";
+    return html;
+  }
+
   function spanEntryCard(entry) {
     const pos = coarsePos(entry.tags);
     const others = otherTags(entry.tags);
@@ -1339,6 +1367,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       '<article class="card' + skippedClass + '" data-entry-key="' + esc(entryKey) + '">' +
       "<h2><span class=\\"id\\">" + esc(entry.surface) + "</span>" + pills + "</h2>" +
       '<p class="blurb">' + esc(count === 1 ? "1 occurrence" : count + " occurrences") + "</p>" +
+      spanEntryMeta(entry) +
       spanEntryLineage(entry) +
       "</article>"
     );

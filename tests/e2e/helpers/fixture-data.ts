@@ -83,6 +83,8 @@ interface Span {
   surface: string;
   tags?: string[];
   insignificant?: boolean;
+  lemma?: string;
+  clause?: { text: string; start: number; end: number };
 }
 
 interface Graph {
