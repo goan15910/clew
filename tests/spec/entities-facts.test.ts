@@ -7,9 +7,9 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import type { SpecEntitiesDocument, SpecFactsDocument, SpecStatusDocument, SpecTagDocument, SpecTraceDocument } from '../../src/application/documents.js';
-import { contradictionFindings } from '../../src/domain/spec-facts.js';
+import { contradictionFindings, proposeFacts } from '../../src/domain/spec-facts.js';
 import { entityFindings, pastParticiple } from '../../src/domain/spec-entities.js';
-import type { Entity, Fact } from '../../src/domain/spec.js';
+import type { Entity, Fact, Sentence, TaggedSentence, Token } from '../../src/domain/spec.js';
 import { varId, type Patch, type Predicate } from '../../src/domain/valuation.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -112,6 +112,63 @@ describe('spec entities and facts', { concurrency: false }, () => {
     assert.equal(warnings.length, 1);
     assert.equal(warnings[0]?.code, 'contradicting-facts');
     assert.match(warnings[0]?.message ?? '', /disagreeing action/);
+  });
+
+  test('an action without an object still mints a non-empty assign from the lemma', () => {
+    const sentences = [sentenceOf('s1', 'The customer submits.')];
+    const tagged = [taggedOf('s1', [
+      tokenOf('s1.t1', 'The', [], [0, 3]),
+      tokenOf('s1.t2', 'customer', ['Actor', 'Noun'], [4, 12]),
+      tokenOf('s1.t3', 'submits', ['Action', 'Verb'], [13, 20]),
+    ])];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('action:submit', 'action', 'submit'),
+    ];
+    entities[0]!.sources = ['s1.t2'];
+    entities[1]!.sources = ['s1.t3'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    assert.equal(proposed.findings.some((finding) => finding.code === 'action-without-object'), true);
+    const action = proposed.facts.find((fact) => fact.kind === 'action' && fact.status === 'current');
+    assert.ok(action);
+    assert.deepEqual(action.assign, { submit: { t: 'atom', v: 'submit' } });
+    assert.ok(Object.keys(action.assign ?? {}).length > 0);
+  });
+
+  test('when chains across sentences that share an object', () => {
+    const sentences = [
+      sentenceOf('s1', 'The customer submits an order.'),
+      sentenceOf('s2', 'The manager approves the order.'),
+    ];
+    const tagged = [
+      taggedOf('s1', [
+        tokenOf('s1.t1', 'customer', ['Actor', 'Noun'], [4, 12]),
+        tokenOf('s1.t2', 'submits', ['Action', 'Verb'], [13, 20]),
+        tokenOf('s1.t3', 'order', ['Object', 'Noun'], [24, 29]),
+      ]),
+      taggedOf('s2', [
+        tokenOf('s2.t1', 'manager', ['Actor', 'Noun'], [4, 11]),
+        tokenOf('s2.t2', 'approves', ['Action', 'Verb'], [12, 20]),
+        tokenOf('s2.t3', 'order', ['Object', 'Noun'], [25, 30]),
+      ]),
+    ];
+    const entities = [
+      entity('actor:customer', 'actor', 'customer'),
+      entity('actor:manager', 'actor', 'manager'),
+      entity('action:submit', 'action', 'submit'),
+      entity('action:approve', 'action', 'approve'),
+      entity('object:order', 'object', 'order'),
+    ];
+    entities[0]!.sources = ['s1.t1'];
+    entities[1]!.sources = ['s2.t1'];
+    entities[2]!.sources = ['s1.t2'];
+    entities[3]!.sources = ['s2.t2'];
+    entities[4]!.sources = ['s1.t3', 's2.t3'];
+    const proposed = proposeFacts(sentences, tagged, entities, [], undefined);
+    const submit = proposed.facts.find((fact) => fact.kind === 'action' && fact.event === 'SUBMIT');
+    const approve = proposed.facts.find((fact) => fact.kind === 'action' && fact.event === 'APPROVE');
+    assert.deepEqual(submit?.when, { op: 'eq', var: 'order', value: { t: 'null' } });
+    assert.deepEqual(approve?.when, { op: 'eq', var: 'order', value: { t: 'atom', v: 'submit' } });
   });
 
   test('assign uses the action lemma, not a past participle, and a noun that is not tagged Actor stays an object', () => {
@@ -410,6 +467,27 @@ describe('spec entities and facts', { concurrency: false }, () => {
 
 function entity(id: string, kind: Entity['kind'], name: string): Entity {
   return { id, kind, name, sources: ['s1.t1'], origin: 'tagger', status: 'candidate' };
+}
+
+function sentenceOf(id: string, text: string): Sentence {
+  return {
+    id,
+    text,
+    span: [0, text.length],
+    hash: id,
+    section: '',
+    origin: 'rule',
+    status: 'current',
+    sources: [],
+  };
+}
+
+function taggedOf(id: string, tokens: Token[]): TaggedSentence {
+  return { id, status: 'current', clauses: [], tokens };
+}
+
+function tokenOf(id: string, text: string, tags: string[], span: [number, number]): Token {
+  return { id, text, tags, span, origin: 'rule', status: 'current', sources: [] };
 }
 
 function prepare(dir: string, file: string): void {

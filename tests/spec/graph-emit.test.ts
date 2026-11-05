@@ -17,7 +17,7 @@ const sample = join(root, 'tests', 'fixtures', 'specs', 'order-sentence.md');
 const SUBMIT = 'The customer submits an order';
 
 describe('spec graph and emit', { concurrency: false }, () => {
-  test('build proposes one path per transition and status reports the graph layer', () => {
+  test('build proposes one lifecycle path per object chain and status reports the graph layer', () => {
     withData((dir) => {
       prepare(dir, sample);
       run(dir, ['spec', 'entities', 'list', '--json']);
@@ -61,12 +61,11 @@ describe('spec graph and emit', { concurrency: false }, () => {
         },
       ]);
       assert.deepEqual(graph.flows, [
-        { id: 'W1', title: 'Submit order', expect: 'accepted', transitions: ['f1'], origin: 'rule' },
-        { id: 'W2', title: 'Approve order', expect: 'accepted', transitions: ['f2'], origin: 'rule' },
+        { id: 'W1', title: 'Order lifecycle', expect: 'accepted', transitions: ['f1', 'f2'], origin: 'rule' },
       ]);
       const buildHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.graph.build');
       assert.deepEqual(buildHistory[0]?.before, []);
-      assert.deepEqual(buildHistory[0]?.after, ['W1', 'W2']);
+      assert.deepEqual(buildHistory[0]?.after, ['W1']);
       assert.deepEqual(codes(graph.findings), ['no-final-state']);
       const afterBuild = historyCount(dir, 'order-sentence');
       const again = run(dir, ['spec', 'graph', 'build', '--json']);
@@ -107,11 +106,13 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.match(preview.chartYaml ?? '', /kind: clew.spec.v1/);
       assert.match(preview.chartYaml ?? '', /event: SUBMIT/);
       assert.equal(preview.workflowSet?.id, 'orderFlows');
-      assert.deepEqual(preview.workflowSet?.workflows.map((workflow) => workflow.id), ['W1', 'W2']);
+      assert.deepEqual(preview.workflowSet?.workflows.map((workflow) => workflow.id), ['W1']);
       assert.equal(preview.workflowSet?.workflows[0]?.nodes[0]?.assign.order, 'draft');
       assert.equal(preview.workflowSet?.workflows[0]?.nodes[0]?.assign.c1, false);
       assert.equal(preview.workflowSet?.workflows[0]?.nodes[1]?.assign.order, 'submit');
       assert.equal(preview.workflowSet?.workflows[0]?.nodes[1]?.assign.c1, false);
+      assert.equal(preview.workflowSet?.workflows[0]?.nodes[2]?.assign.order, 'approve');
+      assert.equal(preview.workflowSet?.workflows[0]?.nodes[2]?.assign.c1, true);
       assert.equal('phase' in (preview.workflowSet?.workflows[0]?.nodes[0]?.assign ?? {}), false);
       assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.event, 'SUBMIT');
       assert.equal(preview.workflowSet?.workflows[0]?.edges[0]?.stateFrom, 'draft');
@@ -131,7 +132,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(grouped.status, 2);
       assert.match(grouped.stderr, /unknown flow "W9"/);
       const human = run(dir, ['spec', 'graph', 'build']);
-      assert.match(human.stdout, /3 states, 2 transitions, 2 flows/);
+      assert.match(human.stdout, /3 states, 2 transitions, 1 flows/);
     });
   });
 
@@ -169,14 +170,8 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.match(readFileSync(out, 'utf8'), /expect: rejected/);
       assert.equal(run(dir, ['workflows', 'check', out, '--json']).status, 0);
 
-      const patch = join(dir, 'group.json');
-      writeFileSync(patch, `${JSON.stringify({ ids: ['W1', 'W2'], title: 'Submit and approve an order' })}\n`);
-      const grouped = run(dir, ['spec', 'graph', 'group', '--from', patch, '--json']);
-      assert.equal(grouped.status, 0, grouped.stderr);
-      assert.equal(json<SpecGraphDocument>(grouped).flows?.[0]?.origin, 'agent');
-      const groupHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.graph.group');
-      assert.deepEqual(groupHistory.at(-1)?.before, ['W1', 'W2', 'W3']);
-      assert.deepEqual(groupHistory.at(-1)?.after, ['W1', 'W3']);
+      const builtFlows = graph.flows ?? [];
+      assert.equal(builtFlows.find((flow) => flow.expect === 'accepted')?.transitions.join(','), 'f1,f2');
       const kept = historyCount(dir, 'order-sentence');
       assert.equal(run(dir, ['spec', 'graph', 'build', '--json']).status, 0);
       assert.equal(historyCount(dir, 'order-sentence'), kept);
@@ -185,14 +180,14 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const split = run(dir, ['spec', 'graph', 'split', '--from', splitPatch, '--json']);
       assert.equal(split.status, 0, split.stderr);
       const paths = json<SpecGraphDocument>(split);
-      assert.deepEqual(paths.changed, ['W1', 'W2']);
+      assert.deepEqual(paths.changed, ['W1', 'W3']);
       assert.equal(paths.flows?.find((flow) => flow.id === 'W1')?.transitions.join(','), 'f1');
-      assert.equal(paths.flows?.find((flow) => flow.id === 'W2')?.transitions.join(','), 'f2');
-      assert.equal(paths.flows?.find((flow) => flow.id === 'W2')?.origin, 'agent');
+      assert.equal(paths.flows?.find((flow) => flow.id === 'W3')?.transitions.join(','), 'f2');
+      assert.equal(paths.flows?.find((flow) => flow.id === 'W3')?.origin, 'agent');
       assert.equal(paths.flows?.some((flow) => flow.expect === 'rejected'), true);
       const splitHistory = historyEntries(dir, 'order-sentence').filter((entry) => entry.command === 'spec.graph.split');
-      assert.deepEqual(splitHistory.at(-1)?.before, ['W1', 'W3']);
-      assert.deepEqual(splitHistory.at(-1)?.after, ['W1', 'W3', 'W2']);
+      assert.deepEqual(splitHistory.at(-1)?.before, ['W1', 'W2']);
+      assert.deepEqual(splitHistory.at(-1)?.after, ['W1', 'W2', 'W3']);
       const flow = run(dir, ['spec', 'trace', 'W1', '--json']);
       assert.equal(json<SpecTraceDocument>(flow).chain?.[0]?.layer, 'flow');
       assert.equal(json<SpecTraceDocument>(flow).chain?.[0]?.id, 'W1');
@@ -203,8 +198,8 @@ describe('spec graph and emit', { concurrency: false }, () => {
       const overlay = json<SpecGraphDocument>(rebuilt);
       assert.equal(overlay.flows?.find((flow) => flow.id === 'W1')?.origin, 'agent');
       assert.equal(overlay.flows?.find((flow) => flow.id === 'W1')?.transitions.join(','), 'f1');
-      assert.equal(overlay.flows?.find((flow) => flow.id === 'W2')?.origin, 'agent');
-      assert.equal(overlay.flows?.find((flow) => flow.id === 'W2')?.transitions.join(','), 'f2');
+      assert.equal(overlay.flows?.find((flow) => flow.id === 'W3')?.origin, 'agent');
+      assert.equal(overlay.flows?.find((flow) => flow.id === 'W3')?.transitions.join(','), 'f2');
       const afterEdit = run(dir, ['spec', 'emit', '--dry-run', '--json']);
       assert.equal(afterEdit.status, 0, afterEdit.stderr);
       assert.equal(json<SpecEmitDocument>(afterEdit).findings.some((finding) => finding.code === 'stale-graph'), false);
@@ -267,7 +262,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       seedApprovedPath(dir);
       assert.equal(run(dir, ['spec', 'graph', 'build', '--json']).status, 0);
       const lines = historyCount(dir, 'order-sentence');
-      const unsplittable = run(dir, ['spec', 'graph', 'split', '--id', 'W1', '--at', '2', '--json']);
+      const unsplittable = run(dir, ['spec', 'graph', 'split', '--id', 'W1', '--at', '1', '--json']);
       assert.equal(unsplittable.status, 1);
       assert.equal(unsplittable.stderr, '');
       assert.equal(json<SpecGraphDocument>(unsplittable).findings.some((finding) => finding.code === 'unsplittable'), true);
@@ -280,7 +275,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
       assert.equal(historyCount(dir, 'order-sentence'), lines);
       const crooked = run(dir, ['spec', 'graph', 'group', '--id', 'W2', '--id', 'W1', '--json']);
       assert.equal(crooked.status, 1);
-      assert.equal(json<SpecGraphDocument>(crooked).findings.some((finding) => finding.code === 'not-linear'), true);
+      assert.equal(json<SpecGraphDocument>(crooked).findings.some((finding) => finding.code === 'rejected-group'), true);
       assert.equal(historyCount(dir, 'order-sentence'), lines);
       const unknown = run(dir, ['spec', 'graph', 'split', '--id', 'W9', '--at', '2', '--json']);
       assert.equal(unknown.status, 2);
@@ -468,7 +463,9 @@ describe('spec graph and emit', { concurrency: false }, () => {
       },
     ];
     const truncated = buildGraph(entities, facts, undefined, 1);
-    assert.equal(truncated.findings.some((finding) => finding.code === 'state-space-truncated'), true);
+    const hit = truncated.findings.find((finding) => finding.code === 'state-space-truncated');
+    assert.ok(hit);
+    assert.match(hit.message, /order truncated at 1 valuations/);
     const open = buildGraph(entities, facts, undefined, 5000);
     assert.equal(open.findings.some((finding) => finding.code === 'state-space-truncated'), false);
   });

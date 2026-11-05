@@ -1,5 +1,5 @@
 // Unfold from Spec/facts, path cover, and the workflow-set draft.
-// One accepted path per provable action fact, plus one rejected path per forbidden fact.
+// One accepted path per object lifecycle (or short cross-object scenario), plus rejected forbidden paths.
 // Flows overlay is keyed by fact id so split/group survive a rebuild.
 // Gap findings are recomputed, not stored. There is no stale-graph.
 import type { Issue } from './issue.js';
@@ -19,7 +19,7 @@ import type {
 } from './spec.js';
 import { assembleSpecFromFacts, eventFromAction, isActionFact, overlayOf, specFromFacts, varNameForEntity, visibleFacts } from './spec-facts.js';
 import type { Spec, SpecDraft } from './spec-model.js';
-import { reachableFromInitial } from './spec-model.js';
+import { exploreSpecComponents } from './spec-model.js';
 import {
   apply,
   DEFAULT_REACH_BOUND,
@@ -325,12 +325,8 @@ function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: 
       for (const id of kept.transitions) covered.add(id);
     } else if (kept.forbidden !== undefined) keptForbidden.add(kept.forbidden);
   }
-  for (const transition of assembled.transitions) {
-    if (transition.from === transition.to || covered.has(transition.id)) continue;
-    if (!provableTransition(transition, assembled.transitions, live, entities)) continue;
-    const id = freshFlowId(used);
-    flows.push(acceptedFlow(id, [transition.id], assembled.transitions, 'rule'));
-    covered.add(transition.id);
+  for (const flow of coverAcceptedPaths(assembled.transitions, live, entities, covered, used)) {
+    flows.push(flow);
   }
   for (const fact of live) {
     if (fact.kind !== 'forbidden' || keptForbidden.has(fact.id)) continue;
@@ -338,6 +334,172 @@ function proposeFlows(assembled: Assembled, entities: readonly Entity[], facts: 
     if (rejected !== undefined) flows.push(rejected);
   }
   return { flows, findings };
+}
+
+function coverAcceptedPaths(
+  transitions: readonly GraphTransition[],
+  live: readonly Fact[],
+  entities: readonly Entity[],
+  covered: Set<string>,
+  used: Set<string>,
+): SpecFlow[] {
+  const uncovered: GraphTransition[] = [];
+  for (const transition of transitions) {
+    if (transition.from === transition.to || covered.has(transition.id)) continue;
+    if (!provableTransition(transition, transitions, live, entities)) continue;
+    uncovered.push(transition);
+  }
+  const byObject = new Map<string, GraphTransition[]>();
+  for (const transition of uncovered) {
+    const list = byObject.get(transition.object) ?? [];
+    list.push(transition);
+    byObject.set(transition.object, list);
+  }
+  const flows: SpecFlow[] = [];
+  const remaining = new Map<string, GraphTransition>();
+  for (const transition of uncovered) remaining.set(transition.id, transition);
+  for (const locals of byObject.values()) {
+    locals.sort((left, right) => factNumber(left.fact) - factNumber(right.fact));
+    const open = new Set<string>();
+    for (const transition of locals) open.add(transition.id);
+    while (open.size > 0) {
+      const start = pickLifecycleStart(locals, open);
+      if (start === undefined) break;
+      const path = growLifecycle(start, locals, open);
+      for (const id of path) {
+        open.delete(id);
+        remaining.delete(id);
+        covered.add(id);
+      }
+      flows.push(acceptedFlow(freshFlowId(used), path, transitions, 'rule'));
+    }
+  }
+  for (const transition of remaining.values()) {
+    covered.add(transition.id);
+    flows.push(acceptedFlow(freshFlowId(used), [transition.id], transitions, 'rule'));
+  }
+  return stitchScenarios(flows, transitions, used);
+}
+
+function pickLifecycleStart(
+  locals: readonly GraphTransition[],
+  remaining: ReadonlySet<string>,
+): GraphTransition | undefined {
+  const tos = new Set<string>();
+  for (const transition of locals) {
+    if (remaining.has(transition.id)) tos.add(transition.to);
+  }
+  let fallback: GraphTransition | undefined;
+  for (const transition of locals) {
+    if (!remaining.has(transition.id)) continue;
+    if (fallback === undefined) fallback = transition;
+    if (!tos.has(transition.from)) return transition;
+  }
+  return fallback;
+}
+
+function growLifecycle(
+  start: GraphTransition,
+  locals: readonly GraphTransition[],
+  remaining: ReadonlySet<string>,
+): string[] {
+  const path = [start.id];
+  const used = new Set<string>([start.id]);
+  let cursor = start.to;
+  while (true) {
+    const next: GraphTransition[] = [];
+    for (const transition of locals) {
+      if (!remaining.has(transition.id) || used.has(transition.id)) continue;
+      if (transition.from === cursor) next.push(transition);
+    }
+    if (next.length !== 1) break;
+    const step = next[0];
+    if (step === undefined) break;
+    path.push(step.id);
+    used.add(step.id);
+    cursor = step.to;
+  }
+  return path;
+}
+
+function stitchScenarios(
+  flows: readonly SpecFlow[],
+  transitions: readonly GraphTransition[],
+  used: Set<string>,
+): SpecFlow[] {
+  const accepted: SpecFlow[] = [];
+  const rest: SpecFlow[] = [];
+  for (const flow of flows) {
+    if (flow.expect === 'accepted' && flow.origin === 'rule') accepted.push(flow);
+    else rest.push(flow);
+  }
+  accepted.sort((left, right) => minFactNumber(left, transitions) - minFactNumber(right, transitions));
+  const merged: SpecFlow[] = [];
+  let index = 0;
+  while (index < accepted.length) {
+    const head = accepted[index];
+    if (head === undefined) break;
+    const path = head.transitions.slice();
+    let cursor = index;
+    while (cursor + 1 < accepted.length && path.length < 4) {
+      const next = accepted[cursor + 1];
+      if (next === undefined) break;
+      if (!canStitch(path, next.transitions, transitions)) break;
+      for (const id of next.transitions) path.push(id);
+      cursor += 1;
+    }
+    if (cursor === index) merged.push(head);
+    else merged.push(acceptedFlow(head.id, path, transitions, 'rule'));
+    index = cursor + 1;
+  }
+  const keptIds = new Set<string>();
+  for (const flow of merged) keptIds.add(flow.id);
+  for (const flow of accepted) {
+    if (keptIds.has(flow.id)) continue;
+    used.delete(flow.id);
+  }
+  return [...merged, ...rest];
+}
+
+function canStitch(
+  leftIds: readonly string[],
+  rightIds: readonly string[],
+  transitions: readonly GraphTransition[],
+): boolean {
+  const left = lastTransition(leftIds, transitions);
+  const right = firstTransition(rightIds, transitions);
+  if (left === undefined || right === undefined) return false;
+  if (left.object === right.object) return false;
+  if (left.actor === undefined || right.actor === undefined) return false;
+  if (left.actor === 'unspecified' || right.actor === 'unspecified') return false;
+  return left.actor === right.actor;
+}
+
+function firstTransition(
+  ids: readonly string[],
+  transitions: readonly GraphTransition[],
+): GraphTransition | undefined {
+  const id = ids[0];
+  return id === undefined ? undefined : findTransition(transitions, id);
+}
+
+function lastTransition(
+  ids: readonly string[],
+  transitions: readonly GraphTransition[],
+): GraphTransition | undefined {
+  const id = ids[ids.length - 1];
+  return id === undefined ? undefined : findTransition(transitions, id);
+}
+
+function minFactNumber(flow: SpecFlow, transitions: readonly GraphTransition[]): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (const id of flow.transitions) {
+    const transition = findTransition(transitions, id);
+    if (transition === undefined) continue;
+    const number = factNumber(transition.fact);
+    if (number < min) min = number;
+  }
+  return min;
 }
 
 function keepRuleFlow(
@@ -348,13 +510,15 @@ function keepRuleFlow(
   covered: ReadonlySet<string>,
   keptForbidden: ReadonlySet<string>,
 ): SpecFlow | undefined {
-  if (flow.expect === 'accepted' && flow.transitions.length === 1) {
-    const id = flow.transitions[0];
-    if (id === undefined || covered.has(id)) return undefined;
-    const transition = findTransition(assembled.transitions, id);
-    if (transition === undefined || transition.from === transition.to) return undefined;
-    if (!provableTransition(transition, assembled.transitions, live, entities)) return undefined;
-    return acceptedFlow(flow.id, [id], assembled.transitions, 'rule');
+  if (flow.expect === 'accepted' && flow.transitions.length > 0) {
+    for (const id of flow.transitions) {
+      if (covered.has(id)) return undefined;
+      const transition = findTransition(assembled.transitions, id);
+      if (transition === undefined || transition.from === transition.to) return undefined;
+      if (!provableTransition(transition, assembled.transitions, live, entities)) return undefined;
+    }
+    if (!chainTransitions(flow.transitions, assembled.transitions)) return undefined;
+    return acceptedFlow(flow.id, flow.transitions, assembled.transitions, 'rule');
   }
   if (flow.expect !== 'rejected' || flow.forbidden === undefined || keptForbidden.has(flow.forbidden)) return undefined;
   const fact = findFact(live, flow.forbidden);
@@ -963,11 +1127,23 @@ function acceptedFlow(id: string, transitions: readonly string[], all: readonly 
   }
   return {
     id,
-    title: chosen.map((transition) => `${capitalize(eventWords(transition.event))} ${transition.object}`).join(' and '),
+    title: pathTitle(chosen),
     expect: 'accepted',
     transitions: transitions.slice(),
     origin,
   };
+}
+
+function pathTitle(chosen: readonly GraphTransition[]): string {
+  const objects: string[] = [];
+  for (const transition of chosen) {
+    if (!objects.includes(transition.object)) objects.push(transition.object);
+  }
+  const first = chosen[0];
+  if (first === undefined) return 'Workflow';
+  if (chosen.length === 1) return `${capitalize(eventWords(first.event))} ${first.object}`;
+  if (objects.length === 1) return `${capitalize(objects[0] ?? first.object)} lifecycle`;
+  return `${objects.map((name) => capitalize(name)).join(' and ')} scenario`;
 }
 
 function acceptedChain(flow: SpecFlow, transitions: readonly GraphTransition[]): boolean {
@@ -989,7 +1165,7 @@ function chainObjects(transitions: readonly GraphTransition[]): boolean {
     const previous = transitions[index - 1];
     const current = transitions[index];
     if (previous === undefined || current === undefined) return false;
-    if (previous.object !== current.object || previous.to !== current.from) return false;
+    if (previous.object === current.object && previous.to !== current.from) return false;
   }
   return transitions.length > 0;
 }
@@ -1261,9 +1437,20 @@ function blocked(code: string, message: string, refs: string[]): Finding {
 function truncationFindings(entities: readonly Entity[], facts: readonly Fact[], bound: number): Finding[] {
   const spec = assembleSpecFromFacts(entities, facts);
   if (spec === undefined) return [];
-  const reach = reachableFromInitial(spec, bound);
-  if (!reach.truncated) return [];
-  return [blocked('state-space-truncated', `state space truncated at ${bound} valuations`, [])];
+  const explored = exploreSpecComponents(spec, bound);
+  const findings: Finding[] = [];
+  for (const component of explored.components) {
+    if (!component.reach.truncated) continue;
+    findings.push(blocked(
+      'state-space-truncated',
+      `${component.key} truncated at ${component.reach.nodes.length} valuations`,
+      [component.key],
+    ));
+  }
+  if (findings.length === 0 && explored.globalCapHit) {
+    findings.push(blocked('state-space-truncated', `state space truncated at ${bound} valuations`, []));
+  }
+  return findings;
 }
 
 function labelsFromFacts(entities: readonly Entity[], facts: readonly Fact[], draft: SpecDraft): SpecDraft['labels'] {
@@ -1320,9 +1507,9 @@ function walkValuations(
     actionFacts.push(fact);
   }
   if (spec === undefined) return overlayAssigns(transitions);
-  const env = envEqs(actionFacts);
-  let current = applySafe(spec.initial, env);
   const first = actionFacts[0];
+  const env = first !== undefined ? envEqs([first]) : {};
+  let current = applySafe(spec.initial, env);
   if (first !== undefined && isActionFact(first) && !holds(first.when, current)) {
     current = applySafe(current, eqPatch(first.when));
   }

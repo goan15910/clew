@@ -312,6 +312,29 @@ export function factRefs(fact: Fact): string[] {
   return refs;
 }
 
+function frameObjectVar(
+  frame: Frame,
+  entities: readonly Entity[],
+): { varName: string; sources: string[] } | undefined {
+  if (frame.action === undefined) return undefined;
+  if (frame.object !== undefined) {
+    const objectEntity = findEntity(entities, frame.object.id);
+    const objectVar = objectEntity === undefined ? undefined : varNameForEntity(objectEntity);
+    if (objectVar === undefined) return undefined;
+    return { varName: objectVar, sources: [frame.action.token.id, frame.object.token.id] };
+  }
+  const actionEntity = findEntity(entities, frame.action.id);
+  const minted = actionEntity === undefined ? undefined : varNameFromLemma(actionEntity.name);
+  if (minted === undefined) return undefined;
+  return { varName: minted, sources: [frame.action.token.id] };
+}
+
+function varNameFromLemma(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined;
+  const normalized = name.replace(/-/g, '_');
+  return VAR_ID_PATTERN.test(normalized) ? normalized : undefined;
+}
+
 export function varNameForEntity(entity: Entity): string | undefined {
   if (entity.kind === 'object') {
     if (entity.name === undefined) return undefined;
@@ -463,10 +486,10 @@ export function overlayOf(fact: ActionFact, entities: readonly Entity[], initial
   const assigned = fact.assign[objectVar];
   if (assigned === undefined || assigned.t !== 'atom') return undefined;
   const objectEntity = objectEntityForVar(objectVar, entities);
-  if (objectEntity?.name === undefined) return undefined;
+  const objectName = objectEntity?.name ?? objectVar.replace(/_/g, '-');
   const fromValue = eqValue(fact.when, objectVar);
   return {
-    object: objectEntity.name,
+    object: objectName,
     from: fromAtom(fromValue, objectVar, initial),
     to: assigned.v,
     event: fact.event,
@@ -581,6 +604,7 @@ function collectDrafts(
   const tokenEntity = indexTokens(entities);
   const drafts: Fact[] = [];
   const findings: Finding[] = [];
+  const lastValue = new Map<string, Value>();
   for (const sentence of sentences) {
     if (sentence.status !== 'current') continue;
     if (onlySentence !== undefined && sentence.id !== onlySentence) continue;
@@ -589,7 +613,6 @@ function collectDrafts(
     const parsed = parseSentence(sentence, item, tokenEntity);
     for (const finding of parsed.findings) findings.push(finding);
     const ordered = orderFrames(parsed.frames, parsed.tokens);
-    const lastValue = new Map<string, Value>();
     const guardsByAction = new Map<string, string[]>();
     for (const guard of parsed.guards) {
       const list = guardsByAction.get(guard.action) ?? [];
@@ -611,15 +634,13 @@ function collectDrafts(
         });
         continue;
       }
-      if (frame.object === undefined) continue;
-      const objectEntity = findEntity(entities, frame.object.id);
-      const objectVar = objectEntity === undefined ? undefined : varNameForEntity(objectEntity);
-      if (objectVar === undefined) continue;
+      const target = frameObjectVar(frame, entities);
+      if (target === undefined) continue;
       const assigned: Value = { t: 'atom', v: actionEntity?.name ?? frame.action.lemma };
       const whenParts: Predicate[] = [];
-      const previous = lastValue.get(objectVar);
-      if (previous === undefined) whenParts.push({ op: 'eq', var: objectVar as VarId, value: { t: 'null' } });
-      else whenParts.push({ op: 'eq', var: objectVar as VarId, value: previous });
+      const previous = lastValue.get(target.varName);
+      if (previous === undefined) whenParts.push({ op: 'eq', var: target.varName as VarId, value: { t: 'null' } });
+      else whenParts.push({ op: 'eq', var: target.varName as VarId, value: previous });
       const attached = guardsByAction.get(frame.action.id) ?? [];
       for (const conditionId of attached) {
         const condition = findEntity(entities, conditionId);
@@ -628,8 +649,8 @@ function collectDrafts(
         whenParts.push({ op: 'eq', var: condVar as VarId, value: { t: 'bool', v: true } });
       }
       const assign: Record<string, Value> = {};
-      assign[objectVar] = assigned;
-      const sources: string[] = [frame.action.token.id, frame.object.token.id];
+      assign[target.varName] = assigned;
+      const sources: string[] = target.sources;
       if (frame.negated) {
         const forbidden: ConfigurationFact = {
           id: 'f0',
@@ -666,7 +687,7 @@ function collectDrafts(
       };
       if (note !== undefined) action.note = note;
       drafts.push(action);
-      lastValue.set(objectVar, assigned);
+      lastValue.set(target.varName, assigned);
     }
   }
   return { drafts, findings };

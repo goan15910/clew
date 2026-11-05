@@ -76,11 +76,12 @@ testcases:
     - result.systemoutjson.graph.transitions.transitions1.id ShouldEqual f2
     - result.systemoutjson.graph.transitions.transitions1.guard ShouldEqual condition:c1
     - result.systemoutjson.flows.flows0.id ShouldEqual W1
-    - result.systemoutjson.flows.flows0.title ShouldEqual "Submit order"
+    - result.systemoutjson.flows.flows0.title ShouldEqual "Order lifecycle"
     - result.systemoutjson.flows.flows0.origin ShouldEqual rule
-    - result.systemoutjson.flows.flows1.id ShouldEqual W2
-    - result.systemoutjson.flows.flows1.title ShouldEqual "Approve order"
-    - result.systemoutjson.flows ShouldHaveLength 2
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
+    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual f2
+    - result.systemoutjson.flows.flows0.transitions ShouldHaveLength 2
+    - result.systemoutjson.flows ShouldHaveLength 1
     - result.systemoutjson.findings.findings0.code ShouldEqual no-final-state
     - result.systemoutjson.findings ShouldHaveLength 1
     - result.systemoutjson.issues ShouldHaveLength 0
@@ -89,14 +90,15 @@ testcases:
     assertions:
     - result.code ShouldEqual 0
     - result.systemoutjson.flows.flows0.id ShouldEqual W1
-    - result.systemoutjson.flows ShouldHaveLength 2
+    - result.systemoutjson.flows.flows0.title ShouldEqual "Order lifecycle"
+    - result.systemoutjson.flows ShouldHaveLength 1
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show sentences --json"
     assertions:
     - result.code ShouldEqual 0
-    - result.systemoutjson.sentences.sentences0.workflows ShouldHaveLength 2
+    - result.systemoutjson.sentences.sentences0.workflows ShouldHaveLength 1
     - result.systemoutjson.sentences.sentences0.workflows.workflows0.id ShouldEqual W1
-    - result.systemoutjson.sentences.sentences0.workflows.workflows0.title ShouldEqual "Submit order"
+    - result.systemoutjson.sentences.sentences0.workflows.workflows0.title ShouldEqual "Order lifecycle"
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec show sentences"
     assertions:
@@ -117,7 +119,8 @@ testcases:
     - result.systemoutjson.yaml ShouldContainSubstring "The manager approves the order if the total is under 500 dollars"
     - result.systemoutjson.workflowSet.id ShouldEqual orderFlows
     - result.systemoutjson.workflowSet.workflows.workflows0.id ShouldEqual W1
-    - result.systemoutjson.workflowSet.workflows.workflows1.id ShouldEqual W2
+    - result.systemoutjson.workflowSet.workflows.workflows0.title ShouldEqual "Order lifecycle"
+    - result.systemoutjson.workflowSet.workflows ShouldHaveLength 1
     - result.systemoutjson.chartYaml ShouldContainSubstring "clew.spec.v1"
     - result.systemoutjson.issues ShouldHaveLength 0
   - type: exec
@@ -178,15 +181,36 @@ testcases:
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.flows.flows0.id ShouldEqual W1
+    - result.systemoutjson.flows.flows0.title ShouldEqual "Order lifecycle"
     - result.systemoutjson.flows.flows0.origin ShouldEqual rule
+    - result.systemoutjson.flows.flows0.expect ShouldEqual accepted
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
+    - result.systemoutjson.flows.flows0.transitions.transitions1 ShouldEqual f2
     - result.systemoutjson.flows.flows1.id ShouldEqual W2
-    - result.systemoutjson.flows.flows1.expect ShouldEqual accepted
+    - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
+    - result.systemoutjson.flows.flows1.title ShouldEqual "Cannot approve order"
     - result.systemoutjson.flows.flows1.transitions.transitions0 ShouldEqual f2
-    - result.systemoutjson.flows.flows2.expect ShouldEqual rejected
-    - result.systemoutjson.flows.flows2.title ShouldEqual "Cannot approve order"
+    - result.systemoutjson.flows ShouldHaveLength 2
     - result.systemoutjson.findings ShouldHaveLength 0
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph group --id W1 --id W2 --title 'Submit and approve an order' --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph split --id W1 --at f2 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.graph.split
+    - result.systemoutjson.changed.changed0 ShouldEqual W1
+    - result.systemoutjson.changed.changed1 ShouldEqual W3
+    - result.systemoutjson.flows.flows0.id ShouldEqual W1
+    - result.systemoutjson.flows.flows0.title ShouldEqual "Submit order"
+    - result.systemoutjson.flows.flows0.origin ShouldEqual agent
+    - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
+    - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
+    - result.systemoutjson.flows.flows2.id ShouldEqual W3
+    - result.systemoutjson.flows.flows2.title ShouldEqual "Approve order"
+    - result.systemoutjson.flows.flows2.origin ShouldEqual agent
+    - result.systemoutjson.flows.flows2.transitions.transitions0 ShouldEqual f2
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec graph group --id W1 --id W3 --title 'Submit and approve an order' --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
@@ -220,9 +244,9 @@ testcases:
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.graph.split
     - result.systemoutjson.changed.changed0 ShouldEqual W1
-    - result.systemoutjson.changed.changed1 ShouldEqual W2
+    - result.systemoutjson.changed.changed1 ShouldEqual W3
     - result.systemoutjson.flows.flows0.transitions.transitions0 ShouldEqual f1
-    - result.systemoutjson.flows.flows2.id ShouldEqual W2
+    - result.systemoutjson.flows.flows2.id ShouldEqual W3
     - result.systemoutjson.flows.flows2.origin ShouldEqual agent
     - result.systemoutjson.flows.flows1.expect ShouldEqual rejected
   - type: exec
@@ -301,7 +325,7 @@ testcases:
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
-    - result.systemout ShouldContainSubstring "3 states, 2 transitions, 2 flows"
+    - result.systemout ShouldContainSubstring "3 states, 2 transitions, 1 flows"
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec emit --dry-run"
     assertions:
