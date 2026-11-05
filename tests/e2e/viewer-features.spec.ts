@@ -282,22 +282,34 @@ async function openPlantedSession(page: Page, id: string): Promise<void> {
 }
 
 test.describe('span tab', () => {
-  test('ignores single-token spans on the default fixture', async ({ page }) => {
-    expect(expectedSpanTabEntries()).toEqual([]);
+  test('lists single-token spans on the default fixture until multi-token only is checked', async ({ page }) => {
+    const all = expectedSpanTabEntries();
+    expect(all.length).toBeGreaterThan(0);
+    expect(expectedSpanTabEntries({ multiTokenOnly: true })).toEqual([]);
     await selectView(page, 'spans');
+    const toggle = page.locator('#filter-multi-token');
+    await expect(toggle).not.toBeChecked();
+    await expect(page.locator('#panel-spans article.card').first()).toBeVisible();
+    await expect(page.locator('#panel-spans .empty')).toHaveCount(0);
+
+    await toggle.check();
     await expect(page.locator('#panel-spans .empty')).toContainText('all single-token');
     await expect(page.locator('#panel-spans .empty')).toContainText('clew spec spans merge --lexicon');
     await expect(page.locator('#panel-spans article.card')).toHaveCount(0);
+
+    await clearFilters(page);
+    await expect(toggle).not.toBeChecked();
+    await expect(page.locator('#panel-spans article.card').first()).toBeVisible();
   });
 
-  test('lists unique multi-token (surface, tags) entries grouped by main POS', async ({ page, viewer }) => {
+  test('lists unique (surface, tags) entries grouped by main POS', async ({ page, viewer }) => {
     const spans = [
       multiTokenSpan('s1.t5', 's1.t6', 'an order', ['Noun', 'Singular']),
       multiTokenSpan('s1.t10', 's1.t11', 'an order', ['Noun', 'Singular']),
       multiTokenSpan('s1.t3', 's1.t4', 'customer submits', ['Verb', 'PresentTense']),
       multiTokenSpan('s2.t1', 's2.t2', 'must not', ['Verb', 'Negative']),
       multiTokenSpan('s1.t1', 's1.t2', 'When the', ['Conjunction']),
-      // single-token decoys must stay out of the tab
+      // single-token span: listed by default, hidden by multi-token only
       {
         id: 'sp:s1.t7..s1.t7',
         firstTokenId: 's1.t7',
@@ -313,17 +325,22 @@ test.describe('span tab', () => {
     try {
       await openPlantedSession(page, 'zz-span-multi');
       await selectView(page, 'spans');
-      const expected = expectedSpanTabEntries({ spans });
+      const panel = page.locator('#panel-spans');
+      const cardKeys = () =>
+        panel.locator('article.card').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.entryKey));
+      const all = expectedSpanTabEntries({ spans });
+      expect(all.map((entry) => entry.key)).toContain('solo|Noun|Singular');
+      expect(await cardKeys()).toEqual(all.map((entry) => entry.key));
+
+      await page.locator('#filter-multi-token').check();
+      const expected = expectedSpanTabEntries({ spans, multiTokenOnly: true });
       expect(expected.map((entry) => entry.key)).toEqual([
         'customer submits|Verb|PresentTense',
         'must not|Verb|Negative',
         'an order|Noun|Singular',
         'When the|Conjunction',
       ]);
-      const panel = page.locator('#panel-spans');
-      const keys = await panel.locator('article.card').evaluateAll((els) =>
-        els.map((el) => (el as HTMLElement).dataset.entryKey),
-      );
+      const keys = await cardKeys();
       expect(keys).toEqual(expected.map((entry) => entry.key));
       expect(keys).not.toContain('solo|Noun|Singular');
       const groups = await panel.locator('h2.span-group').allTextContents();

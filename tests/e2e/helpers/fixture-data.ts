@@ -586,10 +586,11 @@ function isMultiTokenSpan(span: Span): boolean {
   return span.firstTokenId !== span.lastTokenId;
 }
 
-/** Mirrors viewer-page.ts uniqueSpanEntries + filters for the Span tab (multi-token only). */
+/** Mirrors viewer-page.ts uniqueSpanEntries + filters for the Span tab (all spans; multiTokenOnly mirrors the checkbox). */
 export function expectedSpanTabEntries(options: {
   spans?: Span[];
   showInsignificant?: boolean;
+  multiTokenOnly?: boolean;
   text?: string;
   spanFilter?: string;
 } = {}): SpanTabEntry[] {
@@ -599,7 +600,7 @@ export function expectedSpanTabEntries(options: {
   const source = options.spans ?? fixture.spans;
   const map = new Map<string, { surface: string; tags: string[]; insignificant: boolean; spans: Span[] }>();
   for (const span of source) {
-    if (!isMultiTokenSpan(span)) continue;
+    if (options.multiTokenOnly === true && !isMultiTokenSpan(span)) continue;
     const key = spanEntryKey(span);
     let entry = map.get(key);
     if (!entry) {
