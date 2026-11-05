@@ -152,6 +152,22 @@ function sentenceIdOfToken(tokenId: string): string {
   return dot > 0 ? tokenId.slice(0, dot) : '';
 }
 
+/** Sentence id for a fact/entity source: sentence id, token id, or span id. */
+function sentenceIdOfSource(source: string): string {
+  if (/^sp:/.test(source)) {
+    const body = source.slice(3);
+    const first = body.split('..')[0] ?? body;
+    return sentenceIdOfToken(first);
+  }
+  if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) return sentenceIdOfToken(source);
+  if (/^s[1-9][0-9]*$/.test(source)) return source;
+  return '';
+}
+
+function sourceTouchesSentence(source: string, sentenceId: string): boolean {
+  return sentenceIdOfSource(source) === sentenceId;
+}
+
 function spanCoversToken(span: Span, tokenId: string, order: Map<string, number>): boolean {
   const first = order.get(span.firstTokenId);
   const last = order.get(span.lastTokenId);
@@ -405,7 +421,7 @@ export function expectedSentenceLineage(sentenceId: string): Array<{ layer: stri
   const rows: Array<{ layer: string; text: string }> = [];
   for (const entity of fixture.entities.filter((row) => entityShown(row))) {
     for (const source of entity.sources ?? []) {
-      if (source === sentence.id || source.startsWith(`${sentence.id}.`)) {
+      if (sourceTouchesSentence(source, sentence.id)) {
         rows.push({ layer: 'entity', text: `${entity.id} via ${source}` });
         break;
       }
@@ -413,7 +429,7 @@ export function expectedSentenceLineage(sentenceId: string): Array<{ layer: stri
   }
   for (const fact of fixture.facts) {
     for (const source of fact.sources ?? []) {
-      if (source === sentence.id || source.startsWith(`${sentence.id}.`)) {
+      if (sourceTouchesSentence(source, sentence.id)) {
         rows.push({ layer: 'fact', text: `${fact.id} ${fact.kind} via ${source}` });
         break;
       }

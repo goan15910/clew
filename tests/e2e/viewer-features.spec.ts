@@ -555,13 +555,16 @@ test.describe('sentence lineage', () => {
 });
 
 test.describe('span-level lineage rows', () => {
-  test('entity sourced by a token maps to a span sentence row with marked surface', async ({ page }) => {
+  test('entity sourced by a span maps to a span sentence row with marked surface', async ({ page }) => {
     await selectView(page, 'entities');
-    const entity = fixture.entities.find((row) => (row.sources ?? []).length === 1 && /\.t\d+$/.test(row.sources![0]!))!;
-    const tokenId = entity.sources![0]!;
-    const sentenceId = tokenId.split('.')[0]!;
+    const entity = fixture.entities.find((row) => {
+      const sources = row.sources ?? [];
+      return sources.length === 1 && (/^sp:/.test(sources[0]!) || /\.t\d+$/.test(sources[0]!));
+    })!;
+    const source = entity.sources![0]!;
+    const span = spanForSource(source)!;
+    const sentenceId = span.firstTokenId.slice(0, span.firstTokenId.indexOf('.'));
     const sentence = fixture.sentences.find((row) => row.id === sentenceId)!;
-    const span = spanForSource(tokenId)!;
 
     const details = await openLineage(page, 'entities', entity.id);
     const line = details.locator('.line').filter({ has: page.locator('.layer', { hasText: /^span$/ }) }).first();
