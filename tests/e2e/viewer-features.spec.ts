@@ -8,6 +8,7 @@ import {
   expectedVisibleIds,
   fixture,
   frameIncomplete,
+  frameReach,
   frameTransitions,
   PACKAGE_VERSION,
   posLabel,
@@ -50,6 +51,8 @@ test.describe('frames tab', () => {
       if (frame.negated) pills.push('negated');
       if (frame.notTransition) pills.push('not a transition', frame.notTransition.reason);
       if (frameIncomplete(frame)) pills.push('incomplete');
+      const reach = frameReach(frame.id);
+      if (reach) pills.push(reach.status);
       await expect(card.locator('h2 .pill')).toHaveText(pills);
       await expect(card.locator('.roles dt')).toHaveText(['actor', 'event', 'object', 'result', 'when']);
       for (const role of ['actor', 'event', 'object', 'result', 'when'] as const) {
@@ -66,6 +69,27 @@ test.describe('frames tab', () => {
       }
     });
   }
+
+  test('kernel reach pills show the witness or the blocking guard, through filters and lineage', async ({ page }) => {
+    const reachable = fixture.frames.find((frame) => frameReach(frame.id)?.status === 'reachable')!;
+    const unreachable = fixture.frames.find((frame) => frameReach(frame.id)?.status === 'unreachable')!;
+    const witness = frameReach(reachable.id)!.witness!;
+    const blockedBy = frameReach(unreachable.id)!.blockedBy!;
+    expect(blockedBy.length).toBeGreaterThan(0);
+    await page.locator('#filter-frame').selectOption('transition');
+    const open = cardById(page, 'frames', reachable.id);
+    await expect(open.locator('h2 .reach-pill')).toHaveAttribute('data-reach', 'reachable');
+    await expect(open.locator('h2 .reach-pill .pill.ok')).toHaveText('reachable');
+    await expect(open.locator('.frame-graph[data-graph="reach"]')).toHaveText(`reachable via${witness.join('→')}`);
+    const closed = cardById(page, 'frames', unreachable.id);
+    await expect(closed.locator('h2 .reach-pill .pill.bad')).toHaveText('unreachable');
+    await expect(closed.locator('.frame-graph[data-graph="reach"] code')).toHaveText(blockedBy);
+    const details = await openLineage(page, 'frames', unreachable.id);
+    await expect(details.locator('.lineage-pane[data-layer="sentence"] .line-id')).toHaveText([unreachable.sentence]);
+    const notTransition = fixture.frames.find((frame) => frame.notTransition !== undefined)!;
+    await page.locator('#filter-frame').selectOption('not-transition');
+    await expect(cardById(page, 'frames', notTransition.id).locator('.reach-pill')).toHaveCount(0);
+  });
 
   test('a forbidden flow that cites a negated frame shows on its card and in its lineage', async ({ page, viewer }) => {
     const negated = fixture.frames.find((frame) => frame.negated === true)!;

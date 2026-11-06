@@ -5,6 +5,7 @@ import { compileFrames } from './spec-compile.js';
 import { findConcept } from './spec-concepts.js';
 import { ROLE_NAMES } from './spec-frames.js';
 import { graphLayerFindings } from './spec-graph.js';
+import { clauseFindings, clauseReach, type ClauseReach } from './spec-kernel.js';
 import { refinementFindings } from './spec-refine.js';
 
 export interface TraceLink {
@@ -38,6 +39,7 @@ export interface StatusResult {
   layers: { tokens: boolean; concepts: boolean; frames: boolean; graph: boolean };
   findingsByLayer: { sentences: Finding[]; tokens: Finding[]; concepts: Finding[]; frames: Finding[]; graph: Finding[] };
   findings: Finding[];
+  clauses: ClauseReach[];
 }
 
 export function traceItem(snapshot: SpecSnapshot, id: string): TraceResult | undefined {
@@ -75,9 +77,10 @@ export function specStatus(snapshot: SpecSnapshot): StatusResult {
   const sentences = sentenceFindings(snapshot);
   const tokens = tokenFindings(snapshot);
   const concepts = snapshot.concepts === undefined ? [absentOne('concepts')] : [];
+  const clauses = snapshot.frames === undefined ? [] : clauseReach(compiled.compiled);
   const frames = snapshot.frames === undefined
     ? [absentOne('frames')]
-    : [...compiled.findings, ...refinementFindings(snapshot.frames, snapshot.groups ?? [])];
+    : [...compiled.findings, ...refinementFindings(snapshot.frames, snapshot.groups ?? []), ...clauseFindings(clauses, snapshot.frames)];
   const graph = graphLayerFindings(compiled.compiled, snapshot.graph);
   return {
     coverage: coverageOf(snapshot, new Set([...compiled.compiled.items.map((item) => item.id), ...Object.keys(compiled.restated)])),
@@ -89,6 +92,7 @@ export function specStatus(snapshot: SpecSnapshot): StatusResult {
     },
     findingsByLayer: { sentences, tokens, concepts, frames, graph },
     findings: [...sentences, ...tokens, ...concepts, ...frames, ...graph],
+    clauses,
   };
 }
 

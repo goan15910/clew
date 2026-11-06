@@ -5,6 +5,7 @@ import type { Outcome, SpecStatusDocument } from './documents.js';
 import { specInput } from './documents.js';
 import type { SpecStore } from './ports.js';
 import { resolveSession } from './spec-session.js';
+import { clauseViews } from './spec-views.js';
 
 export interface SpecStatusCommand {
   sessionId?: string;
@@ -25,6 +26,7 @@ export function readSpecStatus(command: SpecStatusCommand, store: SpecStore): Ou
       coverage: status.coverage,
       layers: status.layers,
       findingsByLayer: status.findingsByLayer,
+      clauses: clauseViews(status.clauses, result.snapshot.frames ?? []),
       findings: status.findings,
       issues: [],
     },

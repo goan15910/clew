@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileFrames } from '../../../src/domain/spec-compile.js';
 import { attachOverlay } from '../../../src/domain/spec-graph.js';
+import { clauseReach, type ClauseReach } from '../../../src/domain/spec-kernel.js';
 import type { Concept, DraftGraph, FieldVersion, Frame, RoleName, SpecFlow } from '../../../src/domain/spec.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -279,6 +280,13 @@ function frameDependsOn(frame: Frame): string[] {
     }
   }
   return sortedSpanIds(ids);
+}
+
+/** Kernel reach the Frames tab shows; a restating frame shows the reach of the frame it restates. */
+export function frameReach(frameId: string): ClauseReach | undefined {
+  const compilation = compileFrames(fixture.frames, fixture.concepts);
+  const id = compilation.restated[frameId] ?? frameId;
+  return clauseReach(compilation.compiled).find((entry) => entry.frame === id);
 }
 
 export function frameTransitions(frameId: string): DraftGraph['transitions'] {

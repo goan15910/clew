@@ -1,13 +1,16 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
 import type { CompiledItem } from '../domain/spec-actions.js';
+import type { ClauseReach } from '../domain/spec-kernel.js';
 import { sentenceState, type Concept, type DraftGraph, type Frame, type Grouping, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
 import { copyFrame } from '../domain/spec-frames.js';
 import { copyGrouping } from '../domain/spec-refine.js';
 import { sentenceIdOfToken } from '../domain/spec-spans.js';
 import type {
+  ClauseReachView,
   ConceptView,
   FrameCompiledView,
+  FrameReachView,
   FrameView,
   SpecSentenceContextView,
   SpecFlowView,
@@ -137,7 +140,14 @@ export function groupViews(groups: readonly Grouping[]): Grouping[] {
   return groups.map(copyGrouping);
 }
 
-export function frameViews(frames: readonly Frame[], items: readonly CompiledItem[], restated: Readonly<Record<string, string>>): FrameView[] {
+export function frameViews(
+  frames: readonly Frame[],
+  items: readonly CompiledItem[],
+  restated: Readonly<Record<string, string>>,
+  reach: readonly ClauseReach[] = [],
+): FrameView[] {
+  const reached = new Map<string, FrameReachView>();
+  for (const entry of reach) reached.set(entry.frame, reachView(entry));
   const compiled = new Map<string, FrameCompiledView>();
   for (const item of items) {
     if (item.kind === 'action' && item.overlay !== undefined) {
@@ -153,9 +163,28 @@ export function frameViews(frames: readonly Frame[], items: readonly CompiledIte
     const view: FrameView = copyFrame(frame);
     const item = compiled.get(restated[frame.id] ?? frame.id);
     if (item !== undefined) view.compiled = item;
+    const found = reached.get(restated[frame.id] ?? frame.id);
+    if (found !== undefined) view.reach = found;
     views.push(view);
   }
   return views;
+}
+
+export function clauseViews(reach: readonly ClauseReach[], frames: readonly Frame[]): ClauseReachView[] {
+  const sentences = new Map<string, string>();
+  for (const frame of frames) sentences.set(frame.id, frame.sentence);
+  const views: ClauseReachView[] = [];
+  for (const entry of reach) {
+    views.push({ frame: entry.frame, sentence: sentences.get(entry.frame) ?? '', event: entry.event, ...reachView(entry) });
+  }
+  return views;
+}
+
+function reachView(entry: ClauseReach): FrameReachView {
+  const view: FrameReachView = { status: entry.status };
+  if (entry.witness !== undefined) view.witness = entry.witness.slice();
+  if (entry.blockedBy !== undefined) view.blockedBy = entry.blockedBy.slice();
+  return view;
 }
 
 export function graphView(graph: DraftGraph): SpecGraphView {
