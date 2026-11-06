@@ -1,7 +1,10 @@
 // The compiled spec the graph, emit, and status read. A producer compiles its own records
-// (facts today) into this shape, so the graph layer never sees how the spec was extracted.
+// (frames, through spec-compile) into this shape, so the graph layer never sees how the spec was extracted.
 import { assembleSpec, type Spec, type SpecDraft } from './spec-model.js';
 import type { Patch, Predicate } from './valuation.js';
+
+/** Overlay location for the default atom initial (`{ t: 'null' }`). */
+export const DEFAULT_INITIAL_ATOM = 'null';
 
 export interface CompiledSpec {
   /** Signature (`id`, `vars`, `initial`) and kernel actions. `labels` is empty. */

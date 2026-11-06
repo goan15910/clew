@@ -1,0 +1,5 @@
+{"at":"2026-11-05T18:21:51.093Z","command":"spec.init","args":{"session":"viewer-matrix"},"before":[],"after":["s1","s2"]}
+{"at":"2026-11-05T18:21:51.526Z","command":"spec.tag","args":{"session":"viewer-matrix"},"before":[],"after":["s1","s2"]}
+{"at":"2026-11-05T18:21:51.889Z","command":"spec.concepts.list","args":{"session":"viewer-matrix"},"before":[],"after":["concept:approve","concept:cancel","concept:clerk","concept:customer","concept:manager","concept:order","concept:package","concept:ship","concept:submit","concept:total"]}
+{"at":"2026-11-05T18:21:52.252Z","command":"spec.frames.list","args":{"session":"viewer-matrix"},"before":[],"after":["fr:s1.t1","fr:s1.t7","fr:s1.t12","fr:s2.t1"]}
+{"at":"2026-11-05T18:21:52.620Z","command":"spec.graph.build","args":{"session":"viewer-matrix"},"before":[],"after":["W1"]}

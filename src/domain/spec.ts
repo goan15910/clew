@@ -2,7 +2,7 @@
 // Pure data and rules. No tagger, no files, no Zod.
 import type { Patch, Predicate } from './valuation.js';
 
-export const SPEC_SCHEMA_VERSION = 4 as const;
+export const SPEC_SCHEMA_VERSION = 5 as const;
 
 export const SPEC_SESSION_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const SPEC_SESSION_ID_MESSAGE = 'session ids start with a letter and then use letters, digits, underscores, or hyphens';
@@ -11,22 +11,15 @@ export const SPEC_SENTENCE_ID_MESSAGE = 'sentence ids look like s1';
 
 export type SpecOrigin = 'tagger' | 'rule' | 'agent';
 export type SpecItemStatus = 'current' | 'stale';
-export type EntityKind = 'actor' | 'object' | 'action' | 'condition';
-export type EntityReview = 'candidate' | 'confirmed' | 'rejected';
-export type EntityStatus = EntityReview | 'stale';
-export type FactKind = 'action' | 'init' | 'terminal' | 'forbidden';
 export type FindingKind = 'gap' | 'conflict' | 'stale' | 'vocabulary' | 'coverage';
 export type FindingSeverity = 'blocking' | 'warning' | 'info';
 
-export const SPEC_ENTITY_ID_PATTERN = /^(actor|object|action|condition):[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-export const SPEC_ENTITY_ID_MESSAGE = 'entity ids look like actor:customer or condition:c1';
-/** Entity-id-shaped stand-in when propose mints a fact with no Actor tag. Not an entity row. */
-export const UNSPECIFIED_ACTOR_ID = 'actor:unspecified';
+export const SPEC_CONCEPT_ID_PATTERN = /^concept:[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+export const SPEC_CONCEPT_ID_MESSAGE = 'concept ids look like concept:order';
+export const SPEC_FRAME_ID_PATTERN = /^fr:s[1-9][0-9]*\.t[1-9][0-9]*$/;
+export const SPEC_FRAME_ID_MESSAGE = 'frame ids look like fr:s1.t2';
+/** Actor label when a frame's actor is unknown. */
 export const UNSPECIFIED_ACTOR_NAME = 'unspecified';
-export const SPEC_FACT_ID_PATTERN = /^f[1-9][0-9]*$/;
-export const SPEC_FACT_ID_MESSAGE = 'fact ids look like f1';
-export const FACT_KINDS = ['action', 'init', 'terminal', 'forbidden'] as const;
-export const ENTITY_KINDS = ['actor', 'object', 'action', 'condition'] as const;
 
 export interface Finding {
   id: string;
@@ -99,6 +92,8 @@ export interface Token {
   skipped?: boolean;
   /** Verb infinitive from compromise when the tagger tagged this token as a Verb. */
   lemma?: string;
+  /** Past participle of `lemma` from compromise. */
+  participle?: string;
   /** Clause covering this token, assigned once at tag time. */
   clause?: ClauseBound;
 }
@@ -141,50 +136,49 @@ export interface LiveSpan {
   clause: ClauseBound;
   /** Verb infinitive when this span carries a Verb (from compromise via the token). */
   lemma?: string;
+  /** Past participle of `lemma`, copied from the verb token. */
+  participle?: string;
 }
 
-export interface Entity {
+/** A canonical identity and its member spans. A span's `entityId` names its concept. Kind is never stored. */
+export interface Concept {
   id: string;
-  kind: EntityKind;
-  name?: string;
-  text?: string;
-  sources: string[];
-  origin: SpecOrigin;
-  status: EntityStatus;
-  /** Review to restore when a stale entity's sources come back. */
-  review?: EntityReview;
-  note?: string;
+  canonical: string;
+  members: string[];
 }
 
-interface FactMeta {
+export type RoleName = 'actor' | 'event' | 'object' | 'result' | 'when';
+
+/** `refs` are concept ids (actor, object, result), a span id (event), or frame ids (when). */
+export interface RoleValue {
+  text: string;
+  refs: string[];
+}
+
+export type Role = RoleValue | 'unknown';
+
+/** `dependsOn` lists the span ids the value was read from. */
+export interface FieldVersion {
+  value: Role;
+  dependsOn: string[];
+}
+
+export interface Field {
+  original: FieldVersion;
+  latest: FieldVersion;
+  history: Revision<FieldVersion>[];
+}
+
+/** One clause of one sentence. `id` is `fr:<first token id of the clause>`. */
+export interface Frame {
   id: string;
-  origin: SpecOrigin;
-  confidence: number;
-  sources: string[];
-  status: SpecItemStatus;
-  note?: string;
-  /** Agent removed this fact. Propose must not recreate its signature. */
-  removed?: boolean;
+  sentence: string;
+  clause: ClauseBound;
+  marker?: string;
+  negated?: true;
+  notTransition?: { reason: string };
+  roles: Record<RoleName, Field>;
 }
-
-/** One guarded assign. Actor lives here. `assign` is non-empty. */
-export interface ActionFact extends FactMeta {
-  kind: 'action';
-  event: string;
-  actor: string;
-  when: Predicate;
-  assign: Patch;
-}
-
-/** Init, terminal, or forbidden over a predicate or attempted assign. */
-export interface ConfigurationFact extends FactMeta {
-  kind: 'init' | 'terminal' | 'forbidden';
-  actor?: string;
-  when?: Predicate;
-  assign?: Patch;
-}
-
-export type Fact = ActionFact | ConfigurationFact;
 
 export interface SpecSnapshot {
   schemaVersion: typeof SPEC_SCHEMA_VERSION;
@@ -197,23 +191,23 @@ export interface SpecSnapshot {
   tagged: TaggedSentence[];
   /** Live span partition grounded in `tagged` tokens. Omitted until `spec tag` dual-emits. */
   spans?: LiveSpan[];
-  entities?: Entity[];
-  facts?: Fact[];
+  concepts?: Concept[];
+  frames?: Frame[];
   graph?: DraftGraph;
 }
 
 export type FlowOrigin = 'rule' | 'agent';
 
-/** One state of one object. `facts` are the init, terminal, and action facts that name it. */
+/** One state of one object. `frames` are the compiled items that name it. */
 export interface GraphState {
   id: string;
   object: string;
   initial?: true;
   final?: true;
-  facts: string[];
+  frames: string[];
 }
 
-/** One overlay edge assembled from an action fact. `id` and `fact` are that fact's id. */
+/** One overlay edge assembled from a compiled action. `id` and `frame` are that frame's id. */
 export interface GraphTransition {
   id: string;
   from: string;
@@ -222,13 +216,13 @@ export interface GraphTransition {
   actor?: string;
   guard?: string;
   object: string;
-  fact: string;
-  facts: string[];
+  frame: string;
+  frames: string[];
 }
 
 /**
  * One named path through the graph.
- * Accepted paths list action fact ids. A rejected path may list one fact,
+ * Accepted paths list transition frame ids. A rejected path may list one frame,
  * or only `forbidden` when the refusal has no matching action yet.
  */
 export interface SpecFlow {
@@ -256,15 +250,8 @@ export type SpecCommandName =
   | 'spec.sentences.delete'
   | 'spec.spans.merge'
   | 'spec.spans.check'
-  | 'spec.entities.list'
-  | 'spec.entities.merge'
-  | 'spec.entities.rename'
-  | 'spec.entities.reject'
-  | 'spec.entities.promote'
-  | 'spec.facts.propose'
-  | 'spec.facts.add'
-  | 'spec.facts.edit'
-  | 'spec.facts.remove'
+  | 'spec.concepts.list'
+  | 'spec.frames.list'
   | 'spec.graph.build'
   | 'spec.graph.split'
   | 'spec.graph.group';
@@ -308,6 +295,7 @@ export interface PosToken {
   end: number;
   /** Verb infinitive from compromise when tagged as a Verb. */
   lemma?: string;
+  participle?: string;
 }
 
 export interface PosTagging {
@@ -550,6 +538,7 @@ export function tokensFromTagging(sentence: LiveSentence, tagging: PosTagging): 
       clause: { text: clause.text, start: clause.start, end: clause.end },
     };
     if (token.lemma !== undefined && token.lemma !== '') next.lemma = token.lemma;
+    if (token.participle !== undefined && token.participle !== '') next.participle = token.participle;
     tokens.push(next);
   }
   return tokens;
@@ -587,7 +576,7 @@ export function taggingDiffers(existing: TaggedSentence, clauses: readonly strin
     if (left === undefined || right === undefined) return true;
     if (left.text !== right.text || left.span[0] !== right.span[0] || left.span[1] !== right.span[1]) return true;
     if ((left.skipped === true) !== (right.skipped === true)) return true;
-    if (left.lemma !== right.lemma) return true;
+    if (left.lemma !== right.lemma || left.participle !== right.participle) return true;
     if (!sameClauseBound(left.clause, right.clause)) return true;
     if (left.tags.length !== right.tags.length) return true;
     for (let tag = 0; tag < left.tags.length; tag += 1) {
@@ -750,7 +739,7 @@ export function sameTagged(left: readonly TaggedSentence[], right: readonly Tagg
       if (leftToken.id !== rightToken.id || leftToken.text !== rightToken.text) return false;
       if (leftToken.origin !== rightToken.origin || leftToken.status !== rightToken.status) return false;
       if ((leftToken.skipped === true) !== (rightToken.skipped === true)) return false;
-      if (leftToken.lemma !== rightToken.lemma) return false;
+      if (leftToken.lemma !== rightToken.lemma || leftToken.participle !== rightToken.participle) return false;
       if (!sameClauseBound(leftToken.clause, rightToken.clause)) return false;
       if (leftToken.span[0] !== rightToken.span[0] || leftToken.span[1] !== rightToken.span[1]) return false;
       if (!sameStrings(leftToken.tags, rightToken.tags) || !sameStrings(leftToken.sources, rightToken.sources)) return false;
@@ -799,6 +788,7 @@ function retarget(item: TaggedSentence, delta: number): TaggedSentence {
     };
     if (token.skipped === true) next.skipped = true;
     if (token.lemma !== undefined) next.lemma = token.lemma;
+    if (token.participle !== undefined) next.participle = token.participle;
     if (token.clause !== undefined) {
       next.clause = { text: token.clause.text, start: token.clause.start, end: token.clause.end };
     }

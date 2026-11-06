@@ -1,0 +1,181 @@
+name: spec concepts and frames
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: concepts frames trace and status
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.init
+    - result.systemoutjson.session ShouldEqual order-sentence
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec concepts list --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "no tokens; run clew spec tag first"
+    - result.systemoutjson.ok ShouldBeFalse
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.command ShouldEqual spec.tag
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec concepts list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.concepts.list
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.concepts ShouldHaveLength 6
+    - result.systemoutjson.concepts.concepts0.id ShouldEqual concept:approve
+    - result.systemoutjson.concepts.concepts3.id ShouldEqual concept:order
+    - result.systemoutjson.concepts.concepts3.canonical ShouldEqual order
+    - result.systemoutjson.concepts.concepts3.members ShouldHaveLength 2
+    - result.systemoutjson.concepts.concepts3.members.members1.span ShouldEqual sp:s1.t11..s1.t11
+    - result.systemoutjson.findings ShouldHaveLength 0
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "wc -l < '{{.dir}}/spec/order-sentence/history.jsonl'"
+    vars:
+      lines:
+        from: result.systemout
+        regex: '(\d+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec concepts list --json && wc -l < '{{.dir}}/spec/order-sentence/history.jsonl'"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldEndWith "{{.lines}}"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.frames.list
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.frames ShouldHaveLength 3
+    - result.systemoutjson.frames.frames0.id ShouldEqual fr:s1.t1
+    - result.systemoutjson.frames.frames0.marker ShouldEqual when
+    - result.systemoutjson.frames.frames0.roles.event.latest.value.text ShouldEqual submit
+    - result.systemoutjson.frames.frames0.roles.result.latest.value.text ShouldEqual submitted
+    - result.systemoutjson.frames.frames0.compiled.event ShouldEqual SUBMIT
+    - result.systemoutjson.frames.frames0.compiled.from ShouldEqual null
+    - result.systemoutjson.frames.frames1.id ShouldEqual fr:s1.t7
+    - result.systemoutjson.frames.frames1.roles.actor.latest.value.text ShouldEqual manager
+    - result.systemoutjson.frames.frames1.roles.when.latest.value.refs ShouldHaveLength 2
+    - result.systemoutjson.frames.frames1.compiled.from ShouldEqual submitted
+    - result.systemoutjson.frames.frames1.compiled.to ShouldEqual approved
+    - result.systemoutjson.frames.frames2.id ShouldEqual fr:s1.t12
+    - result.systemoutjson.frames.frames2.notTransition.reason ShouldEqual "no verb"
+    - result.systemoutjson.findings ShouldHaveLength 1
+    - result.systemoutjson.findings.findings0.code ShouldEqual value-never-assigned
+    - result.systemoutjson.findings.findings0.severity ShouldEqual warning
+    - result.systemoutjson.issues ShouldHaveLength 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --sentence s9 --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring 'unknown sentence "s9"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace fr:s1.t7 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.trace
+    - result.systemoutjson.chain.chain0.layer ShouldEqual frame
+    - result.systemoutjson.chain.chain0.id ShouldEqual fr:s1.t7
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec trace concept:customer --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.chain.chain0.layer ShouldEqual concept
+    - result.systemoutjson.chain.chain0.id ShouldEqual concept:customer
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.status
+    - result.systemoutjson.coverage.sentences.mapped.mapped0 ShouldEqual s1
+    - result.systemoutjson.coverage.concepts ShouldEqual 6
+    - result.systemoutjson.coverage.frames.transition ShouldEqual 2
+    - result.systemoutjson.coverage.frames.notTransition ShouldEqual 1
+    - result.systemoutjson.coverage.frames.incomplete ShouldEqual 0
+    - result.systemoutjson.layers.concepts ShouldBeTrue
+    - result.systemoutjson.layers.frames ShouldBeTrue
+    - result.systemoutjson.layers.graph ShouldBeFalse
+  - type: exec
+    script: "find '{{.dir}}' -type f \\( -name concepts.json -o -name frames.json -o -name .lock \\) | sort"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring concepts.json
+    - result.systemout ShouldContainSubstring frames.json
+    - result.systemout ShouldNotContainSubstring ".lock"
+
+- name: roles from passive, negation, inheritance, a pronoun, and as
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      printf '%s\n' 'The order is cancelled by the manager. A clerk must not cancel a shipped package.' 'The clerk packs the package and ships it. An order starts as draft.' > '{{.dir}}/roles.md'
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/roles.md' --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.frames ShouldHaveLength 5
+    - result.systemoutjson.frames.frames0.roles.actor.latest.value.text ShouldEqual manager
+    - result.systemoutjson.frames.frames0.roles.object.latest.value.text ShouldEqual order
+    - result.systemoutjson.frames.frames1.negated ShouldBeTrue
+    - result.systemoutjson.frames.frames1.compiled.kind ShouldEqual forbidden
+    - result.systemoutjson.frames.frames3.roles.actor.latest.value.text ShouldEqual clerk
+    - result.systemoutjson.frames.frames3.roles.object.latest.value.text ShouldEqual package
+    - result.systemoutjson.frames.frames4.roles.result.latest.value.text ShouldEqual draft
+    - result.systemoutjson.findings ShouldHaveLength 0
+
+- name: human summaries
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec concepts list"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "session order-sentence: 6 concepts"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "session order-sentence: 3 frames"'
+    - 'result.systemout ShouldContainSubstring "compiles to APPROVE: order submitted -> approved by manager"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status"
+    assertions:
+    - result.code ShouldEqual 0
+    - 'result.systemout ShouldContainSubstring "1 mapped, 0 pending, 0 deleted"'

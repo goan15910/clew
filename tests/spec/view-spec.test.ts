@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -12,6 +12,7 @@ import { VIEWER_FILE, VIEWER_HTML } from '../../src/adapters/spec-store/viewer-p
 import type { DraftGraphImageDocument, SpecViewDocument } from '../../src/application/documents.js';
 import type { GraphImageRenderer } from '../../src/application/ports.js';
 import { NO_GRAPH_MESSAGE, viewSpecGraph } from '../../src/application/view-spec-graph.js';
+import { buildFramesSession } from './helpers/frames-session.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -23,11 +24,10 @@ describe('spec view', { concurrency: false }, () => {
     try {
       assert.equal(clew(['spec', 'init', sample, '--json'], dir).status, 0);
       assert.equal(clew(['spec', 'tag', '--json'], dir).status, 0);
-      assert.equal(clew(['spec', 'entities', 'list', '--json'], dir).status, 0);
-      assert.equal(clew(['spec', 'facts', 'propose', '--json'], dir).status, 0);
+      assert.equal(clew(['spec', 'frames', 'list', '--json'], dir).status, 0);
       const session = specSessionDir('order-sentence', { CLEW_DATA_DIR: dir });
       const beforeSession = readFileSync(join(session, 'session.json'), 'utf8');
-      const beforeFacts = readFileSync(join(session, 'facts.json'), 'utf8');
+      const beforeFrames = readFileSync(join(session, 'frames.json'), 'utf8');
       const historyBefore = existsSync(join(session, 'history.jsonl'))
         ? readFileSync(join(session, 'history.jsonl'), 'utf8')
         : '';
@@ -46,15 +46,18 @@ describe('spec view', { concurrency: false }, () => {
       assert.deepEqual(doc.issues, []);
       assert.equal(existsSync(join(session, VIEWER_FILE)), true);
       const html = readFileSync(join(session, VIEWER_FILE), 'utf8');
-      assert.match(html, /data-tab="facts"/);
-      assert.match(html, /data-tab="entities"/);
+      assert.match(html, /data-tab="frames"/);
+      assert.match(html, /data-tab="concepts"/);
       assert.match(html, /data-tab="sentences"/);
       assert.match(html, /data-tab="spans"/);
       assert.match(html, /data-tab="graph"/);
       assert.match(html, /fetch\(sessionBase\(\) \+ name/);
+      assert.match(html, /loadJson\("concepts\.json"\)/);
+      assert.match(html, /loadJson\("frames\.json"\)/);
+      assert.doesNotMatch(html, /entities\.json|facts\.json/);
       assert.match(html, /: "\.\/";/);
       assert.equal(readFileSync(join(session, 'session.json'), 'utf8'), beforeSession);
-      assert.equal(readFileSync(join(session, 'facts.json'), 'utf8'), beforeFacts);
+      assert.equal(readFileSync(join(session, 'frames.json'), 'utf8'), beforeFrames);
       assert.equal(
         existsSync(join(session, 'history.jsonl')) ? readFileSync(join(session, 'history.jsonl'), 'utf8') : '',
         historyBefore,
@@ -135,7 +138,7 @@ describe('spec view', { concurrency: false }, () => {
         assert.equal(page.status, 200);
         const html = await page.text();
         assert.match(html, /<div class="brand">Clew<span class="version">v\d+\.\d+\.\d+[^<]*<\/span><\/div>/);
-        assert.match(html, /filter-kind/);
+        assert.match(html, /filter-frame/);
         const sessionJson = await fetch(new URL('./session.json', server.url));
         assert.equal(sessionJson.status, 200);
         const body = await sessionJson.json() as { id: string };
@@ -172,19 +175,19 @@ describe('spec view', { concurrency: false }, () => {
     const previous = process.env.CLEW_DATA_DIR;
     process.env.CLEW_DATA_DIR = dir;
     try {
-      const withGraph = plantMatrix(dir, 'viewer-matrix', true);
-      const withoutGraph = plantMatrix(dir, 'no-graph', false);
+      const withGraph = buildFramesSession(dir, 'guarded', { graph: true });
+      const withoutGraph = buildFramesSession(dir, 'no-graph', { graph: false });
       const before = snapshotBytes(withGraph);
       const server = await serveSessionViewer(withGraph);
       try {
         const origin = new URL(server.url).origin;
-        const overlay = await (await fetch(`${origin}/graph.json`)).json() as { states?: { id: string }[] };
-        assert.ok(overlay.states?.some((state) => state.id === 'draft'));
+        const overlay = await (await fetch(`${origin}/flows.json`)).json() as { flows?: { id: string }[] };
+        assert.ok(overlay.flows?.some((flow) => flow.id === 'W1'));
         const drawn = await (await fetch(`${origin}/draft-graph.json`)).json() as DraftGraphImageDocument;
-        assert.equal(drawn.session, 'viewer-matrix');
+        assert.equal(drawn.session, 'guarded');
         assert.equal(drawn.message, undefined);
         const order = drawn.charts.find((chart) => chart.object === 'order');
-        const happy = drawn.workflows.find((flow) => flow.id === 'HappyPath');
+        const happy = drawn.workflows.find((flow) => flow.id === 'W1');
         assert.ok(order);
         assert.ok(order.interactive);
         assert.ok(order.interactive.elements.length > 0);
@@ -203,8 +206,7 @@ describe('spec view', { concurrency: false }, () => {
         assert.ok(guarded);
         assert.match(guarded.condition ?? '', /under 500 dollars/);
         assert.ok((guarded.lineage?.length ?? 0) > 0);
-        assert.equal(drawn.workflows.some((flow) => flow.id === 'ForbidCancel'), false);
-        assert.ok(drawn.findings.some((finding) => finding.refs.includes('ForbidCancel')));
+        assert.equal(drawn.workflows.some((flow) => flow.expect === 'rejected'), false);
         const missing = await (await fetch(`${origin}/sessions/no-graph/draft-graph.json`)).json() as DraftGraphImageDocument;
         assert.equal(missing.session, 'no-graph');
         assert.equal(missing.message, NO_GRAPH_MESSAGE);
@@ -217,7 +219,7 @@ describe('spec view', { concurrency: false }, () => {
       } finally {
         await server.close();
       }
-      const failed = viewSpecGraph({ id: 'viewer-matrix' }, jsonSpecStore, {
+      const failed = viewSpecGraph({ id: 'guarded' }, jsonSpecStore, {
         chartSvg() {
           throw new Error('Graphviz `dot` is not runnable (spawn dot ENOENT). Install Graphviz 16.1.0.');
         },
@@ -229,7 +231,6 @@ describe('spec view', { concurrency: false }, () => {
       assert.ok(failed.charts.length > 0);
       assert.ok(failed.charts[0]?.interactive.elements.length);
       assert.equal(failed.charts[0]?.svg, undefined);
-      assert.ok(failed.findings.some((finding) => finding.refs.includes('ForbidCancel')));
     } finally {
       if (previous === undefined) delete process.env.CLEW_DATA_DIR;
       else process.env.CLEW_DATA_DIR = previous;
@@ -273,22 +274,8 @@ describe('spec view', { concurrency: false }, () => {
   });
 });
 
-const matrix = join(root, 'tests', 'fixtures', 'sessions', 'viewer-matrix');
-
-function plantMatrix(dataDir: string, id: string, withGraph: boolean): string {
-  const dir = specSessionDir(id, { CLEW_DATA_DIR: dataDir });
-  mkdirSync(dirname(dir), { recursive: true });
-  cpSync(matrix, dir, { recursive: true });
-  rmSync(join(dir, 'spec.md'), { force: true });
-  if (!withGraph) rmSync(join(dir, 'graph.json'), { force: true });
-  const session = JSON.parse(readFileSync(join(dir, 'session.json'), 'utf8')) as { id: string };
-  session.id = id;
-  writeFileSync(join(dir, 'session.json'), `${JSON.stringify(session, null, 2)}\n`);
-  return dir;
-}
-
 function snapshotBytes(dir: string): Record<string, string> {
-  const names = ['session.json', 'sentences.json', 'tokens.json', 'entities.json', 'facts.json', 'graph.json', 'history.jsonl'];
+  const names = ['session.json', 'sentences.json', 'tokens.json', 'spans.json', 'concepts.json', 'frames.json', 'flows.json', 'history.jsonl'];
   const bytes: Record<string, string> = {};
   for (const name of names) {
     const path = join(dir, name);

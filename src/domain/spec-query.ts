@@ -1,12 +1,13 @@
 // Read-only provenance and coverage over a spec session.
-import type { Entity, Fact, Finding, GraphTransition, LiveSpan, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
+import type { Concept, Finding, Frame, GraphTransition, LiveSpan, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
 import { initFindings, liveSentences, sentenceFindings as reinitFindings, sentenceState, tagFindings } from './spec.js';
-import { entityFindings } from './spec-entities.js';
-import { compileSnapshot, contradictionFindings, entityUsesFact, visibleFacts } from './spec-facts.js';
+import { compileFrames } from './spec-compile.js';
+import { findConcept } from './spec-concepts.js';
+import { ROLE_NAMES } from './spec-frames.js';
 import { graphLayerFindings } from './spec-graph.js';
 
 export interface TraceLink {
-  layer: 'state' | 'transition' | 'flow' | 'fact' | 'entity' | 'token' | 'sentence';
+  layer: 'state' | 'transition' | 'flow' | 'frame' | 'concept' | 'token' | 'sentence';
   id: string;
   type?: string;
   kind?: string;
@@ -27,41 +28,41 @@ export interface TraceResult {
 
 export interface StatusCoverage {
   sentences: { mapped: string[]; pending: string[]; deleted: string[] };
-  entities: { candidate: number; confirmed: number; rejected: number; stale: number };
-  facts: { current: number; stale: number; implied: number; removed: number };
+  concepts: number;
+  frames: { transition: number; notTransition: number; incomplete: number };
 }
 
 export interface StatusResult {
   coverage: StatusCoverage;
-  layers: { tokens: boolean; entities: boolean; facts: boolean; graph: boolean };
-  findingsByLayer: { sentences: Finding[]; tokens: Finding[]; entities: Finding[]; facts: Finding[]; graph: Finding[] };
+  layers: { tokens: boolean; concepts: boolean; frames: boolean; graph: boolean };
+  findingsByLayer: { sentences: Finding[]; tokens: Finding[]; concepts: Finding[]; frames: Finding[]; graph: Finding[] };
   findings: Finding[];
 }
 
 export function traceItem(snapshot: SpecSnapshot, id: string): TraceResult | undefined {
-  const entity = findEntity(snapshot.entities ?? [], id);
-  if (entity !== undefined) return finish(traceEntity(snapshot, entity));
+  const concept = findConcept(snapshot.concepts ?? [], id);
+  if (concept !== undefined) return finish(traceConcept(snapshot, concept));
   const transition = findTransition(snapshot, id);
   if (transition !== undefined) {
     const links: TraceLink[] = [transitionLink(transition)];
-    for (const fact of factsById(snapshot, transition.facts)) {
-      for (const link of traceFact(snapshot, fact)) links.push(link);
+    for (const frame of framesById(snapshot, transition.frames)) {
+      for (const link of traceFrame(snapshot, frame)) links.push(link);
     }
     return finish(links);
   }
-  const fact = findFact(snapshot.facts ?? [], id);
-  if (fact !== undefined) return finish(traceFact(snapshot, fact));
+  const frame = findFrame(snapshot.frames ?? [], id);
+  if (frame !== undefined) return finish(traceFrame(snapshot, frame));
   const token = findToken(snapshot, id);
   if (token !== undefined) return finish([tokenLink(token.token), sentenceLink(token.sentence)]);
   const sentence = findSentence(snapshot.sentences, id);
-  if (sentence !== undefined) return finish([sentenceLink(sentence)]);
+  if (sentence !== undefined) return finish(traceSentence(snapshot, sentence));
   const flow = findFlow(snapshot, id);
   if (flow !== undefined) return finish(traceFlow(snapshot, flow));
-  const stateFacts = factsForState(snapshot.facts ?? [], id);
-  if (stateFacts.length > 0) {
-    const links: TraceLink[] = [{ layer: 'state', id, refs: stateFacts.map((fact) => fact.id) }];
-    for (const fact of stateFacts) {
-      for (const link of traceFact(snapshot, fact)) links.push(link);
+  const stateFrames = framesForState(snapshot, id);
+  if (stateFrames.length > 0) {
+    const links: TraceLink[] = [{ layer: 'state', id, refs: stateFrames.map((item) => item.id) }];
+    for (const item of stateFrames) {
+      for (const link of traceFrame(snapshot, item)) links.push(link);
     }
     return finish(links);
   }
@@ -69,129 +70,43 @@ export function traceItem(snapshot: SpecSnapshot, id: string): TraceResult | und
 }
 
 export function specStatus(snapshot: SpecSnapshot): StatusResult {
+  const compiled = compileFrames(snapshot.frames ?? [], snapshot.concepts ?? []);
   const sentences = sentenceFindings(snapshot);
   const tokens = tokenFindings(snapshot);
-  const entities = snapshot.entities === undefined ? absent('entities') : entityLayerFindings(snapshot);
-  const facts = snapshot.facts === undefined ? absent('facts') : factLayerFindings(snapshot);
-  const graph = graphLayerFindings(compileSnapshot(snapshot), snapshot.graph);
-  const findings = [...sentences, ...tokens, ...entities, ...facts, ...graph];
+  const concepts = snapshot.concepts === undefined ? [absentOne('concepts')] : [];
+  const frames = snapshot.frames === undefined ? [absentOne('frames')] : compiled.findings;
+  const graph = graphLayerFindings(compiled.compiled, snapshot.graph);
   return {
-    coverage: coverageOf(snapshot),
+    coverage: coverageOf(snapshot, new Set([...compiled.compiled.items.map((item) => item.id), ...Object.keys(compiled.restated)])),
     layers: {
       tokens: hasTokens(snapshot),
-      entities: snapshot.entities !== undefined,
-      facts: snapshot.facts !== undefined,
+      concepts: snapshot.concepts !== undefined,
+      frames: snapshot.frames !== undefined,
       graph: snapshot.graph !== undefined,
     },
-    findingsByLayer: { sentences, tokens, entities, facts, graph },
-    findings,
+    findingsByLayer: { sentences, tokens, concepts, frames, graph },
+    findings: [...sentences, ...tokens, ...concepts, ...frames, ...graph],
   };
 }
 
-function traceFact(snapshot: SpecSnapshot, fact: Fact): TraceLink[] {
-  const links: TraceLink[] = [factLink(fact)];
-  for (const ref of factEntityIds(snapshot, fact)) {
-    const entity = findEntity(snapshot.entities ?? [], ref);
-    if (entity !== undefined) links.push(entityLink(entity));
-  }
-  const seenTokens = new Set<string>();
-  const seenSentences = new Set<string>();
-  for (const source of fact.sources) {
-    const token = findToken(snapshot, source);
-    if (token !== undefined && !seenTokens.has(token.token.id)) {
-      seenTokens.add(token.token.id);
-      links.push(tokenLink(token.token));
-    }
-    const sentence = findSentence(snapshot.sentences, source) ?? token?.sentence;
-    if (sentence !== undefined && !seenSentences.has(sentence.id)) {
-      seenSentences.add(sentence.id);
-      links.push(sentenceLink(sentence));
-    }
-  }
-  for (const ref of factEntityIds(snapshot, fact)) {
-    const entity = findEntity(snapshot.entities ?? [], ref);
-    if (entity === undefined) continue;
-    for (const source of entity.sources) {
-      const token = findToken(snapshot, source);
-      if (token === undefined || seenTokens.has(token.token.id)) continue;
-      seenTokens.add(token.token.id);
-      links.push(tokenLink(token.token));
-      if (!seenSentences.has(token.sentence.id)) {
-        seenSentences.add(token.sentence.id);
-        links.push(sentenceLink(token.sentence));
-      }
-    }
-  }
-  return links;
-}
-
-function traceEntity(snapshot: SpecSnapshot, entity: Entity): TraceLink[] {
-  const links: TraceLink[] = [entityLink(entity)];
-  const seen = new Set<string>();
-  for (const source of entity.sources) {
-    const token = findToken(snapshot, source);
-    if (token === undefined) continue;
-    links.push(tokenLink(token.token));
-    if (seen.has(token.sentence.id)) continue;
-    seen.add(token.sentence.id);
-    links.push(sentenceLink(token.sentence));
-  }
-  return links;
-}
-
-function finish(links: TraceLink[]): TraceResult {
-  const findings: Finding[] = [];
-  let sentence = false;
-  for (const link of links) {
-    if (link.layer === 'sentence') sentence = true;
-  }
-  const head = links[0];
-  const impliedFact = head?.layer === 'fact' && (head.refs === undefined || head.refs.length === 0);
-  if (impliedFact || !sentence) {
-    const id = head?.id ?? 'item';
-    findings.push({
-      id: `orphan:${id}`,
-      kind: 'coverage',
-      code: 'orphan',
-      severity: 'warning',
-      message: `${id} has no sentence source`,
-      refs: [id],
-    });
-  }
-  const fact = links[0];
-  if (fact?.layer === 'fact' && fact.status === 'removed') {
-    findings.push({
-      id: `removed:${fact.id}`,
-      kind: 'stale',
-      code: 'removed-fact',
-      severity: 'info',
-      message: `${fact.id} was removed`,
-      refs: [fact.id],
-    });
-  }
-  return { links, findings };
-}
-
-/** Flows that cite each sentence through their transitions' facts or their forbidden fact. */
+/** Flows that cite each sentence through their transitions' frames or their forbidden frame. */
 export function sentenceWorkflows(snapshot: SpecSnapshot): Map<string, SpecFlow[]> {
-  const facts = new Map<string, Fact>();
-  for (const fact of snapshot.facts ?? []) facts.set(fact.id, fact);
+  const frames = new Map<string, Frame>();
+  for (const frame of snapshot.frames ?? []) frames.set(frame.id, frame);
   const transitions = new Map<string, GraphTransition>();
   for (const transition of snapshot.graph?.transitions ?? []) transitions.set(transition.id, transition);
   const bySentence = new Map<string, SpecFlow[]>();
   for (const flow of snapshot.graph?.flows ?? []) {
-    const factIds: string[] = [];
+    const frameIds: string[] = [];
     for (const id of flow.transitions) {
       const transition = transitions.get(id);
-      if (transition !== undefined) factIds.push(transition.fact, ...transition.facts);
+      if (transition !== undefined) frameIds.push(transition.frame, ...transition.frames);
     }
-    if (flow.forbidden !== undefined) factIds.push(flow.forbidden);
+    if (flow.forbidden !== undefined) frameIds.push(flow.forbidden);
     const sentences = new Set<string>();
-    for (const factId of factIds) {
-      for (const source of facts.get(factId)?.sources ?? []) {
-        const sentenceId = sourceSentenceId(source);
-        if (sentenceId !== undefined) sentences.add(sentenceId);
-      }
+    for (const frameId of frameIds) {
+      const sentence = frames.get(frameId)?.sentence;
+      if (sentence !== undefined) sentences.add(sentence);
     }
     for (const sentence of sentences) {
       const list = bySentence.get(sentence) ?? [];
@@ -202,61 +117,114 @@ export function sentenceWorkflows(snapshot: SpecSnapshot): Map<string, SpecFlow[
   return bySentence;
 }
 
-function coverageOf(snapshot: SpecSnapshot): StatusCoverage {
-  const facts = visibleFacts(snapshot.facts ?? []).filter((fact) => fact.status === 'current');
+function traceFrame(snapshot: SpecSnapshot, frame: Frame): TraceLink[] {
+  const links: TraceLink[] = [frameLink(frame)];
+  const seenConcepts = new Set<string>();
+  for (const name of ['actor', 'object', 'result'] as const) {
+    const value = frame.roles[name].latest.value;
+    if (value === 'unknown') continue;
+    for (const ref of value.refs) {
+      const concept = findConcept(snapshot.concepts ?? [], ref);
+      if (concept === undefined || seenConcepts.has(concept.id)) continue;
+      seenConcepts.add(concept.id);
+      links.push(conceptLink(concept));
+    }
+  }
+  const seenTokens = new Set<string>();
+  const seenSentences = new Set<string>();
+  for (const spanId of frameSpans(frame)) {
+    const token = findToken(snapshot, spanId);
+    if (token === undefined || seenTokens.has(token.token.id)) continue;
+    seenTokens.add(token.token.id);
+    links.push(tokenLink(token.token));
+  }
+  const own = findSentence(snapshot.sentences, frame.sentence);
+  if (own !== undefined) {
+    seenSentences.add(own.id);
+    links.push(sentenceLink(own));
+  }
+  for (const spanId of frameSpans(frame)) {
+    const token = findToken(snapshot, spanId);
+    if (token === undefined || seenSentences.has(token.sentence.id)) continue;
+    seenSentences.add(token.sentence.id);
+    links.push(sentenceLink(token.sentence));
+  }
+  return links;
+}
+
+function traceConcept(snapshot: SpecSnapshot, concept: Concept): TraceLink[] {
+  const links: TraceLink[] = [conceptLink(concept)];
+  const seen = new Set<string>();
+  for (const member of concept.members) {
+    const token = findToken(snapshot, member);
+    if (token === undefined) continue;
+    links.push(tokenLink(token.token));
+    if (seen.has(token.sentence.id)) continue;
+    seen.add(token.sentence.id);
+    links.push(sentenceLink(token.sentence));
+  }
+  return links;
+}
+
+/** Sentence → its frames → the transitions and flows built from them. */
+function traceSentence(snapshot: SpecSnapshot, sentence: Sentence): TraceLink[] {
+  const links: TraceLink[] = [sentenceLink(sentence)];
+  const frameIds = new Set<string>();
+  for (const frame of snapshot.frames ?? []) {
+    if (frame.sentence !== sentence.id) continue;
+    frameIds.add(frame.id);
+    links.push(frameLink(frame));
+  }
+  const transitionIds = new Set<string>();
+  for (const transition of snapshot.graph?.transitions ?? []) {
+    if (!transition.frames.some((id) => frameIds.has(id))) continue;
+    transitionIds.add(transition.id);
+    links.push(transitionLink(transition));
+  }
+  for (const flow of snapshot.graph?.flows ?? []) {
+    const cites = flow.transitions.some((id) => transitionIds.has(id)) || (flow.forbidden !== undefined && frameIds.has(flow.forbidden));
+    if (cites) links.push(flowLink(flow));
+  }
+  return links;
+}
+
+function finish(links: TraceLink[]): TraceResult {
+  const findings: Finding[] = [];
+  if (!links.some((link) => link.layer === 'sentence')) {
+    const id = links[0]?.id ?? 'item';
+    findings.push({
+      id: `orphan:${id}`,
+      kind: 'coverage',
+      code: 'orphan',
+      severity: 'warning',
+      message: `${id} has no sentence source`,
+      refs: [id],
+    });
+  }
+  return { links, findings };
+}
+
+function coverageOf(snapshot: SpecSnapshot, compiled: ReadonlySet<string>): StatusCoverage {
+  const mappedSentences = new Set<string>();
+  const frames = { transition: 0, notTransition: 0, incomplete: 0 };
+  for (const frame of snapshot.frames ?? []) {
+    if (compiled.has(frame.id)) mappedSentences.add(frame.sentence);
+    if (frame.notTransition !== undefined) {
+      frames.notTransition += 1;
+      continue;
+    }
+    frames.transition += 1;
+    if (!compiled.has(frame.id)) frames.incomplete += 1;
+  }
   const mapped: string[] = [];
   const pending: string[] = [];
   const deleted: string[] = [];
   for (const sentence of snapshot.sentences) {
-    if (sentence.latest === null) {
-      deleted.push(sentence.id);
-      continue;
-    }
-    if (sentenceIsMapped(sentence, snapshot.tagged, facts)) mapped.push(sentence.id);
+    if (sentence.latest === null) deleted.push(sentence.id);
+    else if (mappedSentences.has(sentence.id)) mapped.push(sentence.id);
     else pending.push(sentence.id);
   }
-  const entities = { candidate: 0, confirmed: 0, rejected: 0, stale: 0 };
-  for (const entity of snapshot.entities ?? []) entities[entity.status] += 1;
-  let current = 0;
-  let staleFacts = 0;
-  let implied = 0;
-  let removed = 0;
-  for (const fact of snapshot.facts ?? []) {
-    if (fact.removed === true) {
-      removed += 1;
-      continue;
-    }
-    if (fact.status === 'stale') staleFacts += 1;
-    else current += 1;
-    if (fact.status === 'current' && fact.sources.length === 0) implied += 1;
-  }
-  return { sentences: { mapped, pending, deleted }, entities, facts: { current, stale: staleFacts, implied, removed } };
-}
-
-function sentenceIsMapped(sentence: { id: string }, tagged: readonly TaggedSentence[], facts: readonly Fact[]): boolean {
-  const tokens = new Set<string>();
-  for (const item of tagged) {
-    if (item.id !== sentence.id) continue;
-    for (const token of item.tokens) tokens.add(token.id);
-  }
-  for (const fact of facts) {
-    if (fact.sources.includes(sentence.id)) return true;
-    for (const source of fact.sources) {
-      if (tokens.has(source)) return true;
-      if (sourceSentenceId(source) === sentence.id) return true;
-    }
-  }
-  return false;
-}
-
-function sourceSentenceId(source: string): string | undefined {
-  if (source.startsWith('sp:')) {
-    const body = source.slice(3);
-    const dot = body.indexOf('.');
-    return dot === -1 ? body : body.slice(0, dot);
-  }
-  const dot = source.indexOf('.');
-  return dot === -1 ? source : source.slice(0, dot);
+  return { sentences: { mapped, pending, deleted }, concepts: snapshot.concepts?.length ?? 0, frames };
 }
 
 function sentenceFindings(snapshot: SpecSnapshot): Finding[] {
@@ -280,65 +248,6 @@ function tokenFindings(snapshot: SpecSnapshot): Finding[] {
   return findings;
 }
 
-function entityLayerFindings(snapshot: SpecSnapshot): Finding[] {
-  const findings: Finding[] = [];
-  for (const entity of snapshot.entities ?? []) {
-    if (entity.status !== 'stale') continue;
-    findings.push({
-      id: `stale:${entity.id}`,
-      kind: 'stale',
-      code: 'stale-entity',
-      severity: 'warning',
-      message: `${entity.id} is stale`,
-      refs: [entity.id],
-    });
-  }
-  for (const finding of entityFindings(snapshot.entities ?? [])) findings.push(finding);
-  return findings;
-}
-
-function factLayerFindings(snapshot: SpecSnapshot): Finding[] {
-  const findings: Finding[] = [];
-  for (const fact of visibleFacts(snapshot.facts ?? [])) {
-    if (fact.status === 'stale') {
-      findings.push({
-        id: `stale:${fact.id}`,
-        kind: 'stale',
-        code: 'stale-fact',
-        severity: 'warning',
-        message: `${fact.id} is stale`,
-        refs: [fact.id],
-      });
-    }
-    if (fact.status === 'current' && fact.kind === 'action' && Object.keys(fact.assign).length === 0) {
-      findings.push({
-        id: `empty-assign:${fact.id}`,
-        kind: 'gap',
-        code: 'empty-assign',
-        severity: 'warning',
-        message: `${fact.id} has an empty assign`,
-        refs: [fact.id, ...fact.sources],
-      });
-    }
-    if (fact.status === 'current' && fact.sources.length === 0) {
-      findings.push({
-        id: `orphan:${fact.id}`,
-        kind: 'coverage',
-        code: 'orphan',
-        severity: 'warning',
-        message: `${fact.id} has no sentence source`,
-        refs: [fact.id],
-      });
-    }
-  }
-  for (const finding of contradictionFindings(snapshot.facts ?? [])) findings.push(finding);
-  return findings;
-}
-
-function absent(layer: string): Finding[] {
-  return [absentOne(layer)];
-}
-
 function absentOne(layer: string): Finding {
   return {
     id: `${layer}-absent`,
@@ -357,44 +266,25 @@ function hasTokens(snapshot: SpecSnapshot): boolean {
   return false;
 }
 
-function factEntityIds(snapshot: SpecSnapshot, fact: Fact): string[] {
+function framesForState(snapshot: SpecSnapshot, state: string): Frame[] {
   const ids: string[] = [];
-  for (const entity of snapshot.entities ?? []) {
-    if (entityUsesFact(entity, fact)) ids.push(entity.id);
-  }
-  return ids;
-}
-
-function factsForState(facts: readonly Fact[], state: string): Fact[] {
-  const matched: Fact[] = [];
-  for (const fact of facts) {
-    if (fact.removed === true) continue;
-    if (patchMentions(fact.assign, state) || predicateMentions(fact.when, state)) matched.push(fact);
-  }
-  return matched;
-}
-
-function patchMentions(patch: Fact['assign'], state: string): boolean {
-  if (patch === undefined) return false;
-  for (const key of Object.keys(patch)) {
-    const value = patch[key];
-    if (value !== undefined && value.t === 'atom' && value.v === state) return true;
-  }
-  return false;
-}
-
-function predicateMentions(predicate: Fact['when'], state: string): boolean {
-  if (predicate === undefined) return false;
-  if (predicate.op === 'eq' || predicate.op === 'neq') {
-    return predicate.value.t === 'atom' && predicate.value.v === state;
-  }
-  if (predicate.op === 'not') return predicateMentions(predicate.of, state);
-  if (predicate.op === 'and' || predicate.op === 'or') {
-    for (const child of predicate.of) {
-      if (predicateMentions(child, state)) return true;
+  for (const item of snapshot.graph?.states ?? []) {
+    if (item.id !== state) continue;
+    for (const id of item.frames) {
+      if (!ids.includes(id)) ids.push(id);
     }
   }
-  return false;
+  return framesById(snapshot, ids);
+}
+
+function frameSpans(frame: Frame): string[] {
+  const ids: string[] = [];
+  for (const name of ROLE_NAMES) {
+    for (const id of frame.roles[name].latest.dependsOn) {
+      if (!ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
 }
 
 function traceFlow(snapshot: SpecSnapshot, flow: SpecFlow): TraceLink[] {
@@ -403,14 +293,14 @@ function traceFlow(snapshot: SpecSnapshot, flow: SpecFlow): TraceLink[] {
     const transition = findTransition(snapshot, id);
     if (transition === undefined) continue;
     links.push(transitionLink(transition));
-    for (const fact of factsById(snapshot, transition.facts)) {
-      for (const link of traceFact(snapshot, fact)) links.push(link);
+    for (const frame of framesById(snapshot, transition.frames)) {
+      for (const link of traceFrame(snapshot, frame)) links.push(link);
     }
   }
   if (flow.forbidden !== undefined) {
-    const fact = findFact(snapshot.facts ?? [], flow.forbidden);
-    if (fact !== undefined) {
-      for (const link of traceFact(snapshot, fact)) links.push(link);
+    const frame = findFrame(snapshot.frames ?? [], flow.forbidden);
+    if (frame !== undefined) {
+      for (const link of traceFrame(snapshot, frame)) links.push(link);
     }
   }
   return links;
@@ -436,17 +326,17 @@ function transitionLink(transition: GraphTransition): TraceLink {
     type: transition.event,
     name: transition.actor,
     text: `${transition.from} → ${transition.to}`,
-    refs: transition.facts.slice(),
+    refs: transition.frames.slice(),
   };
 }
 
-function factsById(snapshot: SpecSnapshot, ids: readonly string[]): Fact[] {
-  const facts: Fact[] = [];
+function framesById(snapshot: SpecSnapshot, ids: readonly string[]): Frame[] {
+  const frames: Frame[] = [];
   for (const id of ids) {
-    const fact = findFact(snapshot.facts ?? [], id);
-    if (fact !== undefined) facts.push(fact);
+    const frame = findFrame(snapshot.frames ?? [], id);
+    if (frame !== undefined) frames.push(frame);
   }
-  return facts;
+  return frames;
 }
 
 function findTransition(snapshot: SpecSnapshot, id: string): GraphTransition | undefined {
@@ -463,32 +353,18 @@ function findFlow(snapshot: SpecSnapshot, id: string): SpecFlow | undefined {
   return undefined;
 }
 
-function factLink(fact: Fact): TraceLink {
-  const link: TraceLink = {
-    layer: 'fact',
-    id: fact.id,
-    type: fact.kind,
-    status: fact.removed === true ? 'removed' : fact.status,
-    origin: fact.origin,
-    refs: fact.sources.slice(),
-  };
-  if (fact.removed === true) link.text = 'removed';
-  else if (fact.note !== undefined) link.text = fact.note;
+function frameLink(frame: Frame): TraceLink {
+  const type = frame.notTransition !== undefined ? 'not-transition' : frame.negated === true ? 'forbidden' : 'transition';
+  const link: TraceLink = { layer: 'frame', id: frame.id, type, text: frame.clause.text, refs: frameSpans(frame) };
+  const event = frame.roles.event.latest.value;
+  if (event !== 'unknown') link.name = event.text;
+  if (frame.marker !== undefined) link.kind = frame.marker;
+  if (frame.notTransition !== undefined) link.status = frame.notTransition.reason;
   return link;
 }
 
-function entityLink(entity: Entity): TraceLink {
-  const link: TraceLink = {
-    layer: 'entity',
-    id: entity.id,
-    kind: entity.kind,
-    status: entity.status,
-    origin: entity.origin,
-    refs: entity.sources.slice(),
-  };
-  if (entity.name !== undefined) link.name = entity.name;
-  if (entity.text !== undefined) link.text = entity.text;
-  return link;
+function conceptLink(concept: Concept): TraceLink {
+  return { layer: 'concept', id: concept.id, name: concept.canonical, refs: concept.members.slice() };
 }
 
 function tokenLink(token: Token): TraceLink {
@@ -514,16 +390,9 @@ function sentenceLink(sentence: Sentence): TraceLink {
   return link;
 }
 
-function findEntity(entities: readonly Entity[], id: string): Entity | undefined {
-  for (const entity of entities) {
-    if (entity.id === id) return entity;
-  }
-  return undefined;
-}
-
-function findFact(facts: readonly Fact[], id: string): Fact | undefined {
-  for (const fact of facts) {
-    if (fact.id === id) return fact;
+function findFrame(frames: readonly Frame[], id: string): Frame | undefined {
+  for (const frame of frames) {
+    if (frame.id === id) return frame;
   }
   return undefined;
 }

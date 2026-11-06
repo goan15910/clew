@@ -73,17 +73,13 @@ test('short help omits examples and clew help prints them for every command', ()
       assert.ok(examples.includes('clew workflows view examples/todo/workflows.yaml --open'));
     }
     if (label === 'verify') assert.ok(examples.some((line) => line.includes('--heatmap --replay --out out')));
-    if (label === 'spec graph split') assert.ok(examples.includes('clew spec graph split --id W1 --at f2 --json'));
+    if (label === 'spec graph split') assert.ok(examples.includes('clew spec graph split --id W1 --at fr:s2.t1 --json'));
     if (label === 'spec emit') {
       assert.ok(examples.includes('clew spec emit --dry-run --json'));
       assert.ok(examples.includes('clew spec emit --out flows.yaml --chart spec.yaml --json'));
     }
-    if (label === 'spec trace') assert.ok(examples.includes('clew spec trace actor:customer --json'));
-    if (label === 'spec facts') {
-      assert.ok(examples.some((line) => line.startsWith('clew spec facts propose')));
-      assert.ok(examples.some((line) => line.startsWith('clew spec facts add')));
-    }
-    if (label === 'spec facts propose') assert.ok(examples.every((line) => !line.includes('facts add')));
+    if (label === 'spec trace') assert.ok(examples.includes('clew spec trace concept:customer --json'));
+    if (label === 'spec frames list') assert.ok(examples.includes('clew spec frames list --sentence s2 --json'));
     if (label === 'spec show tagged') {
       assert.ok(examples.includes('clew spec show tagged --json'));
       assert.equal(codes.some((line) => line.startsWith('1 ')), false);
@@ -99,10 +95,10 @@ test('short help omits examples and clew help prints them for every command', ()
 });
 
 test('an unknown help command exits 2', () => {
-  const unknown = clew(['help', 'spec', 'facts', 'nope']);
+  const unknown = clew(['help', 'spec', 'frames', 'nope']);
   assert.equal(unknown.status, 2);
   assert.equal(unknown.stdout, '');
-  assert.match(unknown.stderr, /unknown command: spec facts nope/);
+  assert.match(unknown.stderr, /unknown command: spec frames nope/);
 
   const malformed = clew(['help', 'Spec']);
   assert.equal(malformed.status, 2);

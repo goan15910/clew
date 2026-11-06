@@ -1,7 +1,7 @@
 // Use case: split a Markdown spec into sentences and open or refresh a session.
 import { basename } from 'node:path';
-import { reconcileEntities, sameEntities } from '../domain/spec-entities.js';
-import { reconcileFacts, sameFacts } from '../domain/spec-facts.js';
+import { sameConcepts } from '../domain/spec-concepts.js';
+import { rebuildLayers, sameFrames } from '../domain/spec-frames.js';
 import { retainValidSpans, sameSpans } from '../domain/spec-spans.js';
 import {
   SPEC_SCHEMA_VERSION,
@@ -43,9 +43,9 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
   const result = store.update(id, { create: true }, (current) => {
     const now = new Date().toISOString();
     const applied = applySpecText(current?.sentences ?? [], current?.tagged ?? [], drafts, now);
-    const spans = retainValidSpans(current?.spans, applied.tagged);
-    const entities = current?.entities === undefined ? undefined : reconcileEntities(liveSentences(applied.sentences), spans ?? [], current.entities);
-    const facts = current?.facts === undefined ? undefined : reconcileFacts(liveSentences(applied.sentences), spans ?? [], entities ?? [], current.facts);
+    const retained = retainValidSpans(current?.spans, applied.tagged);
+    const layers = rebuildLayers(liveSentences(applied.sentences), retained ?? [], current ?? {});
+    const spans = retained === undefined ? undefined : layers.spans;
     const snapshot: SpecSnapshot = {
       schemaVersion: SPEC_SCHEMA_VERSION,
       id,
@@ -57,8 +57,8 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
     };
     if (current?.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
     if (spans !== undefined) snapshot.spans = spans;
-    if (entities !== undefined) snapshot.entities = entities;
-    if (facts !== undefined) snapshot.facts = facts;
+    if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+    if (layers.frames !== undefined) snapshot.frames = layers.frames;
     if (current?.graph !== undefined) snapshot.graph = current.graph;
     if (
       current !== undefined
@@ -66,8 +66,8 @@ export function initSpec(command: InitSpecCommand, text: SpecTextSource, store: 
       && sameSentences(current.sentences, snapshot.sentences)
       && sameTagged(current.tagged, snapshot.tagged)
       && sameSpans(current.spans, snapshot.spans)
-      && sameEntities(current.entities, snapshot.entities)
-      && sameFacts(current.facts, snapshot.facts)
+      && sameConcepts(current.concepts, snapshot.concepts)
+      && sameFrames(current.frames, snapshot.frames)
     ) {
       return undefined;
     }

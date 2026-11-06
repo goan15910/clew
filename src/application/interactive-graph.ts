@@ -1,7 +1,8 @@
 // Interactive Cytoscape payloads from the chart/chain model, with `clew spec trace` hover details.
 // Shared by the spec Graph tab and `clew chart view` / `clew workflows view` through the interactive diagram adapter.
 import { chartEventName, chartStateId, type Model } from '../domain/model.js';
-import type { DraftGraph, Entity, GraphTransition, SpecSnapshot } from '../domain/spec.js';
+import type { DraftGraph, GraphTransition, SpecSnapshot } from '../domain/spec.js';
+import { compileSnapshot } from '../domain/spec-compile.js';
 import { traceItem, type TraceLink } from '../domain/spec-query.js';
 import type { WorkflowResult } from '../domain/verification.js';
 import type {
@@ -297,17 +298,10 @@ function sentenceOf(lineage: readonly TraceLink[]): string | undefined {
 
 function conditionText(snapshot: SpecSnapshot, guard: string | undefined): string | undefined {
   if (guard === undefined || guard === '') return undefined;
-  const entity = findEntity(snapshot.entities ?? [], guard);
-  if (entity?.text) return entity.text;
-  if (entity?.name) return entity.name;
-  return guard;
-}
-
-function findEntity(entities: readonly Entity[], id: string): Entity | undefined {
-  for (const entity of entities) {
-    if (entity.id === id) return entity;
+  for (const item of compileSnapshot(snapshot).items) {
+    if (item.kind === 'action' && item.overlay?.guard === guard && item.overlay.guardText !== undefined) return item.overlay.guardText;
   }
-  return undefined;
+  return guard;
 }
 
 function findTransition(

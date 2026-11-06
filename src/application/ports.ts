@@ -92,10 +92,10 @@ export interface SessionRef {
   id: string;
 }
 
-/** Live sentences, facts, and flows. Stale sentences, stale facts, and removed facts are omitted. */
+/** Live sentences, transition frames, and flows. Deleted sentences are omitted. */
 export interface SpecSessionCounts {
   sentences: number;
-  facts: number;
+  frames: number;
   flows: number;
 }
 

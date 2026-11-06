@@ -145,6 +145,7 @@ export function promoteTokensToSpans(tokens: readonly Token[]): LiveSpan[] {
     // Skipped stop-word tokens promote to insignificant spans (still cover the token for merge glue).
     if (token.skipped === true) span.insignificant = true;
     if (token.lemma !== undefined) span.lemma = token.lemma;
+    if (token.participle !== undefined) span.participle = token.participle;
     spans.push(span);
   }
   return spans;
@@ -234,7 +235,7 @@ export function sameSpan(left: LiveSpan, right: LiveSpan): boolean {
   if (left.lexiconEntryId !== right.lexiconEntryId) return false;
   if (left.entityId !== right.entityId) return false;
   if (left.insignificant !== right.insignificant) return false;
-  if (left.lemma !== right.lemma) return false;
+  if (left.lemma !== right.lemma || left.participle !== right.participle) return false;
   if (!sameClauseBound(left.clause, right.clause)) return false;
   if (left.tags.length !== right.tags.length) return false;
   for (let index = 0; index < left.tags.length; index += 1) {
@@ -319,8 +320,7 @@ export function mergeLexicon(
           clause: unionClauseBounds(children),
         };
         if (entityDecision.entityId !== undefined) nextSpan.entityId = entityDecision.entityId;
-        const lemma = firstLemma(children);
-        if (lemma !== undefined) nextSpan.lemma = lemma;
+        copyVerbForms(children, nextSpan);
 
         const childIds = new Set<string>();
         for (const child of children) childIds.add(child.id);
@@ -445,8 +445,7 @@ export function interactiveMerge(
     clause: unionClauseBounds(ordered),
   };
   if (entityId !== undefined) nextSpan.entityId = entityId;
-  const lemma = firstLemma(ordered);
-  if (lemma !== undefined) nextSpan.lemma = lemma;
+  copyVerbForms(ordered, nextSpan);
 
   const childIds = new Set<string>();
   for (const child of ordered) childIds.add(child.id);
@@ -768,14 +767,16 @@ export function sentenceIdOfToken(tokenId: string): string | undefined {
   return tokenId.slice(0, dot);
 }
 
-function firstLemma(children: readonly LiveSpan[]): string | undefined {
+function copyVerbForms(children: readonly LiveSpan[], target: LiveSpan): void {
   for (const child of children) {
-    if (child.lemma !== undefined && child.lemma !== '') return child.lemma;
+    if (child.lemma === undefined || child.lemma === '') continue;
+    target.lemma = child.lemma;
+    if (child.participle !== undefined) target.participle = child.participle;
+    return;
   }
-  return undefined;
 }
 
-function cloneSpan(span: LiveSpan): LiveSpan {
+export function cloneSpan(span: LiveSpan): LiveSpan {
   const copy: LiveSpan = {
     id: span.id,
     firstTokenId: span.firstTokenId,
@@ -792,6 +793,7 @@ function cloneSpan(span: LiveSpan): LiveSpan {
   if (span.entityId !== undefined) copy.entityId = span.entityId;
   if (span.insignificant !== undefined) copy.insignificant = span.insignificant;
   if (span.lemma !== undefined) copy.lemma = span.lemma;
+  if (span.participle !== undefined) copy.participle = span.participle;
   return copy;
 }
 
