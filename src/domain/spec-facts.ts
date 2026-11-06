@@ -1,10 +1,10 @@
 // ActionFact and ConfigurationFact proposals from entities and live spans.
 // Spans → facts. rebuildFacts runs on every entity write. No performs/transition/guard join.
 import {
-  assembleSpec,
   type Action,
   type SpecDraft,
 } from './spec-model.js';
+import type { ActionOverlay, CompiledAction, CompiledForbidden, CompiledItem, CompiledMark, CompiledSpec } from './spec-actions.js';
 import {
   hasTag,
   isAuxiliary,
@@ -22,6 +22,7 @@ import {
   type Finding,
   type LiveSpan,
   type LiveSentence,
+  type SpecSnapshot,
 } from './spec.js';
 import {
   eventName,
@@ -448,17 +449,7 @@ export function specFromFacts(entities: readonly Entity[], facts: readonly Fact[
   return { id, vars, initial, actions, labels: [] };
 }
 
-export function assembleSpecFromFacts(entities: readonly Entity[], facts: readonly Fact[]): ReturnType<typeof assembleSpec> | undefined {
-  const draft = specFromFacts(entities, facts);
-  if (draft.vars.length === 0) return undefined;
-  try {
-    return assembleSpec(draft);
-  } catch {
-    return undefined;
-  }
-}
-
-export function overlayOf(fact: ActionFact, entities: readonly Entity[], initial: Patch): {
+function overlayOf(fact: ActionFact, entities: readonly Entity[], initial: Patch): {
   object: string;
   from: string | undefined;
   to: string;
@@ -481,6 +472,116 @@ export function overlayOf(fact: ActionFact, entities: readonly Entity[], initial
     actor: overlayActor(fact.actor, entities),
     guard: booleanGuard(fact.when, entities),
   };
+}
+
+export function compileSnapshot(snapshot: SpecSnapshot): CompiledSpec {
+  return compileFacts(snapshot.entities ?? [], snapshot.facts ?? []);
+}
+
+/** The facts layer's producer for the graph: live facts in id order, labels resolved. */
+export function compileFacts(entities: readonly Entity[], facts: readonly Fact[]): CompiledSpec {
+  const draft = specFromFacts(entities, facts);
+  const live = liveFacts(facts);
+  live.sort((left, right) => factNumber(left.id) - factNumber(right.id));
+  const items: CompiledItem[] = [];
+  for (const fact of live) {
+    if (isActionFact(fact)) items.push(compileAction(fact, entities, draft.initial));
+    else if (fact.kind === 'forbidden') items.push(compileForbidden(fact, entities));
+    else if (fact.kind === 'init' || fact.kind === 'terminal') items.push(compileMark(fact, fact.kind, entities));
+  }
+  return { draft, items };
+}
+
+function compileAction(fact: ActionFact, entities: readonly Entity[], initial: Patch): CompiledAction {
+  const action: CompiledAction = {
+    kind: 'action',
+    id: fact.id,
+    sources: fact.sources.slice(),
+    event: fact.event,
+    when: fact.when,
+    assign: fact.assign,
+    evidence: { event: [], object: [] },
+  };
+  const overlay = overlayOf(fact, entities, initial);
+  if (overlay === undefined) return action;
+  const objectEntity = usableEntityNamed(entities, 'object', overlay.object);
+  const compiled: ActionOverlay = {
+    object: overlay.object,
+    objectVar: objectEntity === undefined ? overlay.object.replace(/-/g, '_') : (varNameForEntity(objectEntity) ?? overlay.object.replace(/-/g, '_')),
+    to: overlay.to,
+  };
+  if (overlay.from !== undefined) compiled.from = overlay.from;
+  if (overlay.actor !== undefined) compiled.actor = overlay.actor;
+  if (overlay.guard !== undefined) {
+    compiled.guard = overlay.guard;
+    const condition = findEntity(entities, overlay.guard);
+    if (condition?.text !== undefined) compiled.guardText = condition.text;
+  }
+  action.overlay = compiled;
+  action.evidence = {
+    event: usableEntityNamed(entities, 'action', overlay.event)?.sources.slice() ?? [],
+    object: objectEntity?.sources.slice() ?? [],
+  };
+  return action;
+}
+
+function compileMark(fact: Fact, kind: CompiledMark['kind'], entities: readonly Entity[]): CompiledMark {
+  const mark: CompiledMark = { kind, id: fact.id, sources: fact.sources.slice() };
+  if (fact.assign === undefined) return mark;
+  mark.assign = fact.assign;
+  const object = assignedObject(fact.assign, entities);
+  if (object !== undefined) mark.object = object;
+  for (const key of Object.keys(fact.assign)) {
+    const value = fact.assign[key];
+    if (value === undefined || value.t !== 'atom') continue;
+    const name = objectEntityForVar(key, entities)?.name;
+    if (name === undefined) continue;
+    mark.state = { object: name, value: value.v };
+    break;
+  }
+  return mark;
+}
+
+function compileForbidden(fact: Fact, entities: readonly Entity[]): CompiledForbidden {
+  const forbidden: CompiledForbidden = { kind: 'forbidden', id: fact.id, sources: fact.sources.slice() };
+  if (fact.assign !== undefined) {
+    forbidden.assign = fact.assign;
+    const object = assignedObject(fact.assign, entities);
+    if (object !== undefined) forbidden.object = object;
+    for (const key of Object.keys(fact.assign)) {
+      const value = fact.assign[key];
+      if (value === undefined || value.t !== 'atom') continue;
+      forbidden.attempted = value.v;
+      forbidden.event = value.v.replace(/-/g, '_').toUpperCase();
+      break;
+    }
+  }
+  if (fact.when !== undefined) forbidden.when = fact.when;
+  const actor = fact.actor === undefined ? undefined : findEntity(entities, fact.actor)?.name;
+  if (actor !== undefined) forbidden.actor = actor;
+  return forbidden;
+}
+
+function assignedObject(assign: Patch, entities: readonly Entity[]): string | undefined {
+  for (const key of Object.keys(assign)) {
+    const name = objectEntityForVar(key, entities)?.name;
+    if (name !== undefined) return name;
+  }
+  return undefined;
+}
+
+function usableEntityNamed(entities: readonly Entity[], kind: Entity['kind'], name: string): Entity | undefined {
+  for (const entity of entities) {
+    if (entity.kind !== kind || entity.status === 'rejected' || entity.status === 'stale') continue;
+    if (entity.name === name) return entity;
+    if (kind === 'action' && eventFromAction(entity) === name) return entity;
+  }
+  return undefined;
+}
+
+function factNumber(id: string): number {
+  const number = Number(id.replace(/^[a-z]+/i, ''));
+  return Number.isFinite(number) ? number : 0;
 }
 
 function fromAtom(fromValue: Value | undefined, objectVar: string, initial: Patch): string | undefined {

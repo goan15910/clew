@@ -2,7 +2,7 @@
 import type { Entity, Fact, Finding, GraphTransition, LiveSpan, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
 import { initFindings, liveSentences, sentenceFindings as reinitFindings, sentenceState, tagFindings } from './spec.js';
 import { entityFindings } from './spec-entities.js';
-import { contradictionFindings, entityUsesFact, visibleFacts } from './spec-facts.js';
+import { compileSnapshot, contradictionFindings, entityUsesFact, visibleFacts } from './spec-facts.js';
 import { graphLayerFindings } from './spec-graph.js';
 
 export interface TraceLink {
@@ -73,7 +73,7 @@ export function specStatus(snapshot: SpecSnapshot): StatusResult {
   const tokens = tokenFindings(snapshot);
   const entities = snapshot.entities === undefined ? absent('entities') : entityLayerFindings(snapshot);
   const facts = snapshot.facts === undefined ? absent('facts') : factLayerFindings(snapshot);
-  const graph = graphLayerFindings(snapshot);
+  const graph = graphLayerFindings(compileSnapshot(snapshot), snapshot.graph);
   const findings = [...sentences, ...tokens, ...entities, ...facts, ...graph];
   return {
     coverage: coverageOf(snapshot),

@@ -27,7 +27,7 @@ import {
   type Token,
 } from '../../domain/spec.js';
 import { attachOverlay } from '../../domain/spec-graph.js';
-import { predicateFromScalars, predicateScalars } from '../../domain/spec-facts.js';
+import { compileFacts, predicateFromScalars, predicateScalars } from '../../domain/spec-facts.js';
 import { patchFromScalars, scalarsFromPatch } from '../../domain/valuation.js';
 import { WORKFLOW_ID_PATTERN, WORKFLOW_WORD_PATTERN } from '../../domain/workflow.js';
 import { locatedErrors } from '../yaml/issue-lines.js';
@@ -574,7 +574,7 @@ function readOverlay(
     if (overlayVersion !== undefined) return { ok: false, fault: overlayVersion.fault, message: overlayVersion.message };
     const overlayParsed = OverlayFileSchema.safeParse(overlayRead.value);
     if (!overlayParsed.success) return { ok: false, ...zodFault(overlayFile, overlayParsed.error) };
-    return { ok: true, graph: attachOverlay(entities, facts, overlayFlows(overlayParsed.data.flows, [])) };
+    return { ok: true, graph: attachOverlay(compileFacts(entities, facts), overlayFlows(overlayParsed.data.flows, [])) };
   }
   const graphFile = join(dir, 'graph.json');
   if (!existsSync(graphFile)) return { ok: true };

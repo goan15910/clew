@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import type { SpecEmitDocument, SpecFactsDocument, SpecGraphDocument, SpecStatusDocument, SpecTraceDocument, VerifyDocument } from '../../src/application/documents.js';
 import { chartEventName, chartStateId } from '../../src/domain/model.js';
+import { compileFacts } from '../../src/domain/spec-facts.js';
 import { buildGraph } from '../../src/domain/spec-graph.js';
 import { varId, valueOf } from '../../src/domain/valuation.js';
 
@@ -418,7 +419,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
         status: 'current' as const,
       },
     ];
-    const built = buildGraph(entities, facts, undefined, 5000);
+    const built = buildGraph(compileFacts(entities, facts), undefined, 5000);
     const accepted = (built.graph.flows ?? []).filter((flow) => flow.expect === 'accepted');
     assert.equal(accepted.length, 1);
     assert.equal(accepted[0]?.title, 'Order lifecycle');
@@ -445,7 +446,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
         status: 'current' as const,
       },
     ];
-    const built = buildGraph(entities, facts, undefined, 5000);
+    const built = buildGraph(compileFacts(entities, facts), undefined, 5000);
     const accepted = (built.graph.flows ?? []).filter((flow) => flow.expect === 'accepted');
     assert.equal(accepted.length, 1);
     assert.equal(accepted[0]?.title, 'Submit order');
@@ -470,11 +471,11 @@ describe('spec graph and emit', { concurrency: false }, () => {
       sources: ['s1'],
       status: 'current' as const,
     };
-    const open = buildGraph(entities, [action], undefined, 5000);
+    const open = buildGraph(compileFacts(entities, [action]), undefined, 5000);
     assert.equal(open.findings.some((finding) => finding.code === 'transition-without-from'), false);
     assert.equal(open.graph.transitions[0]?.from, 'null');
     assert.equal(open.graph.transitions[0]?.to, 'submit');
-    const withInit = buildGraph(entities, [
+    const withInit = buildGraph(compileFacts(entities, [
       action,
       {
         id: 'f2',
@@ -485,7 +486,7 @@ describe('spec graph and emit', { concurrency: false }, () => {
         sources: [],
         status: 'current' as const,
       },
-    ], undefined, 5000);
+    ]), undefined, 5000);
     assert.equal(withInit.findings.some((finding) => finding.code === 'transition-without-from'), false);
     assert.equal(withInit.graph.transitions[0]?.from, 'draft');
   });
@@ -543,11 +544,11 @@ describe('spec graph and emit', { concurrency: false }, () => {
         status: 'current' as const,
       },
     ];
-    const truncated = buildGraph(entities, facts, undefined, 1);
+    const truncated = buildGraph(compileFacts(entities, facts), undefined, 1);
     const hit = truncated.findings.find((finding) => finding.code === 'state-space-truncated');
     assert.ok(hit);
     assert.match(hit.message, /order truncated at 1 valuations/);
-    const open = buildGraph(entities, facts, undefined, 5000);
+    const open = buildGraph(compileFacts(entities, facts), undefined, 5000);
     assert.equal(open.findings.some((finding) => finding.code === 'state-space-truncated'), false);
   });
 });
