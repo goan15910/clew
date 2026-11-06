@@ -1,8 +1,9 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
 import type { CompiledItem } from '../domain/spec-actions.js';
-import { sentenceState, type Concept, type DraftGraph, type Frame, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
+import { sentenceState, type Concept, type DraftGraph, type Frame, type Grouping, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
 import { copyFrame } from '../domain/spec-frames.js';
+import { copyGrouping } from '../domain/spec-refine.js';
 import { sentenceIdOfToken } from '../domain/spec-spans.js';
 import type {
   ConceptView,
@@ -130,6 +131,10 @@ export function conceptViews(concepts: readonly Concept[], spans: readonly LiveS
     views.push({ id: concept.id, canonical: concept.canonical, members });
   }
   return views;
+}
+
+export function groupViews(groups: readonly Grouping[]): Grouping[] {
+  return groups.map(copyGrouping);
 }
 
 export function frameViews(frames: readonly Frame[], items: readonly CompiledItem[], restated: Readonly<Record<string, string>>): FrameView[] {

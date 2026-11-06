@@ -5,6 +5,7 @@ import { compileFrames } from './spec-compile.js';
 import { findConcept } from './spec-concepts.js';
 import { ROLE_NAMES } from './spec-frames.js';
 import { graphLayerFindings } from './spec-graph.js';
+import { refinementFindings } from './spec-refine.js';
 
 export interface TraceLink {
   layer: 'state' | 'transition' | 'flow' | 'frame' | 'concept' | 'token' | 'sentence';
@@ -74,7 +75,9 @@ export function specStatus(snapshot: SpecSnapshot): StatusResult {
   const sentences = sentenceFindings(snapshot);
   const tokens = tokenFindings(snapshot);
   const concepts = snapshot.concepts === undefined ? [absentOne('concepts')] : [];
-  const frames = snapshot.frames === undefined ? [absentOne('frames')] : compiled.findings;
+  const frames = snapshot.frames === undefined
+    ? [absentOne('frames')]
+    : [...compiled.findings, ...refinementFindings(snapshot.frames, snapshot.groups ?? [])];
   const graph = graphLayerFindings(compiled.compiled, snapshot.graph);
   return {
     coverage: coverageOf(snapshot, new Set([...compiled.compiled.items.map((item) => item.id), ...Object.keys(compiled.restated)])),

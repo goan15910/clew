@@ -41,7 +41,11 @@ clew spec sentences edit --id <id> --text <sentence> --reason <text> [--by <name
 clew spec sentences delete --id <id> --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
 clew spec export [--version original|latest] (--out <file> | --dry-run) [--session <id>] [--json]
 clew spec concepts list [--session <id>] [--json]
+clew spec concepts group --span <id> (--into <concept> | --none) [--depends-on <span>]... --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
 clew spec frames list [--sentence <id>] [--session <id>] [--json]
+clew spec frames set --frame <id> --role actor|event|object|result|when (--value <ref>... | --unknown) [--depends-on <span>]... --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
+clew spec frames not-transition --frame <id> [--clear] --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
+clew spec impact <sentence> [--session <id>] [--json]
 clew spec graph build [--session <id>] [--json]
 clew spec graph split (--id <id> --at <edge> | --from <file.json>) [--session <id>] [--json]
 clew spec graph group (--id <id> --id <id> | --transition <id> --transition <id> | --from <file.json>) [--title <text>] [--into <id>] [--session <id>] [--json]
@@ -75,7 +79,7 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec concepts list` groups the spans into concepts, and `spec frames list` reads one clause frame per clause and compiles it. `spec graph build` assembles a draft graph from the compiled frames and proposes one path per transition, plus one rejected path per forbidden frame. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec concepts list` groups the spans into concepts, and `spec frames list` reads one clause frame per clause and compiles it. `spec concepts group`, `spec frames set`, and `spec frames not-transition` refine those layers, and `spec impact` lists what an edit of one sentence would drop. `spec graph build` assembles a draft graph from the compiled frames and proposes one path per transition, plus one rejected path per forbidden frame. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
@@ -105,7 +109,7 @@ spec/<session-id>/
 
 `<session-id>` defaults to the spec file’s basename. Older Clew versions kept one store per project under `<project-key>/spec/`. The first command that opens the store moves those sessions into `spec/` and drops the spec path they recorded. When two projects have a session with the same id, one is kept and the other is dropped. Clew holds a lock only while a command writes the session, and removes that lock before the command exits. The lock is not a file that stays in the session. A lock whose process is gone is taken over. A live lock is exit 2.
 
-`spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Frames, Concepts, Sentences, Span, and Graph tabs. A Frames card shows the frame id, its sentence, `marker`, `negated`, and `not a transition` pills (with the reason), an `incomplete` pill when a transition frame's event, object, or result is unknown, the clause text, and the five roles with their latest value (or `unknown`) and `dependsOn` span ids. When a graph transition or a forbidden flow cites the frame, the card shows that transition's event, `from`, and `to`, or the flow. A Concepts card shows the concept id, its canonical word, and its member spans with each span's surface and sentence id. Frames, Concepts, and Sentences have collapsed lineage drawers that link sentence, span, concept, frame, and graph rows: a frame lists its `dependsOn` spans marked in its sentence, the concepts its roles cite, the frames its `when` cites and the frames whose `when` cites it, and the transitions, states, and flows that cite it; a concept lists its member spans and the frames whose roles cite it; a sentence lists its concepts, its frames, and their transitions. Text search applies to every card tab. The Frame filter (`transition`, `not a transition`, `negated`, `incomplete`) applies to Frames and to Sentences (a sentence with a matching frame). The Concept filter applies to Frames (a role cites it), Concepts, and Sentences (a span links to it). The Span filter applies to Sentences and Span. The Graph tab draws the session draft graph and the workflows that graph can render, as images. It needs Graphviz (`dot`) on the machine serving the page. The page does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
+`spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Frames, Concepts, Sentences, Span, and Graph tabs. A Frames card shows the frame id, its sentence, `marker`, `negated`, and `not a transition` pills (with the reason), an `incomplete` pill when a transition frame's event, object, or result is unknown, the clause text, and the five roles with their latest value (or `unknown`) and `dependsOn` span ids. A role an agent or person wrote last has a `refined` pill, and a role Clew dropped back to its derived value has a `dropped` pill; both list their history as who, reason, and value. A frame with `notTransition` revisions lists them the same way. A Concepts member whose grouping was refined is marked `regrouped`. When a graph transition or a forbidden flow cites the frame, the card shows that transition's event, `from`, and `to`, or the flow. A Concepts card shows the concept id, its canonical word, and its member spans with each span's surface and sentence id. Frames, Concepts, and Sentences have collapsed lineage drawers that link sentence, span, concept, frame, and graph rows: a frame lists its `dependsOn` spans marked in its sentence, the concepts its roles cite, the frames its `when` cites and the frames whose `when` cites it, and the transitions, states, and flows that cite it; a concept lists its member spans and the frames whose roles cite it; a sentence lists its concepts, its frames, and their transitions. Text search applies to every card tab. The Frame filter (`transition`, `not a transition`, `negated`, `incomplete`) applies to Frames and to Sentences (a sentence with a matching frame). The Concept filter applies to Frames (a role cites it), Concepts, and Sentences (a span links to it). The Span filter applies to Sentences and Span. The Graph tab draws the session draft graph and the workflows that graph can render, as images. It needs Graphviz (`dot`) on the machine serving the page. The page does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
 
 Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `spans.json`, `concepts.json`, `frames.json`, and `flows.json`. Lineage requests `graph.json`, and the Graph tab requests `draft-graph.json`. The server unfolds those responses when the page asks, and does not write them into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
 
@@ -113,7 +117,7 @@ Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling 
 
 `spec session remove <id>` deletes that session directory and nothing else. An unknown id is exit 2. A live lock is exit 2 and the directory stays. A lock whose process is gone is taken over, the same way as any other write, and then the directory is deleted. The id is one session name: a letter, then letters, digits, underscores, or hyphens. `..`, a slash, or any other unsafe id is exit 2. Clew deletes the directory only when its real path is `<spec-root>/<id>`. A symlink is left in place. Sessions for other repos are not touched.
 
-`history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, concepts list records concept ids, frames list records frame ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec concepts list`, `spec frames list`, and `spec graph build` have an empty `before`.
+`history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, concepts list records concept ids, frames list records frame ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec concepts list`, `spec frames list`, and `spec graph build` have an empty `before`. `spec concepts group` records the span's concept before and after (empty for `--none`), and `spec frames set` and `spec frames not-transition` record the frame id; their `args` carry the span, frame, role, values, `into`, `dependsOn`, and `clear` that were passed. A write that drops a refinement appends one more line per drop under the same command, with `args` `{ id, role, reason, finding, text }` (the target, the role, `sN changed`, the finding id, and the value it read). Its `after` is empty when the target no longer derives.
 
 `session.json` carries `schemaVersion`. This Clew reads schema 5. A different version is exit 2 with no migration — drop the old session and re-run `clew spec init` / `tag`. The store adapter is the only place that validates that JSON with Zod.
 
@@ -143,9 +147,15 @@ Latin-script languages are not detected. Translate those to plain English before
 | `tagger-version` | info | the stored tagger version differs from this one |
 | `removed-sentence`, `original-changed` | warning | the same sentence findings as `spec init` |
 
-`spec concepts list` groups the live spans into concepts and writes `concepts.json` the first time. Running it again, when nothing changed, does not append history. A concept is `{ id, canonical, members }`: `concept:<canonical>`, the canonical word, and the span ids that say it. It has no kind. A content verb's canonical word is its compromise lemma. A noun's is its singular. An adjective keeps its lower-cased surface. Values, units, currency, determiners, prepositions, pronouns, auxiliaries, and insignificant spans name no concept, so "dollars" and "it" are skipped. The same word maps to the same concept. A span whose link an agent or person set keeps that link. Each span's `entityId` holds its concept id. The document lists each concept with its members as `{ span, surface, sentence }`.
+`spec concepts list` groups the live spans into concepts and writes `concepts.json` the first time. Running it again, when nothing changed, does not append history. A concept is `{ id, canonical, members }`: `concept:<canonical>`, the canonical word, and the span ids that say it. It has no kind. A content verb's canonical word is its compromise lemma. A noun's is its singular. An adjective keeps its lower-cased surface. Values, units, currency, determiners, prepositions, pronouns, auxiliaries, and insignificant spans name no concept, so "dollars" and "it" are skipped. The same word maps to the same concept. A span whose link an agent or person set keeps that link. Each span's `entityId` holds its concept id. The document lists each concept with its members as `{ span, surface, sentence }`, and `groups`.
 
-`spec frames list` reads one clause frame per clause and writes `frames.json`. It derives concepts first when they are missing. `--sentence s1` limits the document, and its findings, to that sentence; the store still holds every frame. Running it again, when nothing changed, does not append history. A frame id is `fr:<first token id>` (`fr:s1.t7`). A frame has `sentence`, `clause` (`text`, `start`, `end`), an optional `marker` (`when`, `if`, `unless`, `after`, `before`, `once`, or `then`), `negated: true` when the clause says not, never, no, or a negative contraction, and `notTransition: { reason }` when the clause has no content verb. Its `roles` are `actor`, `event`, `object`, `result`, and `when`. Each role is a field `{ original, latest, history }`. A version is `{ value, dependsOn }`: `value` is `unknown` or `{ text, refs }`, and `dependsOn` lists the span ids it was read from. `history` entries are `{ at, who, reason, finding?, comment?, value }`.
+`spec concepts group --span <id> --into <concept>` moves one live span into another concept, and `--none` takes it out of every concept. A concept id that does not exist yet is created with the id's word as canonical. A grouping is `{ span, original, latest, dependsOn, history }`: `original` is the concept the words alone give, `latest` is the agent's choice, and `dependsOn` defaults to the span itself. Groupings are kept in `concepts.json` `groups` and applied after the lexical grouping on every rebuild, so the span's `entityId` follows `latest` and frames re-read their roles from it. Writing the value the span already has is exit 2, `<span> already reads that value`.
+
+Refinements are kept until their evidence changes. When `spec sentences add`, `edit`, or `delete` changes a sentence that a refined field's or grouping's latest `dependsOn` cites, that `latest` falls back to `original`, a `clew` revision `{ reason: "sN changed", finding, value }` is appended with the value it read, and the frame layer reports `refinement-dropped`. A frame's own `notTransition` mark is dropped when its sentence changes. A refined frame or span that no longer derives is reported once, in the command's document and as a history line. `spec impact <sentence>` lists, without writing, every field and grouping whose latest `dependsOn` cites a span of that sentence (`refined` is true when an agent or person wrote it last), and the sentence's frames. An unknown sentence is exit 2.
+
+`spec frames list` reads one clause frame per clause and writes `frames.json`. It derives concepts first when they are missing. `--sentence s1` limits the document, and its findings, to that sentence; the store still holds every frame. Running it again, when nothing changed, does not append history. A frame id is `fr:<first token id>` (`fr:s1.t7`). A frame has `sentence`, `clause` (`text`, `start`, `end`), an optional `marker` (`when`, `if`, `unless`, `after`, `before`, `once`, or `then`), `negated: true` when the clause says not, never, no, or a negative contraction, and `notTransition: { reason }` when the clause has no content verb. Its `roles` are `actor`, `event`, `object`, `result`, and `when`. Each role is a field `{ original, latest, history }`. A version is `{ value, dependsOn }`: `value` is `unknown` or `{ text, refs }`, and `dependsOn` lists the span ids it was read from. `history` entries are `{ at, who, reason, finding?, comment?, value }`. A frame also has its own `history` of `notTransition` revisions, whose `value` is `{ notTransition }`.
+
+`spec frames set --frame <id> --role <role>` writes one role's `latest`. `--value` is a concept id for `actor`, `object`, and `result`, a live content-verb span for `event`, and one or more frame ids for `when` (repeatable, in order); `--unknown` sets it to `unknown`. The text is read from the refs: the concept canonical, the span lemma, or the cited clauses joined with " and ". `--depends-on` is repeatable and may cite spans in other sentences; it defaults to the value's evidence: the concept's members in this sentence (else all of them), the event span, or each cited frame's event span (or its first significant span). A ref that is not live, or the wrong kind for the role, is exit 2. `spec frames not-transition --frame <id> --reason <text>` marks a frame `notTransition: { reason, who }`, and `--clear` drops the mark so the frame falls back to its derived value. Both re-compile the frames. Writing the value the field already has is exit 2, `<frame> <role> already reads that value`. The document is the frame view and the findings on that frame's sentence.
 
 Roles are read by position. The event is the first content verb that is not adjectival ("a shipped order" is not an event). The actor is the last noun before it, and the object is the first noun after it, up to as, into, a condition marker, or then. A clause with only one noun reads it as the object. A passive verb takes the noun before it as the object and the noun after "by" as the actor. A clause that starts with and, or, or then, and has no actor, inherits the previous frame's actor. An object pronoun ("it", "them") after the event takes the previous frame's object in the same sentence, and the pronoun span joins its `dependsOn`. The result is the concept after "as" or "into", otherwise the event's compromise past participle (`approved`). `when` lists the condition frames and earlier frames this one waits on. A condition clause attaches to the next transition clause, or to the previous one when it comes last. A `then` clause waits on the frame before it, across sentences.
 
@@ -159,6 +169,7 @@ Each frame compiles into the spec. An object becomes the atom var `<object>_stat
 | `frame-missing-object` | warning | a transition frame has no object, for example "ships it" |
 | `frame-missing-result` | warning | a transition frame has no result |
 | `value-never-assigned` | warning | a guard checks a value that no action assigns, such as a condition var |
+| `refinement-dropped` | warning | a sentence a refined field, grouping, or `notTransition` mark depended on changed, so it fell back to its derived value (kind `stale`) |
 
 `spec trace <id>` walks provenance. It resolves a concept id (`concept:order`) first, then a transition id, then a frame id, a token id, a sentence id, and a flow id (`W1`). Graph transitions use their frame id (`fr:s1.t7`), so a transition walks to its frames, their concepts, their tokens, and the sentence. A concept walks its member tokens and their sentences. A state walks the frames that reach or leave it. A chain with no sentence also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
 
@@ -176,7 +187,7 @@ The stderr message names only the first missing layer. Tagged sentences and uniq
 
 `spec show tagged` prints `sentences`, the same tagged view as `spec tag`, for the current sentences. `spec show tokens` prints `tokens`. Each item has the lower-cased `text`, a `count`, the original `forms` in first-seen order, and `readings`. A reading has `tags` and the token ids. Unique tokens are grouped words with tag readings and sN.tM ids, not a concept list. `spec show concepts` prints `concepts` in stored order. `spec show frames` prints `frames`, the same view as `spec frames list`.
 
-`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and deleted. A live sentence is mapped when one of its frames compiles. `coverage.concepts` is the concept count. `coverage.frames` counts `transition`, `notTransition`, and `incomplete` (a transition frame that does not compile). `layers` reports `tokens`, `concepts`, `frames`, and `graph`; `layers.graph` is true after `spec graph build` has written `flows.json`. A missing concept, frame, or graph layer is an info `concepts-absent`, `frames-absent`, or `graph-absent` finding. The frame layer's findings are the `spec frames list` findings. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
+`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and deleted. A live sentence is mapped when one of its frames compiles. `coverage.concepts` is the concept count. `coverage.frames` counts `transition`, `notTransition`, and `incomplete` (a transition frame that does not compile). `layers` reports `tokens`, `concepts`, `frames`, and `graph`; `layers.graph` is true after `spec graph build` has written `flows.json`. A missing concept, frame, or graph layer is an info `concepts-absent`, `frames-absent`, or `graph-absent` finding. The frame layer's findings are the `spec frames list` findings, including `refinement-dropped` until a later write refines that field again. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
 
 `spec trace` and `spec status` findings:
 
@@ -517,7 +528,27 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 }
 ```
 
-`concepts.json` stores `{ "schemaVersion": 5, "concepts": [{ "id", "canonical", "members": ["sp:s1.t6..s1.t6"] }] }`.
+`concepts.json` stores `{ "schemaVersion": 5, "concepts": [{ "id", "canonical", "members": ["sp:s1.t6..s1.t6"] }], "groups": [] }`.
+
+`spec.concepts.group --span sp:s1.t8..s1.t8 --into concept:clerk`, on a spec whose second sentence is "A clerk must not cancel a shipped package." `concepts` is the same list as `spec.concepts.list` and is not shown. `groups` lists every grouping in the session.
+
+```json
+{
+  "command": "spec.concepts.group",
+  "ok": true,
+  "session": "refine",
+  "grouping": {
+    "span": "sp:s1.t8..s1.t8",
+    "original": "concept:manager",
+    "latest": "concept:clerk",
+    "dependsOn": ["sp:s1.t8..s1.t8"],
+    "history": [{ "at": "2026-01-01T00:00:00.000Z", "who": "agent", "reason": "same role as the clerk", "value": { "concept": "concept:clerk", "dependsOn": ["sp:s1.t8..s1.t8"] } }]
+  },
+  "groups": [{ "span": "sp:s1.t8..s1.t8", "original": "concept:manager", "latest": "concept:clerk", "dependsOn": ["sp:s1.t8..s1.t8"], "history": ["..."] }],
+  "findings": [],
+  "issues": []
+}
+```
 
 `spec.frames.list --sentence s1`, one frame. Only `actor` and `when` are shown; `event`, `object`, and `result` have the same field shape. `when` waits on the first clause and the condition clause, so the action is guarded by `condition:cond_s1_t12`.
 
@@ -553,7 +584,58 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 }
 ```
 
-The condition clause is its own frame, `fr:s1.t12`, with `"marker": "if"`, `"notTransition": { "reason": "no verb" }`, and every role `unknown`. `frames.json` stores `{ "schemaVersion": 5, "frames": [...] }` without `compiled`.
+The condition clause is its own frame, `fr:s1.t12`, with `"marker": "if"`, `"notTransition": { "reason": "no verb" }`, and every role `unknown`. `frames.json` stores `{ "schemaVersion": 5, "frames": [...] }` without `compiled`. Each stored frame has `history`, and an agent's `notTransition` also stores `who`.
+
+`spec.frames.set --frame fr:s1.t7 --role actor --value concept:clerk` on the same two-sentence spec. Only `actor` is shown. `dependsOn` defaults to the clerk span in s2, so an edit of s2 drops this write.
+
+```json
+{
+  "command": "spec.frames.set",
+  "ok": true,
+  "session": "refine",
+  "frame": {
+    "id": "fr:s1.t7",
+    "sentence": "s1",
+    "clause": { "text": "the manager approves the order", "start": 36, "end": 66 },
+    "roles": {
+      "actor": {
+        "original": { "value": { "text": "manager", "refs": ["concept:manager"] }, "dependsOn": ["sp:s1.t8..s1.t8"] },
+        "latest": { "value": { "text": "clerk", "refs": ["concept:clerk"] }, "dependsOn": ["sp:s2.t2..s2.t2"] },
+        "history": [{ "at": "2026-01-01T00:00:00.000Z", "who": "agent", "reason": "the clerk approves", "value": { "value": { "text": "clerk", "refs": ["concept:clerk"] }, "dependsOn": ["sp:s2.t2..s2.t2"] } }]
+      }
+    },
+    "history": [],
+    "compiled": { "event": "APPROVE", "object": "order", "from": "submitted", "to": "approved", "actor": "clerk", "kind": "action" }
+  },
+  "findings": [
+    { "id": "value-never-assigned:cond_s1_t12=true", "kind": "gap", "code": "value-never-assigned", "severity": "warning", "message": "cond_s1_t12 is checked for true, but no action assigns it", "refs": ["cond_s1_t12", "fr:s1.t7"] }
+  ],
+  "issues": []
+}
+```
+
+`spec.frames.not-transition` returns the same document as `spec.frames.set`, with the frame's `notTransition` and its frame-level `history`.
+
+`spec.impact s2` after that write. The first entry is the refined actor; the rest are s2's own derived fields. An edit of s2 then reports `{ "id": "refinement-dropped:fr:s1.t7:actor", "kind": "stale", "code": "refinement-dropped", "severity": "warning", "message": "fr:s1.t7 actor fell back to its derived value (s2 changed); it read \"clerk\"", "refs": ["fr:s1.t7", "s1"] }`, and the actor reads `manager` again.
+
+```json
+{
+  "command": "spec.impact",
+  "ok": true,
+  "session": "refine",
+  "sentence": "s2",
+  "impact": [
+    { "kind": "field", "frame": "fr:s1.t7", "role": "actor", "value": { "text": "clerk", "refs": ["concept:clerk"] }, "dependsOn": ["sp:s2.t2..s2.t2"], "refined": true },
+    { "kind": "field", "frame": "fr:s2.t1", "role": "actor", "value": { "text": "clerk", "refs": ["concept:clerk"] }, "dependsOn": ["sp:s2.t2..s2.t2"], "refined": false },
+    { "kind": "field", "frame": "fr:s2.t1", "role": "event", "value": { "text": "cancel", "refs": ["sp:s2.t5..s2.t5"] }, "dependsOn": ["sp:s2.t5..s2.t5", "sp:s2.t4..s2.t4"], "refined": false }
+  ],
+  "frames": ["fr:s2.t1"],
+  "findings": [],
+  "issues": []
+}
+```
+
+A grouping entry is `{ "kind": "grouping", "span", "value", "dependsOn", "refined" }`, with the concept id (or null) as `value`. An agent's `notTransition` mark on one of the sentence's frames is an entry with role `notTransition`, its reason as the value, and an empty `dependsOn`. The text form prints one line per entry, `refined fr:s1.t7 actor = clerk  <- sp:s2.t2..s2.t2`.
 
 `spec.trace concept:order`. A concept walks its member tokens and their sentence.
 

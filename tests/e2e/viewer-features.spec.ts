@@ -20,6 +20,7 @@ import {
 import { expect, test } from './helpers/fixtures.js';
 import { cardById, clearFilters, openLineage, selectView, visibleCardIds, waitForViewerReady } from './helpers/viewer-page.js';
 import type { Page } from '@playwright/test';
+import type { Frame } from '../../src/domain/spec.js';
 import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -93,6 +94,58 @@ test.describe('frames tab', () => {
       );
       const details = await openLineage(page, 'frames', negated.id);
       await expect(details.locator('.line[data-text="W2 forbidden ' + negated.id + '"]')).toHaveCount(1);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  test('a refined role shows refined, a dropped role shows dropped, and both list their history', async ({ page, viewer }) => {
+    const other = join(dirname(viewer.sessionDir), 'zz-refined');
+    cpSync(viewer.sessionDir, other, { recursive: true });
+    const session = JSON.parse(readFileSync(join(other, 'session.json'), 'utf8')) as { id: string };
+    writeFileSync(join(other, 'session.json'), JSON.stringify({ ...session, id: 'zz-refined' }));
+    const target = fixture.frames.find((frame) => frame.marker === undefined && frame.negated !== true && frame.notTransition === undefined)!;
+    const clerk = fixture.concepts.find((concept) => concept.id === 'concept:clerk')!;
+    const actor = { value: { text: 'clerk', refs: [clerk.id] }, dependsOn: clerk.members.slice() };
+    const object = target.roles.object.latest;
+    const stored = JSON.parse(readFileSync(join(other, 'frames.json'), 'utf8')) as { frames: Frame[] };
+    const frame = stored.frames.find((item) => item.id === target.id)!;
+    frame.roles.actor.latest = actor;
+    frame.roles.actor.history = [{ at: '2026-11-05T19:00:00.000Z', who: 'agent', reason: 'the clerk approves', value: actor }];
+    frame.roles.object.history = [
+      { at: '2026-11-05T19:00:00.000Z', who: 'agent', reason: 'object read from s2', value: { value: { text: 'package', refs: ['concept:package'] }, dependsOn: ['sp:s2.t8..s2.t8'] } },
+      { at: '2026-11-05T19:01:00.000Z', who: 'clew', reason: 's2 changed', finding: `refinement-dropped:${target.id}:object`, value: { value: { text: 'package', refs: ['concept:package'] }, dependsOn: ['sp:s2.t8..s2.t8'] } },
+    ];
+    writeFileSync(join(other, 'frames.json'), JSON.stringify(stored, null, 2));
+    const member = clerk.members[0]!;
+    const concepts = JSON.parse(readFileSync(join(other, 'concepts.json'), 'utf8')) as { groups: unknown[] };
+    concepts.groups.push({
+      span: member,
+      original: clerk.id,
+      latest: clerk.id,
+      dependsOn: [member],
+      history: [{ at: '2026-11-05T19:00:00.000Z', who: 'agent', reason: 'kept as clerk', value: { concept: clerk.id, dependsOn: [member] } }],
+    });
+    writeFileSync(join(other, 'concepts.json'), JSON.stringify(concepts, null, 2));
+    try {
+      await page.locator('#session-id').hover();
+      await page.locator('#session-id').selectOption('zz-refined');
+      await expect(page).toHaveURL(/[?&]session=zz-refined/);
+      const card = cardById(page, 'frames', target.id);
+      const actorRow = card.locator('.roles dd[data-role="actor"]');
+      await expect(actorRow.locator('.role-value')).toHaveText('clerk');
+      await expect(actorRow.locator('.role-state')).toHaveAttribute('data-state', 'refined');
+      await expect(actorRow.locator('.revisions li')).toHaveText(['agent the clerk approves → clerk']);
+      const objectRow = card.locator('.roles dd[data-role="object"]');
+      await expect(objectRow.locator('.role-value')).toHaveText(roleText(target, 'object'));
+      await expect(objectRow.locator('.role-dep')).toHaveText(object.dependsOn);
+      await expect(objectRow.locator('.role-state')).toHaveAttribute('data-state', 'dropped');
+      await expect(objectRow.locator('.revisions li')).toHaveText(['agent object read from s2 → package', 'clew s2 changed → package']);
+      await expect(card.locator('.roles dd[data-role="event"] .role-state')).toHaveCount(0);
+      await selectView(page, 'concepts');
+      const members = cardById(page, 'concepts', clerk.id).locator('.members .member');
+      await expect(members.filter({ has: page.locator('.pill', { hasText: 'regrouped' }) })).toHaveCount(1);
+      await expect(cardById(page, 'concepts', clerk.id).locator(`.member.regrouped[data-span="${member}"]`)).toHaveCount(1);
     } finally {
       rmSync(other, { recursive: true, force: true });
     }

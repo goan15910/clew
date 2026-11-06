@@ -1,8 +1,8 @@
 // Spans + concepts → clause frames. Roles are read by position, because concepts carry no kind.
 // One frame per clause segment: actor, event, object, result, and the conditions it waits on.
-import type { ClauseBound, Concept, Field, FieldVersion, Frame, LiveSentence, LiveSpan, Revision, Role, RoleName } from './spec.js';
+import type { ClauseBound, Concept, Field, FieldVersion, Frame, FrameVersion, LiveSentence, LiveSpan, NotTransition, Revision, Role, RoleName } from './spec.js';
 import { CONDITION_MARKERS, segmentClauses, startsWithConjunction, wordOf, type ClauseSegment } from './spec-clauses.js';
-import { deriveConcepts, findConcept } from './spec-concepts.js';
+import { findConcept } from './spec-concepts.js';
 import { sentenceIdOfToken } from './spec-spans.js';
 import { hasTag, isContentVerb, verbLemma } from './spec-words.js';
 
@@ -74,19 +74,6 @@ export function deriveFrames(
   return frames;
 }
 
-/** Concepts, then frames, for every layer the session already has. */
-export function rebuildLayers(
-  sentences: readonly LiveSentence[],
-  spans: readonly LiveSpan[],
-  layers: { concepts?: readonly Concept[]; frames?: readonly Frame[] },
-): { spans: LiveSpan[]; concepts?: Concept[]; frames?: Frame[] } {
-  if (layers.concepts === undefined && layers.frames === undefined) return { spans: spans.slice() };
-  const derived = deriveConcepts(spans);
-  const rebuilt: { spans: LiveSpan[]; concepts?: Concept[]; frames?: Frame[] } = { spans: derived.spans, concepts: derived.concepts };
-  if (layers.frames !== undefined) rebuilt.frames = deriveFrames(sentences, derived.spans, derived.concepts);
-  return rebuilt;
-}
-
 export function roleValue(field: Field): Role {
   return field.latest.value;
 }
@@ -114,11 +101,28 @@ export function copyFrame(frame: Frame): Frame {
     result: copyField(frame.roles.result),
     when: copyField(frame.roles.when),
   };
-  const copy: Frame = { id: frame.id, sentence: frame.sentence, clause: copyClause(frame.clause), roles };
+  const history: Revision<FrameVersion>[] = [];
+  for (const revision of frame.history) {
+    const entry: Revision<FrameVersion> = { at: revision.at, who: revision.who, reason: revision.reason, value: copyFrameVersion(revision.value) };
+    if (revision.finding !== undefined) entry.finding = revision.finding;
+    if (revision.comment !== undefined) entry.comment = revision.comment;
+    history.push(entry);
+  }
+  const copy: Frame = { id: frame.id, sentence: frame.sentence, clause: copyClause(frame.clause), roles, history };
   if (frame.marker !== undefined) copy.marker = frame.marker;
   if (frame.negated === true) copy.negated = true;
-  if (frame.notTransition !== undefined) copy.notTransition = { reason: frame.notTransition.reason };
+  if (frame.notTransition !== undefined) copy.notTransition = copyNotTransition(frame.notTransition);
   return copy;
+}
+
+export function copyNotTransition(value: NotTransition): NotTransition {
+  const copy: NotTransition = { reason: value.reason };
+  if (value.who !== undefined) copy.who = value.who;
+  return copy;
+}
+
+export function copyFrameVersion(version: FrameVersion): FrameVersion {
+  return { notTransition: version.notTransition === null ? null : { reason: version.notTransition.reason } };
 }
 
 export function unknownField(): Field {
@@ -146,6 +150,7 @@ function draftFrame(
     sentence: sentence.id,
     clause: copyClause(segment.clause),
     roles,
+    history: [],
   };
   if (segment.marker !== undefined) frame.marker = segment.marker;
   const draft: Draft = { frame, segment };
@@ -305,7 +310,7 @@ function field(value: Role, dependsOn: string[]): Field {
   return { original: { value, dependsOn }, latest: { value: copyRole(value), dependsOn: dependsOn.slice() }, history: [] };
 }
 
-function copyField(source: Field): Field {
+export function copyField(source: Field): Field {
   const history: Revision<FieldVersion>[] = [];
   for (const revision of source.history) {
     const entry: Revision<FieldVersion> = { at: revision.at, who: revision.who, reason: revision.reason, value: copyVersion(revision.value) };
@@ -316,11 +321,11 @@ function copyField(source: Field): Field {
   return { original: copyVersion(source.original), latest: copyVersion(source.latest), history };
 }
 
-function copyVersion(version: FieldVersion): FieldVersion {
+export function copyVersion(version: FieldVersion): FieldVersion {
   return { value: copyRole(version.value), dependsOn: version.dependsOn.slice() };
 }
 
-function copyRole(role: Role): Role {
+export function copyRole(role: Role): Role {
   return role === 'unknown' ? 'unknown' : { text: role.text, refs: role.refs.slice() };
 }
 
@@ -330,28 +335,32 @@ function copyClause(clause: ClauseBound): ClauseBound {
 
 function sameFrame(left: Frame, right: Frame): boolean {
   if (left.id !== right.id || left.sentence !== right.sentence || left.marker !== right.marker || left.negated !== right.negated) return false;
-  if (left.notTransition?.reason !== right.notTransition?.reason) return false;
+  if (left.notTransition?.reason !== right.notTransition?.reason || left.notTransition?.who !== right.notTransition?.who) return false;
   if (left.clause.text !== right.clause.text || left.clause.start !== right.clause.start || left.clause.end !== right.clause.end) return false;
   for (const name of ROLE_NAMES) {
     if (!sameField(left.roles[name], right.roles[name])) return false;
   }
-  return true;
+  return sameHistory(left.history, right.history, (a, b) => a.notTransition?.reason === b.notTransition?.reason);
 }
 
 function sameField(left: Field, right: Field): boolean {
   if (!sameVersion(left.original, right.original) || !sameVersion(left.latest, right.latest)) return false;
-  if (left.history.length !== right.history.length) return false;
-  for (let index = 0; index < left.history.length; index += 1) {
-    const a = left.history[index];
-    const b = right.history[index];
+  return sameHistory(left.history, right.history, sameVersion);
+}
+
+export function sameHistory<T>(left: readonly Revision<T>[], right: readonly Revision<T>[], same: (a: T, b: T) => boolean): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
     if (a === undefined || b === undefined) return false;
     if (a.at !== b.at || a.who !== b.who || a.reason !== b.reason || a.finding !== b.finding || a.comment !== b.comment) return false;
-    if (!sameVersion(a.value, b.value)) return false;
+    if (!same(a.value, b.value)) return false;
   }
   return true;
 }
 
-function sameVersion(left: FieldVersion, right: FieldVersion): boolean {
+export function sameVersion(left: FieldVersion, right: FieldVersion): boolean {
   return sameRole(left.value, right.value) && sameList(left.dependsOn, right.dependsOn);
 }
 
@@ -360,7 +369,7 @@ function sameRole(left: Role, right: Role): boolean {
   return left.text === right.text && sameList(left.refs, right.refs);
 }
 
-function sameList(left: readonly string[], right: readonly string[]): boolean {
+export function sameList(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
     if (left[index] !== right[index]) return false;
