@@ -1,6 +1,6 @@
 // Read-only provenance and coverage over a spec session.
 import type { Entity, Fact, Finding, GraphTransition, LiveSpan, Sentence, SpecFlow, SpecSnapshot, TaggedSentence, Token } from './spec.js';
-import { currentSentences, initFindings, staleFindings, tagFindings } from './spec.js';
+import { initFindings, liveSentences, sentenceFindings as reinitFindings, sentenceState, tagFindings } from './spec.js';
 import { entityFindings } from './spec-entities.js';
 import { contradictionFindings, entityUsesFact, visibleFacts } from './spec-facts.js';
 import { graphLayerFindings } from './spec-graph.js';
@@ -26,7 +26,7 @@ export interface TraceResult {
 }
 
 export interface StatusCoverage {
-  sentences: { mapped: string[]; pending: string[]; stale: string[] };
+  sentences: { mapped: string[]; pending: string[]; deleted: string[] };
   entities: { candidate: number; confirmed: number; rejected: number; stale: number };
   facts: { current: number; stale: number; implied: number; removed: number };
 }
@@ -206,10 +206,10 @@ function coverageOf(snapshot: SpecSnapshot): StatusCoverage {
   const facts = visibleFacts(snapshot.facts ?? []).filter((fact) => fact.status === 'current');
   const mapped: string[] = [];
   const pending: string[] = [];
-  const stale: string[] = [];
+  const deleted: string[] = [];
   for (const sentence of snapshot.sentences) {
-    if (sentence.status === 'stale') {
-      stale.push(sentence.id);
+    if (sentence.latest === null) {
+      deleted.push(sentence.id);
       continue;
     }
     if (sentenceIsMapped(sentence, snapshot.tagged, facts)) mapped.push(sentence.id);
@@ -230,10 +230,10 @@ function coverageOf(snapshot: SpecSnapshot): StatusCoverage {
     else current += 1;
     if (fact.status === 'current' && fact.sources.length === 0) implied += 1;
   }
-  return { sentences: { mapped, pending, stale }, entities, facts: { current, stale: staleFacts, implied, removed } };
+  return { sentences: { mapped, pending, deleted }, entities, facts: { current, stale: staleFacts, implied, removed } };
 }
 
-function sentenceIsMapped(sentence: Sentence, tagged: readonly TaggedSentence[], facts: readonly Fact[]): boolean {
+function sentenceIsMapped(sentence: { id: string }, tagged: readonly TaggedSentence[], facts: readonly Fact[]): boolean {
   const tokens = new Set<string>();
   for (const item of tagged) {
     if (item.id !== sentence.id) continue;
@@ -260,7 +260,7 @@ function sourceSentenceId(source: string): string | undefined {
 }
 
 function sentenceFindings(snapshot: SpecSnapshot): Finding[] {
-  return [...initFindings(snapshot.sentences, []), ...staleFindings(snapshot.sentences)];
+  return [...initFindings(snapshot.sentences, []), ...reinitFindings(snapshot.sentences)];
 }
 
 function tokenFindings(snapshot: SpecSnapshot): Finding[] {
@@ -270,7 +270,7 @@ function tokenFindings(snapshot: SpecSnapshot): Finding[] {
     return findings;
   }
   const text = new Map<string, string>();
-  for (const sentence of snapshot.sentences) text.set(sentence.id, sentence.text);
+  for (const sentence of liveSentences(snapshot.sentences)) text.set(sentence.id, sentence.text);
   for (const item of snapshot.tagged) {
     if (item.status !== 'current') continue;
     const sentence = text.get(item.id);
@@ -504,15 +504,14 @@ function tokenLink(token: Token): TraceLink {
 }
 
 function sentenceLink(sentence: Sentence): TraceLink {
-  return {
-    layer: 'sentence',
-    id: sentence.id,
-    text: sentence.text,
-    span: [sentence.span[0], sentence.span[1]],
-    section: sentence.section,
-    status: sentence.status,
-    origin: sentence.origin,
-  };
+  const shown = sentence.latest ?? sentence.original;
+  const link: TraceLink = { layer: 'sentence', id: sentence.id, status: sentenceState(sentence) };
+  if (shown !== null) {
+    link.text = shown.text;
+    link.span = [shown.span[0], shown.span[1]];
+    link.section = shown.section;
+  }
+  return link;
 }
 
 function findEntity(entities: readonly Entity[], id: string): Entity | undefined {
@@ -552,7 +551,7 @@ export function uniqueTokens(sentences: readonly Sentence[], tagged: readonly Ta
   for (const item of tagged) byId.set(item.id, item);
   const groups = new Map<string, { forms: string[]; seenForms: Set<string>; readings: Map<string, { tags: string[]; tokens: string[] }> }>();
   const order: string[] = [];
-  for (const sentence of currentSentences(sentences)) {
+  for (const sentence of liveSentences(sentences)) {
     const item = byId.get(sentence.id);
     if (item === undefined || item.status !== 'current') continue;
     for (const token of item.tokens) {

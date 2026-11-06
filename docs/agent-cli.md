@@ -36,6 +36,10 @@ clew verify <chart.yaml> <set.yaml> [--flow <id>] [--select <file>] [--highlight
 clew compare <verify.json>... [--out <dir>] [--json]
 clew spec init <spec.md> [--session <id>] [--json]
 clew spec tag [--session <id>] [--sentence <id>] [--json]
+clew spec sentences add --text <sentence> [--after <id>] --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
+clew spec sentences edit --id <id> --text <sentence> --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
+clew spec sentences delete --id <id> --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
+clew spec export [--version original|latest] (--out <file> | --dry-run) [--session <id>] [--json]
 clew spec entities list [--kind actor] [--status candidate] [--session <id>] [--json]
 clew spec entities merge --into <id> --id <id> [--session <id>] [--json]
 clew spec entities rename --id <id> (--name <name> | --text <text>) [--session <id>] [--json]
@@ -82,7 +86,11 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
-Running `spec init` again with the same session id refreshes that session. Without `--session`, the id is the spec file's basename, so two files with the same basename share a session unless one is given `--session`. Unchanged sentence text keeps its id. Changed or removed sentences stay in the store as `stale` and are reported. They are not deleted. A sentence that comes back with the same hash is revived, and token spans shift if the text moved in the file.
+Running `spec init` again with the same session id refreshes that session. Without `--session`, the id is the spec file's basename, so two files with the same basename share a session unless one is given `--session`. Each sentence keeps `original` (the file text), `latest` (the text every later layer reads), and `history`. Unchanged original text keeps its id. A sentence nobody revised follows the file: when its text leaves the file it becomes a tombstone (`latest: null`) with a `removed-sentence` warning, and it is revived when the same text comes back. A sentence an agent or person revised keeps its `latest`. When its original leaves the file, Clew records that once in the history and reports `original-changed`. New text gets a new id; ids are never reused. Token spans shift if the text moved in the file.
+
+`spec sentences add`, `edit`, and `delete` write `latest`. Every write needs `--reason`, records `--by` (default `agent`), and takes an optional `--finding` id and `--comment`. `add --after <id>` places the sentence; without it the sentence goes last. `--text` must be exactly one sentence. Delete leaves a tombstone. An edit or add re-tags that sentence when the session is tagged, and rebuilds its spans, entities, and facts.
+
+`spec export` writes the `original` or `latest` (default) sentences as Markdown, one paragraph per sentence under its section headings, so `spec init` reads the export back as the same sentences. It takes exactly one of `--out <file>` and `--dry-run`; `--dry-run` puts the Markdown in the document's `text`.
 
 `spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A tag history line lists sentence ids: `before` is the targeted sentences that already had current tokens, and `after` is every targeted sentence id. The first tag has an empty `before`. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. Entity and fact edits are what set `origin` to `agent`.
 
@@ -108,13 +116,13 @@ spec/<session-id>/
 
 Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `entities.json`, `facts.json`, and `flows.json`. The Graph tab requests `graph.json` and `draft-graph.json`. The server unfolds those responses when the page asks, and does not write them into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
 
-`spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence is `status: current`. A live fact is current and is not a removed tombstone. Flows are the paths stored in `flows.json`; a session with no overlay counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
+`spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence has `latest` text. A live fact is current and is not a removed tombstone. Flows are the paths stored in `flows.json`; a session with no overlay counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
 
 `spec session remove <id>` deletes that session directory and nothing else. An unknown id is exit 2. A live lock is exit 2 and the directory stays. A lock whose process is gone is taken over, the same way as any other write, and then the directory is deleted. The id is one session name: a letter, then letters, digits, underscores, or hyphens. `..`, a slash, or any other unsafe id is exit 2. Clew deletes the directory only when its real path is `<spec-root>/<id>`. A symlink is left in place. Sessions for other repos are not touched.
 
 `history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, propose records live fact ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec facts propose`, and `spec graph build` have an empty `before`.
 
-`session.json` carries `schemaVersion`. This Clew reads schema 3. A different version is exit 2 with no migration — drop the old session and re-run `clew spec init` / `tag`. The store adapter is the only place that validates that JSON with Zod.
+`session.json` carries `schemaVersion`. This Clew reads schema 4. A different version is exit 2 with no migration — drop the old session and re-run `clew spec init` / `tag`. The store adapter is the only place that validates that JSON with Zod.
 
 Every spec document has `findings`. A finding is `{ id, kind, code, severity, message, refs }`. `kind` is `gap`, `conflict`, `stale`, `vocabulary`, or `coverage`. `severity` is `blocking`, `warning`, or `info`. `ok` means the layer was produced. It stays true when findings are present. Exit 0 means no blocking finding. Exit 1 means a blocking finding is in the document, and stderr stays empty. Warnings and info do not change the exit code.
 
@@ -126,7 +134,8 @@ Every spec document has `findings`. A finding is `{ id, kind, code, severity, me
 | `empty-sentence` | warning | a block had no sentence text |
 | `non-english` | warning | a sentence uses a non-Latin script |
 | `duplicate-sentence` | warning | the same sentence text appears twice |
-| `stale-sentence` | warning | a previous sentence changed or was removed |
+| `removed-sentence` | warning | an unrevised sentence left the file and is now a tombstone |
+| `original-changed` | warning | a revised sentence's original left the file; review the revision |
 
 Latin-script languages are not detected. Translate those to plain English before `spec init`.
 
@@ -139,7 +148,7 @@ Latin-script languages are not detected. Translate those to plain English before
 | `condition-without-clause` | warning | the sentence says if, when, or unless, and the tagger returned one clause |
 | `agent-tokens` | warning | agent-owned tokens were left in place |
 | `tagger-version` | info | the stored tagger version differs from this one |
-| `stale-sentence` | warning | a stale sentence is still in the session |
+| `removed-sentence`, `original-changed` | warning | the same sentence findings as `spec init` |
 
 `spec entities list` derives candidates from the current tokens and writes them the first time. Running it again, when nothing changed, does not append history. `--kind` and `--status` filter the document. There is no separate extract command. Actor-tagged nouns become actors. A noun the tagger does not tag `Actor` is not promoted to an actor. Other nouns become objects, except pronouns, currency, units, determiners, and values, so "dollars" is skipped. Verbs become actions, except copulas, auxiliaries, and modals. An adjectival verb between a determiner and a noun ("a shipped order") is not an action. A sentence-initial “When” is a condition only when its clause has no content verb; mid-sentence if, when, and unless are conditions. Same-lemma nouns merge. A single token stays `origin: tagger`. Two sources of the same lemma are `origin: rule`.
 
@@ -208,7 +217,7 @@ The stderr message names only the first missing layer. Tagged sentences and uniq
 
 `spec show tagged` prints `sentences`, the same tagged view as `spec tag`, for the current sentences. `spec show tokens` prints `tokens`. Each item has the lower-cased `text`, a `count`, the original `forms` in first-seen order, and `readings`. A reading has `tags` and the token ids. Unique tokens are grouped words with tag readings and sN.tM ids, not a second entity list. `spec show entities` prints `entities` in stored order, including rejected and stale entities. `spec show facts` prints `facts` and leaves removed facts out.
 
-`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and stale. A current sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is true after `spec graph build` has written `flows.json`. A missing entities, facts, or graph layer is an info `entities-absent`, `facts-absent`, or `graph-absent` finding. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
+`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and deleted. A live sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is true after `spec graph build` has written `flows.json`. A missing entities, facts, or graph layer is an info `entities-absent`, `facts-absent`, or `graph-absent` finding. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
 
 `spec trace` and `spec status` findings:
 
@@ -648,7 +657,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
   "ok": true,
   "session": "order-sentence",
   "coverage": {
-    "sentences": { "mapped": ["s1"], "pending": [], "stale": [] },
+    "sentences": { "mapped": ["s1"], "pending": [], "deleted": [] },
     "entities": { "candidate": 6, "confirmed": 0, "rejected": 1, "stale": 0 },
     "facts": { "current": 6, "stale": 0, "implied": 1, "removed": 0 }
   },

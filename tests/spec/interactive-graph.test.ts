@@ -7,7 +7,7 @@ import { chartInteractive, workflowInteractive } from '../../src/application/int
 import { draftChains, draftCharts, draftLabelModel } from '../../src/domain/spec-graph-view.js';
 import { toWorkflowSetDraft } from '../../src/domain/spec-graph.js';
 import type { DraftGraph, Entity, Sentence, SpecSnapshot, TaggedSentence } from '../../src/domain/spec.js';
-import { SPEC_SCHEMA_VERSION } from '../../src/domain/spec.js';
+import { SPEC_SCHEMA_VERSION, liveSentences } from '../../src/domain/spec.js';
 import { storedFacts } from './helpers/stored-facts.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -38,7 +38,7 @@ describe('interactive graph', () => {
       snapshot.graph!,
       snapshot.entities ?? [],
       snapshot.facts ?? [],
-      snapshot.sentences,
+      liveSentences(snapshot.sentences),
       snapshot.tagged,
     );
     assert.ok(built.draft);

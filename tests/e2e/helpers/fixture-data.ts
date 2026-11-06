@@ -55,12 +55,21 @@ interface Fact {
   removed?: boolean;
 }
 
-interface Sentence {
-  id: string;
+interface SentenceText {
   text: string;
   section: string;
-  status: string;
-  span?: [number, number];
+  span: [number, number];
+}
+
+interface StoredSentence {
+  id: string;
+  original: SentenceText | null;
+  latest: SentenceText | null;
+}
+
+interface Sentence extends SentenceText {
+  id: string;
+  state: string;
 }
 
 interface Token {
@@ -93,12 +102,18 @@ interface Graph {
   flows?: Array<{ id: string; forbidden?: string }>;
 }
 
+function sentenceView(record: StoredSentence): Sentence {
+  const shown = record.latest ?? record.original;
+  if (shown === null) throw new Error(`${record.id} has no text`);
+  return { id: record.id, ...shown, state: record.latest === null ? 'deleted' : 'original' };
+}
+
 function loadJson<T>(name: string): T {
   return JSON.parse(readFileSync(join(FIXTURE_DIR, name), 'utf8')) as T;
 }
 
 const session = loadJson<{ id: string; updated: string }>('session.json');
-const sentencesFile = loadJson<{ sentences: Sentence[] }>('sentences.json');
+const sentencesFile = loadJson<{ sentences: StoredSentence[] }>('sentences.json');
 const tokensFile = loadJson<{ sentences: TaggedSentence[] }>('tokens.json');
 const spansFile = loadJson<{ spans: Span[] }>('spans.json');
 const entitiesFile = loadJson<{ entities: Entity[] }>('entities.json');
@@ -107,7 +122,7 @@ const graph = loadJson<Graph>('graph.json');
 
 export const fixture = {
   session,
-  sentences: sentencesFile.sentences,
+  sentences: sentencesFile.sentences.map(sentenceView),
   tagged: tokensFile.sentences,
   spans: spansFile.spans,
   entities: entitiesFile.entities,
@@ -347,7 +362,7 @@ export function expectedSentenceIds(filters: FixtureFilters): string[] {
       const surfaces = spans.map((span) => span.surface);
       const ids = spans.map((span) => span.id);
       return matchesText(
-        [sentence.id, sentence.text, sentence.section, sentence.status, ...surfaces, ...ids],
+        [sentence.id, sentence.text, sentence.section, sentence.state, ...surfaces, ...ids],
         filters.text,
       );
     })

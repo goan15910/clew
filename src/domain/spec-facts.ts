@@ -21,7 +21,7 @@ import {
   type FactKind,
   type Finding,
   type LiveSpan,
-  type Sentence,
+  type LiveSentence,
 } from './spec.js';
 import {
   eventName,
@@ -67,7 +67,7 @@ interface Frame {
   action?: { id: string; span: LiveSpan; lemma: string; passive: boolean };
   object?: { id: string; span: LiveSpan };
   negated: boolean;
-  sentence: Sentence;
+  sentence: LiveSentence;
 }
 
 export function isActionFact(fact: Fact): fact is ActionFact {
@@ -75,7 +75,7 @@ export function isActionFact(fact: Fact): fact is ActionFact {
 }
 
 export function proposeFacts(
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   spans: readonly LiveSpan[],
   entities: readonly Entity[],
   existing: readonly Fact[],
@@ -87,7 +87,7 @@ export function proposeFacts(
 }
 
 export function rebuildFacts(
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   spans: readonly LiveSpan[],
   entities: readonly Entity[],
   existing: readonly Fact[],
@@ -199,20 +199,14 @@ export function contradictionFindings(facts: readonly Fact[]): Finding[] {
 }
 
 export function reconcileFacts(
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   spans: readonly LiveSpan[],
   entities: readonly Entity[],
   facts: readonly Fact[],
 ): Fact[] {
   const currentSpans = new Set<string>();
-  const staleSentences = new Set<string>();
-  for (const sentence of sentences) {
-    if (sentence.status === 'stale') staleSentences.add(sentence.id);
-  }
   const liveSentences = new Set<string>();
-  for (const sentence of sentences) {
-    if (sentence.status === 'current') liveSentences.add(sentence.id);
-  }
+  for (const sentence of sentences) liveSentences.add(sentence.id);
   for (const span of spans) {
     const sentenceId = sourceSentenceId(span.firstTokenId);
     if (sentenceId !== undefined && liveSentences.has(sentenceId)) currentSpans.add(span.id);
@@ -232,7 +226,7 @@ export function reconcileFacts(
     const sourced = copy.sources.length > 0;
     let liveSource = !sourced;
     for (const source of copy.sources) {
-      if (!staleSentences.has(source) && (currentSpans.has(source) || findSentence(sentences, source)?.status === 'current')) liveSource = true;
+      if (currentSpans.has(source) || liveSentences.has(source)) liveSource = true;
     }
     const refs = factRefs(copy);
     let liveRef = true;
@@ -587,7 +581,7 @@ export function predicateScalars(predicate: Predicate): Record<string, unknown> 
 }
 
 function collectDrafts(
-  sentences: readonly Sentence[],
+  sentences: readonly LiveSentence[],
   spans: readonly LiveSpan[],
   entities: readonly Entity[],
   onlySentence: string | undefined,
@@ -598,7 +592,6 @@ function collectDrafts(
   const lastValue = new Map<string, Value>();
   let lastObject: string | undefined;
   for (const sentence of sentences) {
-    if (sentence.status !== 'current') continue;
     if (onlySentence !== undefined && sentence.id !== onlySentence) continue;
     const sentenceSpans = spansForSentence(spans, sentence.id);
     if (sentenceSpans.length === 0) continue;
@@ -868,13 +861,13 @@ export function entityUsesFact(entity: Entity, fact: Fact): boolean {
 
 interface ParsedSentence {
   frames: Frame[];
-  guards: { action: string; condition: string; span: LiveSpan; sentence: Sentence }[];
+  guards: { action: string; condition: string; span: LiveSpan; sentence: LiveSentence }[];
   findings: Finding[];
   spans: LiveSpan[];
 }
 
 function parseSentence(
-  sentence: Sentence,
+  sentence: LiveSentence,
   spans: readonly LiveSpan[],
   spanEntity: ReadonlyMap<string, Entity>,
 ): ParsedSentence {
@@ -937,7 +930,7 @@ function parseSentence(
 
 function swoFrames(
   spans: readonly LiveSpan[],
-  sentence: Sentence,
+  sentence: LiveSentence,
   spanEntity: ReadonlyMap<string, Entity>,
   excluded: ReadonlySet<number>,
 ): Frame[] {
@@ -1028,7 +1021,7 @@ function sequencingWord(spans: readonly LiveSpan[]): string | undefined {
 
 function conditionSpanIndexes(
   spans: readonly LiveSpan[],
-  sentence: Sentence,
+  sentence: LiveSentence,
   markers: readonly number[],
 ): Set<number> {
   const excluded = new Set<number>();
@@ -1236,7 +1229,7 @@ function findEntity(entities: readonly Entity[], id: string): Entity | undefined
   return undefined;
 }
 
-function findSentence(sentences: readonly Sentence[], id: string): Sentence | undefined {
+function findSentence(sentences: readonly LiveSentence[], id: string): LiveSentence | undefined {
   for (const sentence of sentences) {
     if (sentence.id === id) return sentence;
   }

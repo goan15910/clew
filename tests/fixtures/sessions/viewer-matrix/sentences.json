@@ -1,31 +1,49 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "sentences": [
     {
       "id": "s1",
-      "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.",
-      "span": [
-        0,
-        101
-      ],
-      "hash": "sha256:6b67fe8afd6b389bf48c5470a768995095fe1d1082a0956c62d483ecbf82b98f",
-      "section": "",
-      "origin": "rule",
-      "status": "current",
-      "sources": []
+      "original": {
+        "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.",
+        "span": [
+          0,
+          101
+        ],
+        "hash": "sha256:6b67fe8afd6b389bf48c5470a768995095fe1d1082a0956c62d483ecbf82b98f",
+        "section": ""
+      },
+      "latest": {
+        "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.",
+        "span": [
+          0,
+          101
+        ],
+        "hash": "sha256:6b67fe8afd6b389bf48c5470a768995095fe1d1082a0956c62d483ecbf82b98f",
+        "section": ""
+      },
+      "history": []
     },
     {
       "id": "s2",
-      "text": "A clerk must not cancel a shipped package.",
-      "span": [
-        102,
-        144
-      ],
-      "hash": "sha256:80830bc3d3c8433d54c49675fc9b89b05851e25ce05ffab41420d9d75b996117",
-      "section": "",
-      "origin": "rule",
-      "status": "current",
-      "sources": []
+      "original": {
+        "text": "A clerk must not cancel a shipped package.",
+        "span": [
+          102,
+          144
+        ],
+        "hash": "sha256:80830bc3d3c8433d54c49675fc9b89b05851e25ce05ffab41420d9d75b996117",
+        "section": ""
+      },
+      "latest": {
+        "text": "A clerk must not cancel a shipped package.",
+        "span": [
+          102,
+          144
+        ],
+        "hash": "sha256:80830bc3d3c8433d54c49675fc9b89b05851e25ce05ffab41420d9d75b996117",
+        "section": ""
+      },
+      "history": []
     }
   ]
 }

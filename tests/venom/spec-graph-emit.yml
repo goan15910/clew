@@ -45,7 +45,7 @@ testcases:
     - result.systemoutjson.command ShouldEqual spec.show.sentences
     - result.systemoutjson.ok ShouldBeTrue
     - result.systemoutjson.sentences.sentences0.id ShouldEqual s1
-    - result.systemoutjson.sentences.sentences0.status ShouldEqual current
+    - result.systemoutjson.sentences.sentences0.state ShouldEqual original
     - result.systemoutjson.sentences.sentences0.text ShouldContainSubstring "the customer submits an order"
     - result.systemoutjson.sentences.sentences0.workflows ShouldHaveLength 0
   - type: exec

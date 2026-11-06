@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { draftChains, draftCharts, draftLabelModel } from '../../src/domain/spec-graph-view.js';
 import { toWorkflowSetDraft } from '../../src/domain/spec-graph.js';
-import type { DraftGraph, Entity, Sentence, TaggedSentence } from '../../src/domain/spec.js';
+import { liveSentences, type DraftGraph, type Entity, type Sentence, type TaggedSentence } from '../../src/domain/spec.js';
 import { storedFacts } from './helpers/stored-facts.js';
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'sessions', 'viewer-matrix');
@@ -43,7 +43,7 @@ describe('draft graph view', () => {
     const facts = storedFacts(readJson<{ facts: unknown[] }>('facts.json').facts);
     const sentences = readJson<{ sentences: Sentence[] }>('sentences.json').sentences;
     const tagged = readJson<{ sentences: TaggedSentence[] }>('tokens.json').sentences;
-    const built = toWorkflowSetDraft(graph, entities, facts, sentences, tagged);
+    const built = toWorkflowSetDraft(graph, entities, facts, liveSentences(sentences), tagged);
     assert.ok(built.draft);
     const results = draftChains(built.draft);
     const happy = results.find((result) => result.id === 'HappyPath');

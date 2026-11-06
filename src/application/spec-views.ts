@@ -1,6 +1,6 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
-import type { DraftGraph, Entity, Fact, LiveSpan, Sentence, SpecFlow, TaggedSentence, Token } from '../domain/spec.js';
+import { sentenceState, type DraftGraph, type Entity, type Fact, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
 import { predicateScalars, visibleFacts } from '../domain/spec-facts.js';
 import { scalarsFromPatch } from '../domain/valuation.js';
 import { sentenceIdOfToken } from '../domain/spec-spans.js';
@@ -17,7 +17,7 @@ import type {
   SpecUniqueTokenView,
 } from './documents.js';
 
-export function taggedViews(sentences: readonly Sentence[], tagged: readonly TaggedSentence[]): SpecTaggedView[] {
+export function taggedViews(sentences: readonly LiveSentence[], tagged: readonly TaggedSentence[]): SpecTaggedView[] {
   const byId = new Map<string, TaggedSentence>();
   for (const item of tagged) byId.set(item.id, item);
   const views: SpecTaggedView[] = [];
@@ -48,7 +48,11 @@ export function sentenceContextViews(
   for (const sentence of sentences) {
     const flows: { id: string; title: string }[] = [];
     for (const flow of workflows.get(sentence.id) ?? []) flows.push({ id: flow.id, title: flow.title });
-    views.push({ id: sentence.id, text: sentence.text, section: sentence.section, status: sentence.status, workflows: flows });
+    const shown = sentence.latest ?? sentence.original;
+    const state = sentenceState(sentence);
+    const view: SpecSentenceContextView = { id: sentence.id, text: shown?.text ?? '', section: shown?.section ?? '', state, workflows: flows };
+    if (state === 'edited' && sentence.original !== null) view.original = sentence.original.text;
+    views.push(view);
   }
   return views;
 }

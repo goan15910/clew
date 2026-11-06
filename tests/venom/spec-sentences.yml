@@ -1,0 +1,66 @@
+name: spec sentences and export
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: edit add delete and export
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec sentences edit --id s1 --text 'The manager approves the order.' --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "--reason"
+    - result.systemoutjson.command ShouldEqual spec.sentences.edit
+    - result.systemoutjson.fault ShouldEqual usage
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec sentences edit --id s1 --text 'The manager approves the order.' --reason 'one clause' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.sentences.edit
+    - result.systemoutjson.ok ShouldBeTrue
+    - result.systemoutjson.sentence.id ShouldEqual s1
+    - result.systemoutjson.sentence.state ShouldEqual edited
+    - result.systemoutjson.sentence.latest.text ShouldEqual "The manager approves the order."
+    - result.systemoutjson.sentence.history.history0.who ShouldEqual agent
+    - result.systemoutjson.sentence.history.history0.reason ShouldEqual "one clause"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec sentences add --text 'The clerk ships the order.' --after s1 --reason 'missing step' --by jeff --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.sentence.id ShouldEqual s2
+    - result.systemoutjson.sentence.state ShouldEqual added
+    - result.systemoutjson.sentence.history.history0.who ShouldEqual jeff
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec export --dry-run --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.command ShouldEqual spec.export
+    - result.systemoutjson.version ShouldEqual latest
+    - result.systemoutjson.sentences ShouldEqual 2
+    - result.systemoutjson.text ShouldContainSubstring "The clerk ships the order."
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec sentences delete --id s2 --reason 'not in scope' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.sentence.state ShouldEqual deleted
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec export --version original --dry-run"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemout ShouldContainSubstring "exported 1 original sentences"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec export --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemoutjson.fault ShouldEqual usage

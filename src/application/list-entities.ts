@@ -1,5 +1,5 @@
 // Use case: derive entity candidates and list them.
-import { hasBlocking, type Entity, type EntityKind, type EntityStatus, type Finding, type SpecSnapshot } from '../domain/spec.js';
+import { hasBlocking, type Entity, type EntityKind, type EntityStatus, type Finding, type SpecSnapshot, liveSentences } from '../domain/spec.js';
 import { deriveEntities, entityFindings, sameEntities } from '../domain/spec-entities.js';
 import { rebuildFacts, sameFacts } from '../domain/spec-facts.js';
 import { overlayGraph } from '../domain/spec-graph.js';
@@ -26,8 +26,8 @@ export function listEntities(command: ListEntitiesCommand, store: SpecStore): Ou
       input = 'no spans; run clew spec tag first';
       return undefined;
     }
-    const derived = deriveEntities(current.sentences, current.spans ?? [], current.entities ?? []);
-    const rebuilt = rebuildFacts(current.sentences, current.spans ?? [], derived.entities, current.facts ?? []);
+    const derived = deriveEntities(liveSentences(current.sentences), current.spans ?? [], current.entities ?? []);
+    const rebuilt = rebuildFacts(liveSentences(current.sentences), current.spans ?? [], derived.entities, current.facts ?? []);
     findings = [...derived.findings, ...entityFindings(filterEntities(derived.entities, command))];
     if (sameEntities(current.entities, derived.entities) && sameFacts(current.facts, rebuilt.facts)) return undefined;
     const now = new Date().toISOString();

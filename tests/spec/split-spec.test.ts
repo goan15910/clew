@@ -8,6 +8,8 @@ import { clewDataDir } from '../../src/adapters/spec-store/data-dir.js';
 import {
   applySpecText,
   initFindings,
+  sentenceFindings,
+  sentenceState,
   splitSpec,
   suspectsNonEnglish,
   tagFindings,
@@ -90,9 +92,9 @@ test('init findings cover an empty spec, duplicates, and non-English text', () =
   assert.equal(initFindings([], [])[0]?.code, 'no-sentences');
   assert.equal(initFindings([], [])[0]?.severity, 'blocking');
   const sentences = [
-    draftSentence('s1', 'The customer submits an order.', 'current'),
-    draftSentence('s2', 'the customer submits an order.', 'current'),
-    draftSentence('s3', '顾客提交订单。', 'current'),
+    draftSentence('s1', 'The customer submits an order.'),
+    draftSentence('s2', 'the customer submits an order.'),
+    draftSentence('s3', '顾客提交订单。'),
   ];
   const codes = initFindings(sentences, [[4, 7]]).map((finding) => finding.code);
   assert.deepEqual(codes, ['empty-sentence', 'duplicate-sentence', 'non-english']);
@@ -104,10 +106,10 @@ test('a condition word without a second clause is a warning', () => {
   assert.equal(findings.every((finding) => finding.severity === 'warning'), true);
 });
 
-test('unchanged text keeps its id and a removed sentence becomes stale', () => {
+test('unchanged text keeps its id and a removed sentence becomes a tombstone', () => {
   const previous = [
-    draftSentence('s1', 'The customer submits an order.', 'current', [0, 32]),
-    draftSentence('s2', 'The manager approves it.', 'current', [33, 57]),
+    draftSentence('s1', 'The customer submits an order.', [0, 32]),
+    draftSentence('s2', 'The manager approves it.', [33, 57]),
   ];
   const tagged: TaggedSentence[] = [{
     id: 's1',
@@ -126,22 +128,47 @@ test('unchanged text keeps its id and a removed sentence becomes stale', () => {
   const moved: SentenceDraft = {
     text: 'The customer submits an order.',
     span: [10, 42],
-    hash: previous[0]?.hash ?? '',
+    hash: previous[0]?.original?.hash ?? '',
     section: 'Orders',
   };
-  const applied = applySpecText(previous, tagged, [moved]);
-  assert.deepEqual(applied.sentences.map((sentence) => [sentence.id, sentence.status, sentence.span[0]]), [
-    ['s1', 'current', 10],
-    ['s2', 'stale', 33],
+  const applied = applySpecText(previous, tagged, [moved], AT);
+  assert.deepEqual(applied.sentences.map((sentence) => [sentence.id, sentenceState(sentence), sentence.original?.span[0]]), [
+    ['s1', 'original', 10],
+    ['s2', 'deleted', 33],
   ]);
-  assert.equal(applied.tagged[0]?.status, 'current');
+  assert.deepEqual(sentenceFindings(applied.sentences).map((finding) => finding.code), ['removed-sentence']);
   assert.deepEqual(applied.tagged[0]?.tokens[0]?.span, [14, 22]);
-  const again = applySpecText(applied.sentences, applied.tagged, [moved]);
-  assert.deepEqual(again.sentences.map((sentence) => [sentence.id, sentence.status]), [
-    ['s1', 'current'],
-    ['s2', 'stale'],
+  const again = applySpecText(applied.sentences, applied.tagged, [moved], AT);
+  assert.deepEqual(again.sentences.map((sentence) => [sentence.id, sentenceState(sentence)]), [
+    ['s1', 'original'],
+    ['s2', 'deleted'],
   ]);
+  assert.equal(again.sentences[1]?.history.length, 1);
   assert.deepEqual(again.tagged[0]?.tokens[0]?.span, [14, 22]);
+});
+
+test('an edited sentence whose original leaves the file is a conflict, and new text gets a fresh id', () => {
+  const edited = draftSentence('s1', 'The customer submits an order.', [0, 32]);
+  edited.latest = { text: 'The customer submits a big order.', span: [0, 35], hash: 'hash:big', section: '' };
+  edited.history.push({ at: AT, who: 'agent', reason: 'size matters', value: edited.latest });
+  const changed: SentenceDraft = { text: 'The customer submits two orders.', span: [0, 32], hash: 'hash:two', section: '' };
+  const applied = applySpecText([edited], [], [changed], AT);
+  assert.deepEqual(applied.sentences.map((sentence) => [sentence.id, sentenceState(sentence), sentence.latest?.text]), [
+    ['s1', 'edited', 'The customer submits a big order.'],
+    ['s2', 'original', 'The customer submits two orders.'],
+  ]);
+  assert.deepEqual(sentenceFindings(applied.sentences).map((finding) => [finding.code, finding.kind]), [['original-changed', 'conflict']]);
+  const again = applySpecText(applied.sentences, [], [changed], AT);
+  assert.equal(again.sentences.find((sentence) => sentence.id === 's1')?.history.length, 2);
+});
+
+test('a deleted sentence keeps its tombstone when re-init still finds its original', () => {
+  const deleted = draftSentence('s1', 'The customer submits an order.', [0, 32]);
+  deleted.latest = null;
+  deleted.history.push({ at: AT, who: 'agent', reason: 'out of scope', value: null });
+  const draft: SentenceDraft = { text: 'The customer submits an order.', span: [0, 32], hash: deleted.original?.hash ?? '', section: '' };
+  const applied = applySpecText([deleted], [], [draft], AT);
+  assert.deepEqual(applied.sentences.map((sentence) => [sentence.id, sentenceState(sentence)]), [['s1', 'deleted']]);
 });
 
 test('data dir follows XDG, LOCALAPPDATA, and CLEW_DATA_DIR', () => {
@@ -152,15 +179,9 @@ test('data dir follows XDG, LOCALAPPDATA, and CLEW_DATA_DIR', () => {
   assert.equal(clewDataDir({ CLEW_DATA_DIR: '/override', XDG_DATA_HOME: '/xdg' }, 'linux', '/home/a'), '/override');
 });
 
-function draftSentence(id: string, text: string, status: Sentence['status'], span: [number, number] = [0, text.length]): Sentence {
-  return {
-    id,
-    text,
-    span,
-    hash: `hash:${text}`,
-    section: '',
-    origin: 'rule',
-    status,
-    sources: [],
-  };
+const AT = '2026-11-06T00:00:00.000Z';
+
+function draftSentence(id: string, text: string, span: [number, number] = [0, text.length]): Sentence {
+  const version = { text, span, hash: `hash:${text}`, section: '' };
+  return { id, original: version, latest: { ...version, span: [span[0], span[1]] }, history: [] };
 }

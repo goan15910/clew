@@ -1,6 +1,7 @@
 // Use case: draw the session draft graph for the inspector. Domain JSON stays read-only.
 import { draftChains, draftCharts, draftLabelModel } from '../domain/spec-graph-view.js';
 import { toWorkflowSetDraft } from '../domain/spec-graph.js';
+import { liveSentences } from '../domain/spec.js';
 import type { DraftGraphChartImage, DraftGraphImageDocument, DraftGraphWorkflowImage } from './documents.js';
 import { chartInteractive, workflowInteractive } from './interactive-graph.js';
 import type { GraphImageRenderer, SpecStore } from './ports.js';
@@ -29,7 +30,7 @@ export function viewSpecGraph(
     graph,
     snapshot.entities ?? [],
     snapshot.facts ?? [],
-    snapshot.sentences,
+    liveSentences(snapshot.sentences),
     snapshot.tagged,
     snapshot.spans ?? [],
   );

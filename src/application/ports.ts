@@ -84,6 +84,10 @@ export interface SpecTextSource {
   hash(text: string): string;
 }
 
+export interface SpecTextSink {
+  write(file: string, text: string): { ok: true } | { ok: false; message: string };
+}
+
 export interface SessionRef {
   id: string;
 }
