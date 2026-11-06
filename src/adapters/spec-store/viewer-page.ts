@@ -607,74 +607,149 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return response.json();
   }
 
-  function indexTagged() {
-    const map = new Map();
-    for (const row of state.tagged) map.set(row.id, row);
-    return map;
-  }
+  let indexes = null;
 
-  function indexConcepts() {
-    const map = new Map();
-    for (const concept of state.concepts) map.set(concept.id, concept);
-    return map;
-  }
-
-  function indexFrames() {
-    const map = new Map();
-    for (const frame of state.frames) map.set(frame.id, frame);
-    return map;
-  }
-
-  function indexSentences() {
-    const map = new Map();
-    for (const sentence of state.sentences) map.set(sentence.id, sentence);
-    return map;
-  }
-
-  function indexTokens() {
-    const map = new Map();
-    for (const row of state.tagged) {
-      for (const token of row.tokens || []) map.set(token.id, { token: token, sentenceId: row.id });
-    }
-    return map;
-  }
-
-  function indexSpans() {
-    const map = new Map();
-    for (const span of state.spans) map.set(span.id, span);
-    return map;
-  }
-
-  function tokenOrder() {
+  function rebuildIndexes() {
+    const tagged = new Map();
+    const concepts = new Map();
+    const frames = new Map();
+    const sentences = new Map();
+    const tokens = new Map();
+    const spans = new Map();
     const order = new Map();
-    let index = 0;
+    const spansBySentence = new Map();
+    const conceptsBySentence = new Map();
+    const framesBySentence = new Map();
+    const framesByConcept = new Map();
+    const tokenToSpan = new Map();
+    const regrouped = new Set();
+    const tokensByOrder = [];
+    let tokenIndex = 0;
     for (const row of state.tagged) {
+      tagged.set(row.id, row);
       for (const token of row.tokens || []) {
-        order.set(token.id, index);
-        index += 1;
+        tokens.set(token.id, { token: token, sentenceId: row.id });
+        order.set(token.id, tokenIndex);
+        tokensByOrder.push(token.id);
+        tokenIndex += 1;
       }
     }
-    return order;
+    for (const concept of state.concepts) concepts.set(concept.id, concept);
+    for (const frame of state.frames) {
+      frames.set(frame.id, frame);
+      let sentenceFrames = framesBySentence.get(frame.sentence);
+      if (!sentenceFrames) {
+        sentenceFrames = [];
+        framesBySentence.set(frame.sentence, sentenceFrames);
+      }
+      sentenceFrames.push(frame);
+    }
+    for (const sentence of state.sentences) sentences.set(sentence.id, sentence);
+    for (const span of state.spans) {
+      spans.set(span.id, span);
+      const sentenceId = sentenceIdOfToken(span.firstTokenId);
+      let list = spansBySentence.get(sentenceId);
+      if (!list) {
+        list = [];
+        spansBySentence.set(sentenceId, list);
+      }
+      list.push(span);
+      const first = order.get(span.firstTokenId);
+      const last = order.get(span.lastTokenId);
+      if (first !== undefined && last !== undefined) {
+        for (let at = first; at <= last; at += 1) {
+          const tokenId = tokensByOrder[at];
+          if (tokenId && !tokenToSpan.has(tokenId)) tokenToSpan.set(tokenId, span);
+        }
+      }
+    }
+    for (const [sentenceId, list] of spansBySentence) {
+      list.sort(function (left, right) {
+        return (order.get(left.firstTokenId) || 0) - (order.get(right.firstTokenId) || 0);
+      });
+      spansBySentence.set(sentenceId, list);
+    }
+    for (const frame of state.frames) {
+      for (const role of ["actor", "event", "object", "result"]) {
+        for (const ref of roleRefs(frame, role)) {
+          const span = spans.get(ref);
+          const id = ref.indexOf("concept:") === 0 ? ref : (span && span.entityId) || "";
+          if (!id) continue;
+          let list = framesByConcept.get(id);
+          if (!list) {
+            list = [];
+            framesByConcept.set(id, list);
+          }
+          list.push({ frame: frame, role: role });
+        }
+      }
+    }
+    for (const concept of state.concepts) {
+      const seen = new Set();
+      const members = sortedSpanIdsWith(spans, order, concept.members || []);
+      for (const member of members) {
+        const span = spans.get(member);
+        if (!span) continue;
+        const sentenceId = sentenceIdOfToken(span.firstTokenId);
+        if (seen.has(sentenceId)) continue;
+        seen.add(sentenceId);
+        let list = conceptsBySentence.get(sentenceId);
+        if (!list) {
+          list = [];
+          conceptsBySentence.set(sentenceId, list);
+        }
+        list.push({ concept: concept, member: member });
+      }
+    }
+    for (const grouping of state.groups) {
+      if (revisionState(grouping.history) === "refined") regrouped.add(grouping.span);
+    }
+    indexes = {
+      tagged: tagged,
+      concepts: concepts,
+      frames: frames,
+      sentences: sentences,
+      tokens: tokens,
+      spans: spans,
+      order: order,
+      spansBySentence: spansBySentence,
+      conceptsBySentence: conceptsBySentence,
+      framesBySentence: framesBySentence,
+      framesByConcept: framesByConcept,
+      tokenToSpan: tokenToSpan,
+      regrouped: regrouped,
+    };
   }
+
+  function sortedSpanIdsWith(spans, order, ids) {
+    function at(id) {
+      const span = spans.get(id);
+      const index = span ? order.get(span.firstTokenId) : undefined;
+      return index === undefined ? Number.MAX_SAFE_INTEGER : index;
+    }
+    return ids.slice().sort(function (left, right) { return at(left) - at(right); });
+  }
+
+  function ensureIndexes() {
+    if (!indexes) rebuildIndexes();
+    return indexes;
+  }
+
+  function indexTagged() { return ensureIndexes().tagged; }
+  function indexConcepts() { return ensureIndexes().concepts; }
+  function indexFrames() { return ensureIndexes().frames; }
+  function indexSentences() { return ensureIndexes().sentences; }
+  function indexTokens() { return ensureIndexes().tokens; }
+  function indexSpans() { return ensureIndexes().spans; }
+  function tokenOrder() { return ensureIndexes().order; }
 
   function sentenceIdOfToken(tokenId) {
     const dot = tokenId.indexOf(".");
     return dot > 0 ? tokenId.slice(0, dot) : "";
   }
 
-  function spanCoversToken(span, tokenId, order) {
-    const first = order.get(span.firstTokenId);
-    const last = order.get(span.lastTokenId);
-    const at = order.get(tokenId);
-    return first !== undefined && last !== undefined && at !== undefined && at >= first && at <= last;
-  }
-
   function spanForToken(tokenId) {
-    const order = tokenOrder();
-    for (const span of state.spans) {
-      if (spanCoversToken(span, tokenId, order)) return span;
-    }
-    return null;
+    return ensureIndexes().tokenToSpan.get(tokenId) || null;
   }
 
   function spanCharRange(span) {
@@ -686,10 +761,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function sentenceById(id) {
-    for (const sentence of state.sentences) {
-      if (sentence.id === id) return sentence;
-    }
-    return null;
+    return indexSentences().get(id) || null;
   }
 
   function matchesText(haystacks) {
@@ -950,14 +1022,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function sortedSpanIds(ids) {
-    const spans = indexSpans();
-    const order = tokenOrder();
-    function at(id) {
-      const span = spans.get(id);
-      const index = span ? order.get(span.firstTokenId) : undefined;
-      return index === undefined ? Number.MAX_SAFE_INTEGER : index;
-    }
-    return ids.slice().sort(function (left, right) { return at(left) - at(right); });
+    return sortedSpanIdsWith(indexSpans(), tokenOrder(), ids);
   }
 
   function frameDependsOn(frame) {
@@ -1070,9 +1135,18 @@ details.lineage[open] > summary::before { content: "▾ "; }
   function conceptLineage(concept) {
     const rows = [];
     appendSpanSources(rows, sortedSpanIds(concept.members || []));
-    for (const frame of state.frames) {
-      const roles = conceptRoles(frame, concept.id);
-      if (roles.length) rows.push(frameRow(frame, roles.join(" · ")));
+    const linked = ensureIndexes().framesByConcept.get(concept.id) || [];
+    const rolesByFrame = new Map();
+    for (const entry of linked) {
+      const list = rolesByFrame.get(entry.frame.id) || [];
+      if (list.indexOf(entry.role) < 0) list.push(entry.role);
+      rolesByFrame.set(entry.frame.id, list);
+    }
+    for (const entry of linked) {
+      if (!rolesByFrame.has(entry.frame.id)) continue;
+      const roles = rolesByFrame.get(entry.frame.id);
+      rolesByFrame.delete(entry.frame.id);
+      rows.push(frameRow(entry.frame, roles.join(" · ")));
     }
     return lineageBlock(rows);
   }
@@ -1093,24 +1167,20 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return part("ref", source);
   }
 
-  function spanInSentence(spanId, sentenceId) {
-    const span = indexSpans().get(spanId);
-    return Boolean(span) && sentenceIdOfToken(span.firstTokenId) === sentenceId;
-  }
-
   function sentenceLineage(sentence) {
     const rows = [];
-    for (const concept of state.concepts) {
-      const member = sortedSpanIds(concept.members || []).find(function (id) { return spanInSentence(id, sentence.id); });
-      if (member) {
-        rows.push({
-          layer: "concept",
-          text: concept.id + " via " + member,
-          bits: [part("id", concept.id), part("note", "via"), viaPart(member)],
-        });
-      }
+    const linked = ensureIndexes().conceptsBySentence.get(sentence.id) || [];
+    const seen = new Set();
+    for (const entry of linked) {
+      if (seen.has(entry.concept.id)) continue;
+      seen.add(entry.concept.id);
+      rows.push({
+        layer: "concept",
+        text: entry.concept.id + " via " + entry.member,
+        bits: [part("id", entry.concept.id), part("note", "via"), viaPart(entry.member)],
+      });
     }
-    const frames = state.frames.filter(function (frame) { return frame.sentence === sentence.id; });
+    const frames = ensureIndexes().framesBySentence.get(sentence.id) || [];
     for (const frame of frames) rows.push(frameRow(frame, frameKind(frame)));
     for (const frame of frames) {
       for (const transition of frameTransitions(frame.id)) rows.push(transitionRow(transition));
@@ -1257,7 +1327,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function conceptMembers(concept) {
-    const spans = indexSpans();
+    const spans = ensureIndexes().spans;
     return (concept.members || []).map(function (id) {
       const span = spans.get(id);
       return { span: id, surface: span ? span.surface : id, sentence: span ? sentenceIdOfToken(span.firstTokenId) : "" };
@@ -1265,15 +1335,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function regroupedSpans() {
-    const spans = new Set();
-    for (const grouping of state.groups) {
-      if (revisionState(grouping.history) === "refined") spans.add(grouping.span);
-    }
-    return spans;
+    return ensureIndexes().regrouped;
   }
 
   function renderConcepts() {
     const conceptFilter = els.concept.value;
+    const regroupedIds = regroupedSpans();
     const visible = state.concepts.filter(function (concept) {
       if (conceptFilter && concept.id !== conceptFilter) return false;
       const members = conceptMembers(concept);
@@ -1294,7 +1361,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
         pill(members.length === 1 ? "1 member" : members.length + " members") + "</h2>" +
         '<p class="blurb">' + esc(concept.canonical) + "</p>" +
         '<p class="members">' + members.map(function (member) {
-          const regrouped = regroupedSpans().has(member.span);
+          const regrouped = regroupedIds.has(member.span);
           return '<span class="member' + (regrouped ? " regrouped" : "") + '" data-span="' + esc(member.span) + '"><code class="member-span" title="' + esc(member.span) + '">' +
             esc(member.surface) + '</code><span class="member-sentence">' + esc(member.sentence) + "</span>" +
             (regrouped ? pill("regrouped", "warn") : "") + "</span>";
@@ -1396,12 +1463,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   function spansForSentence(sentenceId) {
-    const order = tokenOrder();
-    return state.spans.filter(function (span) {
-      return sentenceIdOfToken(span.firstTokenId) === sentenceId;
-    }).sort(function (left, right) {
-      return (order.get(left.firstTokenId) || 0) - (order.get(right.firstTokenId) || 0);
-    });
+    return ensureIndexes().spansBySentence.get(sentenceId) || [];
   }
 
   function glossHtml(sentence, spans) {
@@ -1597,6 +1659,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
   }
 
   let graphTicket = 0;
+  let loadTicket = 0;
 
   function loadGraphView() {
     const ticket = ++graphTicket;
@@ -1855,26 +1918,57 @@ details.lineage[open] > summary::before { content: "▾ "; }
     }
   }
 
+  function loadDeferred(ticket) {
+    loadJson("${CLAUSE_REACH_FILE}").then(function (reachFile) {
+      if (ticket !== loadTicket) return;
+      state.reach = (reachFile && reachFile.frames) || {};
+      if (state.tab === "frames") render();
+    }).catch(function () {
+      if (ticket !== loadTicket) return;
+      state.reach = {};
+    });
+    loadJson("graph.json").then(function (graph) {
+      if (ticket !== loadTicket) return;
+      state.graph = graph;
+      if (state.tab === "frames" || state.tab === "sentences" || state.tab === "concepts") render();
+    }).catch(function () {
+      if (ticket !== loadTicket) return;
+      state.graph = null;
+    });
+    loadGraphView();
+  }
+
   async function loadSession() {
+    const ticket = ++loadTicket;
     try {
       const session = await loadJson("session.json");
       if (!session) throw new Error("session.json is missing");
+      if (ticket !== loadTicket) return;
       state.session = session;
-      const sentencesFile = await loadJson("sentences.json");
+      const files = await Promise.all([
+        loadJson("sentences.json"),
+        loadJson("tokens.json"),
+        loadJson("spans.json"),
+        loadJson("concepts.json"),
+        loadJson("frames.json"),
+      ]);
+      if (ticket !== loadTicket) return;
+      const sentencesFile = files[0];
+      const tokensFile = files[1];
+      const spansFile = files[2];
+      const conceptsFile = files[3];
+      const framesFile = files[4];
       state.sentences = ((sentencesFile && sentencesFile.sentences) || []).map(sentenceView);
-      const tokensFile = await loadJson("tokens.json");
       state.tagged = (tokensFile && tokensFile.sentences) || [];
-      const spansFile = await loadJson("spans.json");
       state.spans = (spansFile && spansFile.spans) || [];
-      const conceptsFile = await loadJson("concepts.json");
       state.concepts = (conceptsFile && conceptsFile.concepts) || [];
       state.groups = (conceptsFile && conceptsFile.groups) || [];
-      const framesFile = await loadJson("frames.json");
       state.frames = (framesFile && framesFile.frames) || [];
-      const reachFile = await loadJson("${CLAUSE_REACH_FILE}");
-      state.reach = (reachFile && reachFile.frames) || {};
-      state.graph = await loadJson("graph.json");
-      const graphReady = loadGraphView();
+      state.reach = {};
+      state.graph = null;
+      state.graphView = null;
+      state.graphStatus = "loading";
+      rebuildIndexes();
       setSessionOptions(Array.from(els.sessionId.options, function (opt) { return opt.value; })
         .filter(function (id) { return id !== "…"; }), session.id);
       els.meta.textContent = state.sentences.length + " sentences · " +
@@ -1887,8 +1981,10 @@ details.lineage[open] > summary::before { content: "▾ "; }
       els.banner.textContent = "Session updated " + localTime(session.updated) + " · loaded " + localTime(new Date());
       els.banner.classList.remove("error");
       render();
-      await graphReady;
+      // Yield so the first paint can commit before the heavy clause-reach request.
+      setTimeout(function () { loadDeferred(ticket); }, 0);
     } catch (error) {
+      if (ticket !== loadTicket) return;
       els.banner.textContent = "Could not load session JSON. Open this page through clew spec view --open (localhost), not as a file:// URL. " +
         (error && error.message ? error.message : String(error));
       els.banner.classList.add("error");

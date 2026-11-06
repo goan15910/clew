@@ -190,6 +190,13 @@ export function serveSessionViewer(sessionDir: string): Promise<SessionViewerSer
       return;
     }
     if (overlaySession !== undefined) {
+      const overlayDir = overlaySession === basename(root) ? root : join(specDir, overlaySession);
+      const hasOverlay = existsSync(join(overlayDir, 'flows.json')) || existsSync(join(overlayDir, 'graph.json'));
+      if (!hasOverlay) {
+        response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        response.end('not found');
+        return;
+      }
       const loaded = jsonSpecStore.update(overlaySession, { create: false }, () => undefined);
       if (!loaded.ok || loaded.snapshot.graph === undefined) {
         response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
