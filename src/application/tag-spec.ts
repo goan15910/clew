@@ -1,6 +1,6 @@
 // Use case: tag current sentences through PosTaggerPort and store the tokens.
-import { reconcileEntities, sameEntities } from '../domain/spec-entities.js';
-import { reconcileFacts, sameFacts } from '../domain/spec-facts.js';
+import { sameConcepts } from '../domain/spec-concepts.js';
+import { rebuildLayers, sameFrames } from '../domain/spec-frames.js';
 import { replaceSentenceSpans, sameSpans, validatePartition } from '../domain/spec-spans.js';
 import { markSkippedTokens } from '../domain/spec-stop-words.js';
 import {
@@ -91,15 +91,14 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       findings = produced;
       return undefined;
     }
-    const entities = current.entities === undefined ? undefined : reconcileEntities(liveSentences(current.sentences), spans, current.entities);
-    const facts = current.facts === undefined ? undefined : reconcileFacts(liveSentences(current.sentences), spans, entities ?? [], current.facts);
+    const layers = rebuildLayers(liveSentences(current.sentences), spans, current);
     const taggerSame = current.tagger !== undefined && current.tagger.name === tagger.name && current.tagger.version === tagger.version;
     if (
       sameTagged(current.tagged, tagged)
       && taggerSame
-      && sameSpans(current.spans, spans)
-      && sameEntities(current.entities, entities)
-      && sameFacts(current.facts, facts)
+      && sameSpans(current.spans, layers.spans)
+      && sameConcepts(current.concepts, layers.concepts)
+      && sameFrames(current.frames, layers.frames)
     ) {
       return undefined;
     }
@@ -113,10 +112,10 @@ export function tagSpec(command: TagSpecCommand, store: SpecStore, tagger: PosTa
       updated: now,
       sentences: current.sentences,
       tagged,
-      spans,
+      spans: layers.spans,
     };
-    if (entities !== undefined) snapshot.entities = entities;
-    if (facts !== undefined) snapshot.facts = facts;
+    if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+    if (layers.frames !== undefined) snapshot.frames = layers.frames;
     if (current.graph !== undefined) snapshot.graph = current.graph;
     const before: string[] = [];
     const after: string[] = [];

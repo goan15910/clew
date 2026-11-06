@@ -20,7 +20,7 @@ Nested and parallel states are out of scope. Zod runs only while reading a YAML 
 
 **`machineId` is not compared.** It was removed. The workflow set has its own `id`. `verify` does not compare that id to the chart id.
 
-**A noun is an actor only when the tagger tags it `Actor`.** A noun tagged only `Noun` stays an object, and the sentence gets `no-actor`. Clew does not guess the grammatical subject, and it does not invent an actor entity. Propose still mints the ActionFact or forbidden fact, with actor `actor:unspecified`, and records `action-without-actor`. Overlay and emit tolerate that sentinel id. The agent promotes a real noun with `spec entities promote --id <id> --kind actor`.
+**Concepts carry no kind; a frame's roles do.** A concept is a canonical word and the spans that say it. Whether `customer` is an actor or an object depends on where it sits in a clause, so that is a frame role, not a concept property. A role Clew cannot read is `unknown`. Clew does not invent an actor. A frame with an unknown actor still compiles, without an actor.
 
 ## Commands
 
@@ -40,15 +40,8 @@ clew spec sentences add --text <sentence> [--after <id>] --reason <text> [--by <
 clew spec sentences edit --id <id> --text <sentence> --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
 clew spec sentences delete --id <id> --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
 clew spec export [--version original|latest] (--out <file> | --dry-run) [--session <id>] [--json]
-clew spec entities list [--kind actor] [--status candidate] [--session <id>] [--json]
-clew spec entities merge --into <id> --id <id> [--session <id>] [--json]
-clew spec entities rename --id <id> (--name <name> | --text <text>) [--session <id>] [--json]
-clew spec entities reject --id <id> [--reason <text>] [--session <id>] [--json]
-clew spec entities promote --id <id> [--kind actor] [--session <id>] [--json]
-clew spec facts propose [--sentence <id>] [--session <id>] [--json]
-clew spec facts add (--kind <kind> ... | --from <file.json>) [--session <id>] [--json]
-clew spec facts edit (--id <id> ... | --from <file.json>) [--session <id>] [--json]
-clew spec facts remove (--id <id> ... | --from <file.json>) [--session <id>] [--json]
+clew spec concepts list [--session <id>] [--json]
+clew spec frames list [--sentence <id>] [--session <id>] [--json]
 clew spec graph build [--session <id>] [--json]
 clew spec graph split (--id <id> --at <edge> | --from <file.json>) [--session <id>] [--json]
 clew spec graph group (--id <id> --id <id> | --transition <id> --transition <id> | --from <file.json>) [--title <text>] [--into <id>] [--session <id>] [--json]
@@ -57,8 +50,8 @@ clew spec trace <id> [--session <id>] [--json]
 clew spec status [--session <id>] [--json]
 clew spec show tagged [--session <id>] [--json]
 clew spec show tokens [--session <id>] [--json]
-clew spec show entities [--session <id>] [--json]
-clew spec show facts [--session <id>] [--json]
+clew spec show concepts [--session <id>] [--json]
+clew spec show frames [--session <id>] [--json]
 clew spec view <session-id> [--open] [--json]
 clew spec session list [--json]
 clew spec session remove <id> [--json]
@@ -82,17 +75,17 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec entities` and `spec facts` turn those tokens into candidates and typed claims. `spec graph build` assembles a draft graph and proposes one path per transition, plus one rejected path per forbidden fact. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec concepts list` groups the spans into concepts, and `spec frames list` reads one clause frame per clause and compiles it. `spec graph build` assembles a draft graph from the compiled frames and proposes one path per transition, plus one rejected path per forbidden frame. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
 Running `spec init` again with the same session id refreshes that session. Without `--session`, the id is the spec file's basename, so two files with the same basename share a session unless one is given `--session`. Each sentence keeps `original` (the file text), `latest` (the text every later layer reads), and `history`. Unchanged original text keeps its id. A sentence nobody revised follows the file: when its text leaves the file it becomes a tombstone (`latest: null`) with a `removed-sentence` warning, and it is revived when the same text comes back. A sentence an agent or person revised keeps its `latest`. When its original leaves the file, Clew records that once in the history and reports `original-changed`. New text gets a new id; ids are never reused. Token spans shift if the text moved in the file.
 
-`spec sentences add`, `edit`, and `delete` write `latest`. Every write needs `--reason`, records `--by` (default `agent`), and takes an optional `--finding` id and `--comment`. `add --after <id>` places the sentence; without it the sentence goes last. `--text` must be exactly one sentence. Delete leaves a tombstone. An edit or add re-tags that sentence when the session is tagged, and rebuilds its spans, entities, and facts.
+`spec sentences add`, `edit`, and `delete` write `latest`. Every write needs `--reason`, records `--by` (default `agent`), and takes an optional `--finding` id and `--comment`. `add --after <id>` places the sentence; without it the sentence goes last. `--text` must be exactly one sentence. Delete leaves a tombstone. An edit or add re-tags that sentence when the session is tagged, and rebuilds its spans, concepts, and frames.
 
 `spec export` writes the `original` or `latest` (default) sentences as Markdown, one paragraph per sentence under its section headings, so `spec init` reads the export back as the same sentences. It takes exactly one of `--out <file>` and `--dry-run`; `--dry-run` puts the Markdown in the document's `text`.
 
-`spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A tag history line lists sentence ids: `before` is the targeted sentences that already had current tokens, and `after` is every targeted sentence id. The first tag has an empty `before`. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. Entity and fact edits are what set `origin` to `agent`.
+`spec tag` runs the part-of-speech tagger on the current sentences. `--sentence s3` tags only that sentence. The tagger is compromise, behind `PosTaggerPort`. `src/adapters/pos/compromise-tagger.ts` is the only file that imports it. The document names the tagger and its version. Running `tag` twice with the same tagger and the same sentences does not change the store. A tag history line lists sentence ids: `before` is the targeted sentences that already had current tokens, and `after` is every targeted sentence id. The first tag has an empty `before`. A token whose `origin` is `agent` is not overwritten; a disagreement is a `conflict` finding. Span edits are what set `origin` to `agent`. Each verb token also stores `lemma` and `participle`, both from compromise. A contraction such as "cannot" keeps the tags of its implied word, so it is `Negative`.
 
 `--session` selects a session. When it is omitted, Clew uses the only open session. Zero sessions, or more than one, is exit 2.
 
@@ -103,8 +96,8 @@ spec/<session-id>/
   session.json
   sentences.json
   tokens.json
-  entities.json
-  facts.json
+  concepts.json
+  frames.json
   flows.json
   history.jsonl
   viewer.html
@@ -112,17 +105,17 @@ spec/<session-id>/
 
 `<session-id>` defaults to the spec file’s basename. Older Clew versions kept one store per project under `<project-key>/spec/`. The first command that opens the store moves those sessions into `spec/` and drops the spec path they recorded. When two projects have a session with the same id, one is kept and the other is dropped. Clew holds a lock only while a command writes the session, and removes that lock before the command exits. The lock is not a file that stays in the session. A lock whose process is gone is taken over. A live lock is exit 2.
 
-`spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Facts, Entities, Sentences, and Graph tabs. Facts, Entities, and Sentences have collapsed lineage drawers. Filters cover entity kind, fact type, fact status, and text search, and they apply to Facts, Entities, and Sentences. The Graph tab draws the session draft graph and the workflows that graph can render, as images. It needs Graphviz (`dot`) on the machine serving the page. The page does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
+`spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Frames, Concepts, Sentences, Span, and Graph tabs. A Frames card shows the frame id, its sentence, `marker`, `negated`, and `not a transition` pills (with the reason), an `incomplete` pill when a transition frame's event, object, or result is unknown, the clause text, and the five roles with their latest value (or `unknown`) and `dependsOn` span ids. When a graph transition or a forbidden flow cites the frame, the card shows that transition's event, `from`, and `to`, or the flow. A Concepts card shows the concept id, its canonical word, and its member spans with each span's surface and sentence id. Frames, Concepts, and Sentences have collapsed lineage drawers that link sentence, span, concept, frame, and graph rows: a frame lists its `dependsOn` spans marked in its sentence, the concepts its roles cite, the frames its `when` cites and the frames whose `when` cites it, and the transitions, states, and flows that cite it; a concept lists its member spans and the frames whose roles cite it; a sentence lists its concepts, its frames, and their transitions. Text search applies to every card tab. The Frame filter (`transition`, `not a transition`, `negated`, `incomplete`) applies to Frames and to Sentences (a sentence with a matching frame). The Concept filter applies to Frames (a role cites it), Concepts, and Sentences (a span links to it). The Span filter applies to Sentences and Span. The Graph tab draws the session draft graph and the workflows that graph can render, as images. It needs Graphviz (`dot`) on the machine serving the page. The page does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
 
-Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `entities.json`, `facts.json`, and `flows.json`. The Graph tab requests `graph.json` and `draft-graph.json`. The server unfolds those responses when the page asks, and does not write them into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
+Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `spans.json`, `concepts.json`, `frames.json`, and `flows.json`. Lineage requests `graph.json`, and the Graph tab requests `draft-graph.json`. The server unfolds those responses when the page asks, and does not write them into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
 
-`spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, facts, and flows. A live sentence has `latest` text. A live fact is current and is not a removed tombstone. Flows are the paths stored in `flows.json`; a session with no overlay counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
+`spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, frames, and flows. A live sentence has `latest` text. A frame counts unless it is marked not a transition. Flows are the paths stored in `flows.json`; a session with no overlay counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
 
 `spec session remove <id>` deletes that session directory and nothing else. An unknown id is exit 2. A live lock is exit 2 and the directory stays. A lock whose process is gone is taken over, the same way as any other write, and then the directory is deleted. The id is one session name: a letter, then letters, digits, underscores, or hyphens. `..`, a slash, or any other unsafe id is exit 2. Clew deletes the directory only when its real path is `<spec-root>/<id>`. A symlink is left in place. Sessions for other repos are not touched.
 
-`history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, propose records live fact ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec facts propose`, and `spec graph build` have an empty `before`.
+`history.jsonl` records each write. `before` is the ids that existed before the write, and `after` is the ids after it. Tag records sentence ids, concepts list records concept ids, frames list records frame ids, and graph build, split, and group record flow ids. The first `spec tag`, `spec concepts list`, `spec frames list`, and `spec graph build` have an empty `before`.
 
-`session.json` carries `schemaVersion`. This Clew reads schema 4. A different version is exit 2 with no migration — drop the old session and re-run `clew spec init` / `tag`. The store adapter is the only place that validates that JSON with Zod.
+`session.json` carries `schemaVersion`. This Clew reads schema 5. A different version is exit 2 with no migration — drop the old session and re-run `clew spec init` / `tag`. The store adapter is the only place that validates that JSON with Zod.
 
 Every spec document has `findings`. A finding is `{ id, kind, code, severity, message, refs }`. `kind` is `gap`, `conflict`, `stale`, `vocabulary`, or `coverage`. `severity` is `blocking`, `warning`, or `info`. `ok` means the layer was produced. It stays true when findings are present. Exit 0 means no blocking finding. Exit 1 means a blocking finding is in the document, and stderr stays empty. Warnings and info do not change the exit code.
 
@@ -150,109 +143,71 @@ Latin-script languages are not detected. Translate those to plain English before
 | `tagger-version` | info | the stored tagger version differs from this one |
 | `removed-sentence`, `original-changed` | warning | the same sentence findings as `spec init` |
 
-`spec entities list` derives candidates from the current tokens and writes them the first time. Running it again, when nothing changed, does not append history. `--kind` and `--status` filter the document. There is no separate extract command. Actor-tagged nouns become actors. A noun the tagger does not tag `Actor` is not promoted to an actor. Other nouns become objects, except pronouns, currency, units, determiners, and values, so "dollars" is skipped. Verbs become actions, except copulas, auxiliaries, and modals. An adjectival verb between a determiner and a noun ("a shipped order") is not an action. A sentence-initial “When” is a condition only when its clause has no content verb; mid-sentence if, when, and unless are conditions. Same-lemma nouns merge. A single token stays `origin: tagger`. Two sources of the same lemma are `origin: rule`.
+`spec concepts list` groups the live spans into concepts and writes `concepts.json` the first time. Running it again, when nothing changed, does not append history. A concept is `{ id, canonical, members }`: `concept:<canonical>`, the canonical word, and the span ids that say it. It has no kind. A content verb's canonical word is its compromise lemma. A noun's is its singular. An adjective keeps its lower-cased surface. Values, units, currency, determiners, prepositions, pronouns, auxiliaries, and insignificant spans name no concept, so "dollars" and "it" are skipped. The same word maps to the same concept. A span whose link an agent or person set keeps that link. Each span's `entityId` holds its concept id. The document lists each concept with its members as `{ span, surface, sentence }`.
 
-`spec entities list` findings:
+`spec frames list` reads one clause frame per clause and writes `frames.json`. It derives concepts first when they are missing. `--sentence s1` limits the document, and its findings, to that sentence; the store still holds every frame. Running it again, when nothing changed, does not append history. A frame id is `fr:<first token id>` (`fr:s1.t7`). A frame has `sentence`, `clause` (`text`, `start`, `end`), an optional `marker` (`when`, `if`, `unless`, `after`, `before`, `once`, or `then`), `negated: true` when the clause says not, never, no, or a negative contraction, and `notTransition: { reason }` when the clause has no content verb. Its `roles` are `actor`, `event`, `object`, `result`, and `when`. Each role is a field `{ original, latest, history }`. A version is `{ value, dependsOn }`: `value` is `unknown` or `{ text, refs }`, and `dependsOn` lists the span ids it was read from. `history` entries are `{ at, who, reason, finding?, comment?, value }`.
 
-| Code | Severity | When |
-|---|---|---|
-| `unreviewed` | warning | a candidate has not been confirmed or rejected |
-| `near-duplicate` | warning | two live names of the same kind differ by one edit, and both are at least four letters |
-| `agent-entity` | warning | an agent-owned entity disagrees with the tokens and was left in place |
+Roles are read by position. The event is the first content verb that is not adjectival ("a shipped order" is not an event). The actor is the last noun before it, and the object is the first noun after it, up to as, into, a condition marker, or then. A clause with only one noun reads it as the object. A passive verb takes the noun before it as the object and the noun after "by" as the actor. A clause that starts with and, or, or then, and has no actor, inherits the previous frame's actor. An object pronoun ("it", "them") after the event takes the previous frame's object in the same sentence, and the pronoun span joins its `dependsOn`. The result is the concept after "as" or "into", otherwise the event's compromise past participle (`approved`). `when` lists the condition frames and earlier frames this one waits on. A condition clause attaches to the next transition clause, or to the previous one when it comes last. A `then` clause waits on the frame before it, across sentences.
 
-`spec entities merge` keeps `--into` and folds each `--id` into it. The ids must be the same kind, and the target must not be rejected. `rename` takes `--name` for an actor, object, or action, and `--text` for a condition. A name that is not workflow vocabulary is blocking and is not written. A name that only needs kebab-case is written, with an info `normalized-name` finding. `reject` sets `status: rejected`, keeps `origin`, and stores `note` as `agent: <reason>` when a reason is given. Facts that cite it become stale. `promote` confirms the entity. `--kind` changes the id prefix for actor, object, and action. A condition cannot change kind.
+Each frame compiles into the spec. An object becomes the atom var `<object>_status`, starting at `null`. The event becomes `UPPER_SNAKE` (`APPROVE`), and the action assigns the result. A `when` ref to a frame on the same object sets `from` to that frame's result. A ref to another object adds an equality on that object's result. A ref to a not-a-transition frame becomes the boolean var `cond_<sentence>_<token>` (`cond_s1_t12`), true for if and when, false for unless; the guard is `condition:cond_s1_t12`. A negated frame compiles to a forbidden item instead of an action. A frame with an unknown actor compiles without one. A frame that restates an earlier frame (same kind, object, event, from, result, and guard) adds nothing. Clew does not propose init or terminal marks, so every object starts at `null`. Each document frame that compiles carries `compiled` (`kind`, `event`, `object`, `from`, `to`, `actor`); a restating frame shows the earlier frame's.
 
-`spec entities` edit findings:
+`spec frames list` findings:
 
 | Code | Severity | When |
 |---|---|---|
-| `merge-across-kinds` | blocking | a merge or a `--kind` change crosses kinds, including a condition |
-| `rejected-entity` | blocking | the merge target is rejected |
-| `vocabulary` | blocking | the new name cannot be workflow vocabulary |
-| `duplicate-entity` | blocking | the new id already exists |
-| `normalized-name` | info | the written name was normalized |
-| `stale-fact` | warning | rejecting an entity marked the facts that cite it stale |
+| `frame-missing-event` | warning | a transition frame has no event |
+| `frame-missing-object` | warning | a transition frame has no object, for example "ships it" |
+| `frame-missing-result` | warning | a transition frame has no result |
+| `value-never-assigned` | warning | a guard checks a value that no action assigns, such as a condition var |
 
-`spec entities list` and every entity edit (`merge`, `rename`, `reject`, `promote`) also run `rebuildFacts` in the same store write, so facts follow the live entities. `spec facts propose` is the same rebuild, invoked on its own. It does not overwrite `origin: agent`. A disagreement is `agent-fact`. Running it again, when nothing changed, does not append history. `--sentence s1` limits the proposal to that sentence.
+`spec trace <id>` walks provenance. It resolves a concept id (`concept:order`) first, then a transition id, then a frame id, a token id, a sentence id, and a flow id (`W1`). Graph transitions use their frame id (`fr:s1.t7`), so a transition walks to its frames, their concepts, their tokens, and the sentence. A concept walks its member tokens and their sentences. A state walks the frames that reach or leave it. A chain with no sentence also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
 
-Facts are a discriminated union. An `action` fact has `event` (UPPER_SNAKE from the action lemma), `actor`, `when` (a predicate), and a non-empty `assign` patch. `init`, `terminal`, and `forbidden` are configuration facts over a predicate or an attempted assign. There is no `performs` / `transition` / `guard` join by action name, and no vocabulary `from` / `to` location strings. Object vars start as `null` until assigned. A later action in the same sentence takes the previous assign as `when`. Condition entities become boolean vars (`eq c1 true`), so the false value is the else. The assign atom is the action lemma (`submit`, `ship`, `cancel`), not a past participle. Negation emits `forbidden` instead of an action. A frame with no Actor tag still mints the fact, with actor `actor:unspecified`, and keeps the `action-without-actor` warning. Passive voice takes the noun before the verb as the object and the actor after “by”. `init` and `terminal` are not proposed. Removed facts stay in the store as tombstones (`removed: true`, `status: stale`, `origin: agent`) so a later propose does not recreate that signature. Documents omit removed facts. Adding a fact with a removed signature revives that id. Adding a live duplicate signature is a blocking `contradicting-facts` finding and does not write.
+`spec show sentences`, `spec show tagged`, `spec show tokens`, `spec show spans`, `spec show concepts`, and `spec show frames` print one stored layer. The command values are `spec.show.sentences`, `spec.show.tagged`, `spec.show.tokens`, `spec.show.spans`, `spec.show.concepts`, and `spec.show.frames`.
 
-`spec facts add`, `edit`, and `remove` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. `--kind` is `action`, `init`, `terminal`, or `forbidden`. `--when` and `--assign` are JSON. `--from` is only the patch file. `--source` and `--id` are repeatable on the commands that accept them. Confidence is a number from 0 to 1. An edit sets confidence to 1 unless the patch sets it. An unknown fact id is exit 2. A well-formed entity id that is not in the session is a blocking finding, not an input issue.
-
-`spec facts propose` findings:
-
-| Code | Severity | When |
-|---|---|---|
-| `unused-entity` | warning | a live entity is not cited by a current fact |
-| `action-without-actor` | warning | a frame has an action and no actor |
-| `action-without-object` | warning | a frame has an action and no object |
-| `guard-without-action` | warning | a condition does not attach to an action |
-| `agent-fact` | warning | an agent-owned fact disagreed with the proposal and was kept |
-| `contradicting-facts` | warning | live facts disagree, for example two transitions of the same object and action |
-
-`spec facts add` and `edit` findings:
-
-| Code | Severity | When |
-|---|---|---|
-| `unknown-entity` | blocking | a fact cites an entity id that is not in the session |
-| `type-mismatch` | blocking | a fact is missing a field, or an entity has the wrong kind |
-| `rejected-entity` | blocking | a fact cites a rejected or stale entity |
-| `vocabulary` | blocking | a state name is not workflow vocabulary |
-| `normalized-name` | info | a state name was normalized |
-| `contradicting-facts` | blocking | the signature is already recorded by a live fact |
-
-`spec trace <id>` walks provenance. An overlay fact id (`f1`) that is also a transition, or a flow id (`W1`), is resolved first. Otherwise it walks a state, then facts, then entities, then tokens, then the sentence. An implied fact (no sources) still walks the entities it names, and it also reports `orphan`. An unknown id is exit 2. Trace does not write the store.
-
-`spec show sentences`, `spec show tagged`, `spec show tokens`, `spec show spans`, `spec show entities`, and `spec show facts` print one stored layer. The command values are `spec.show.sentences`, `spec.show.tagged`, `spec.show.tokens`, `spec.show.spans`, `spec.show.entities`, and `spec.show.facts`.
-
-`spec show sentences` works right after `spec init`. Each row has `id`, `text`, `section` (the heading path), `status`, and `workflows`. `workflows` lists the `id` and `title` of each draft-graph flow whose transitions or forbidden fact cite the sentence. It is empty until `spec graph build` writes flows. `spec show spans` lists the live span partition after `spec tag`. Each span has `id`, `sentence`, `surface`, and `tags` (the POS tags), plus its token cover, origin, and entity link. Every span view now carries `sentence`, including the spans in `spec tag` and `spec spans merge` output.
+`spec show sentences` works right after `spec init`. Each row has `id`, `text`, `section` (the heading path), `status`, and `workflows`. `workflows` lists the `id` and `title` of each draft-graph flow whose transitions or forbidden frame cite the sentence. It is empty until `spec graph build` writes flows. `spec show spans` lists the live span partition after `spec tag`. Each span has `id`, `sentence`, `surface`, and `tags` (the POS tags), plus its token cover, origin, and concept link (`entityId`). Every span view carries `sentence`, including the spans in `spec tag` and `spec spans merge` output.
 
 These commands leave the session and `history.jsonl` unchanged, and `updated` stays as it was. `findings` is always an empty list. `spec status` recomputes findings.
 
-Exit 0 means the requested layer has been written. An empty entity list and an empty fact list are written. Exit 2 means the layer has not been written, the session is missing, the session is locked, or the arguments are wrong. The exit is 0 or 2.
+Exit 0 means the requested layer has been written. An empty concept list and an empty frame list are written. Exit 2 means the layer has not been written, the session is missing, the session is locked, or the arguments are wrong. The exit is 0 or 2.
 
-The stderr message names only the first missing layer. Tagged sentences and unique tokens need the tag layer, and the message is `no tokens; run clew spec tag first`. Entities need that layer, then a written entity list. When the tag layer is missing, the message is the tag sentence. When the entity list is missing, the message is `no entities; run clew spec entities list first`. Facts need the tag layer, then entities, then a written fact list. The messages follow that order. `spec entities list` writes facts, so after list the fact list is present. When the fact list is missing, the message is `no facts; run clew spec entities list first`.
+The stderr message names only the first missing layer. Tagged sentences and unique tokens need the tag layer, and the message is `no tokens; run clew spec tag first`. Concepts need that layer, then a written concept list: `no concepts; run clew spec concepts list first`. Frames need the tag layer, then a written frame list: `no frames; run clew spec frames list first`. `spec graph build` also needs the frame list, with the same message.
 
 `spec init` writes an empty `tokens.json` and leaves the tagger unset. That file is not a tag layer. The tag layer is written when the session has a tagger, or when any tagged sentence has tokens.
 
-`spec show tagged` prints `sentences`, the same tagged view as `spec tag`, for the current sentences. `spec show tokens` prints `tokens`. Each item has the lower-cased `text`, a `count`, the original `forms` in first-seen order, and `readings`. A reading has `tags` and the token ids. Unique tokens are grouped words with tag readings and sN.tM ids, not a second entity list. `spec show entities` prints `entities` in stored order, including rejected and stale entities. `spec show facts` prints `facts` and leaves removed facts out.
+`spec show tagged` prints `sentences`, the same tagged view as `spec tag`, for the current sentences. `spec show tokens` prints `tokens`. Each item has the lower-cased `text`, a `count`, the original `forms` in first-seen order, and `readings`. A reading has `tags` and the token ids. Unique tokens are grouped words with tag readings and sN.tM ids, not a concept list. `spec show concepts` prints `concepts` in stored order. `spec show frames` prints `frames`, the same view as `spec frames list`.
 
-`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and deleted. A live sentence is mapped when a current fact sources that sentence or one of its tokens. `coverage.entities` counts candidate, confirmed, rejected, and stale. `coverage.facts` counts current, stale, implied, and removed. `layers.graph` is true after `spec graph build` has written `flows.json`. A missing entities, facts, or graph layer is an info `entities-absent`, `facts-absent`, or `graph-absent` finding. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
+`spec status` recomputes open findings by layer. `coverage.sentences` is mapped, pending, and deleted. A live sentence is mapped when one of its frames compiles. `coverage.concepts` is the concept count. `coverage.frames` counts `transition`, `notTransition`, and `incomplete` (a transition frame that does not compile). `layers` reports `tokens`, `concepts`, `frames`, and `graph`; `layers.graph` is true after `spec graph build` has written `flows.json`. A missing concept, frame, or graph layer is an info `concepts-absent`, `frames-absent`, or `graph-absent` finding. The frame layer's findings are the `spec frames list` findings. Status does not write the store. `findingsByLayer.graph` is the graph layer on its own.
 
 `spec trace` and `spec status` findings:
 
 | Code | Severity | When |
 |---|---|---|
-| `orphan` | warning | a fact or other id has no sentence source |
-| `removed-fact` | info | the traced fact is a tombstone |
-| `stale-entity` | warning | an entity is stale after the spec changed |
-| `stale-fact` | warning | a fact is stale |
-| `transition-without-from` | blocking | an action fact has no source valuation for its object var |
-| `entities-absent` | info | `spec entities list` has not been run |
-| `facts-absent` | info | `spec entities list` has not written facts yet |
+| `orphan` | warning | a traced id has no sentence source |
+| `transition-without-from` | blocking | a compiled action has no source valuation for its object var |
+| `tokens-absent` | info | `spec tag` has not been run |
+| `concepts-absent` | info | `spec concepts list` has not been run |
+| `frames-absent` | info | `spec frames list` has not been run |
 | `graph-absent` | info | `spec graph build` has not been run |
 
-`spec graph build` unfolds overlay states and transitions from current facts and writes a flows overlay keyed by fact id (`flows.json`). Truncation uses `reachableFromInitial` on `specFromFacts`. Schema version is 2. A schema 1 session is exit 2 with no migration. States and transitions are recomputed on every read. A leftover `graph.json` is read as-is until the next write, which unlinks it and stores `flows.json`. Entity writes keep the overlay when fact ids remain. Running build again, when the paths are unchanged, does not append history. A build history line’s `before` lists the flow ids already stored, and `after` lists the flow ids written. The first build has an empty `before`. Split and group record the same way. Transition `from` and `to` are assign atoms (the action lemma, not a past participle). Transition `event` is the ActionFact event (`SUBMIT`). When `when` is `null` for the object var, overlay `from` is that object's initial atom: the `init` ConfigurationFact assign if one exists, otherwise the default atom `null`. `transition-without-from` stays only when the source valuation is missing, not when it is the initial `null`. Truncation at the reach bound is a blocking `state-space-truncated`.
+`spec graph build` unfolds overlay states and transitions from the compiled frames and writes a flows overlay keyed by frame id (`flows.json`). Truncation explores the compiled spec from its initial valuation. States and transitions are recomputed on every read. A leftover `graph.json` is read as-is until the next write, which unlinks it and stores `flows.json`. Concept and frame writes keep the overlay when frame ids remain. Running build again, when the paths are unchanged, does not append history. A build history line’s `before` lists the flow ids already stored, and `after` lists the flow ids written. The first build has an empty `before`. Split and group record the same way. A transition's `id` and `frame` are its frame id, and `frames` lists the frames it cites. A state's `frames` lists the frames that reach or leave it. Transition `from` and `to` are result atoms (`submitted`, `approved`). Transition `event` is the frame's event (`SUBMIT`). A frame that waits on nothing for its object starts at the default atom `null`. `transition-without-from` stays only when the source valuation is missing. Truncation at the reach bound is a blocking `state-space-truncated`.
 
-The path cover is one accepted flow per provable transition (`Submit order` for event `SUBMIT` on object `order`) and one rejected flow per `forbidden` fact (`Cannot approve order`, `rejectAt` 1). A condition entity is a boolean var, so the false value is the else and `guard-without-else` is not raised for `condition:` guards. A forbidden fact that matches a transition cites that transition. A forbidden fact with no transition is a rejected flow with an empty transition list; emit draws it from the object’s initial state to the attempted assign atom (`cancel`) and uses the source sentence as the edge text. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden fact, keep their ids.
+The path cover is one accepted flow per provable transition (`Submit order` for event `SUBMIT` on object `order`) and one rejected flow per forbidden frame (`Cannot approve order`, `rejectAt` 1). A condition var is boolean, so the false value is the else and `guard-without-else` is not raised for `condition:` guards. A forbidden frame that matches a transition on the same object and event cites that transition. A forbidden frame with no matching transition needs an initial state; it is then a rejected flow with an empty transition list, and emit draws it from that state to the attempted result atom and uses the source sentence as the edge text. Without either, it is `forbidden-uncovered`. Because Clew does not propose initial marks, "The customer cannot cancel a shipped order" alone is `forbidden-uncovered`. The flow's `forbidden` is the frame id. Flows with `origin: agent` are kept when they still chain. A disagreement is a warning `agent-flow`. An agent flow that no longer chains is dropped, with a warning `stale-flow`. Rule flows that are still the same single edge, or the same forbidden frame, keep their ids.
 
-`spec graph split --id W1 --at 2` cuts an accepted path before the second edge. `--at f2` names that fact instead. The first path keeps `W1`. The second path gets the next workflow id. Both become `origin: agent`. A rejected path is a blocking `rejected-split` and is not written. A cut that would leave a path with no edge is `unsplittable` and is not written. An unknown flow or split point is exit 2.
+`spec graph split --id W1 --at 2` cuts an accepted path before the second edge. `--at fr:s1.t7` names that transition instead. The first path keeps `W1`. The second path gets the next workflow id. Both become `origin: agent`. A rejected path is a blocking `rejected-split` and is not written. A cut that would leave a path with no edge is `unsplittable` and is not written. An unknown flow or split point is exit 2.
 
-`spec graph group` joins accepted paths into one linear workflow. `--id W1 --id W2` walks the flows in that order. `--transition f1 --transition f2` walks those edges. The two modes are not combined. `--into` defaults to the first flow, or to the flow that already contains the first fact. `--title` sets the title; otherwise the titles are joined with ` and `. The result is `origin: agent`. A rejected input is `rejected-group`. Paths that do not chain are `not-linear`. A flow that shares some of the named facts and keeps others is `overlap`. An `--into` id that already exists and is not one of the inputs is `duplicate-flow`. Those findings do not write. A successful edit writes even when other graph findings are still blocking, and the exit is 1.
+`spec graph group` joins accepted paths into one linear workflow. `--id W1 --id W2` walks the flows in that order. `--transition fr:s1.t1 --transition fr:s1.t7` walks those edges. The two modes are not combined. `--into` defaults to the first flow, or to the flow that already contains the first transition. `--title` sets the title; otherwise the titles are joined with ` and `. The result is `origin: agent`. A rejected input is `rejected-group`. Paths that do not chain are `not-linear`. A flow that shares some of the named transitions and keeps others is `overlap`. An `--into` id that already exists and is not one of the inputs is `duplicate-flow`. Those findings do not write. A successful edit writes even when other graph findings are still blocking, and the exit is 1.
 
-`spec graph split` and `group` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. A split patch is `{ "id": "W1", "at": 2 }` or `{ "id": "W1", "at": "f2" }`. A group patch is `{ "ids": ["W1", "W2"], "title": "..." }` or `{ "transitions": ["f1", "f2"] }`, with optional `into`.
+`spec graph split` and `group` take flags or `--from <file>`. `--from -` is rejected. Flags and `--from` together are rejected. A split patch is `{ "id": "W1", "at": 2 }` or `{ "id": "W1", "at": "fr:s1.t7" }`. A group patch is `{ "ids": ["W1", "W2"], "title": "..." }` or `{ "transitions": ["fr:s1.t1", "fr:s1.t7"] }`, with optional `into`.
 
 `spec graph build` findings:
 
 | Code | Severity | When |
 |---|---|---|
-| `transition-without-from` | blocking | an action fact still has no source valuation, so it is omitted |
-| `guard-without-else` | blocking | a guarded transition has no other guard on the same state and event, and no forbidden fact for that object and action |
+| `transition-without-from` | blocking | a compiled action still has no source valuation, so it is omitted |
+| `guard-without-else` | blocking | a guarded transition has no other guard on the same state and event, and no forbidden frame for that object and event |
 | `self-loop` | blocking | a transition’s source and target are the same state |
 | `vocabulary` | blocking | a state name is not workflow vocabulary |
-| `unknown-entity` | blocking | a fact cites an entity id that is not in the session |
-| `rejected-entity` | blocking | a fact cites a rejected or stale entity |
-| `type-mismatch` | blocking | a fact is missing a field, or an entity has the wrong kind |
+| `type-mismatch` | blocking | a compiled action has no target assign |
 | `no-final-state` | warning | a state has no outgoing transition and is not marked final |
 | `no-initial-state` | warning | an object has no initial state |
 | `unreachable-state` | warning | a state is not reachable from an initial state |
@@ -273,9 +228,9 @@ The path cover is one accepted flow per provable transition (`Submit order` for 
 | `overlap` | blocking | a flow shares some named transitions and keeps others |
 | `duplicate-flow` | blocking | `--into` names a flow that is not one of the inputs |
 
-`spec emit` writes the chosen paths as a workflow set of full valuation maps. `--chart` writes the unfolded Spec as `clew.spec.v1` YAML, including a valid empty spec (no vars, no actions) when that is what the facts yield. The draft overlay stays kebab-case fact ids. `--dry-run` prints the YAML in the JSON document (`yaml` and `chartYaml`) and does not write a file, even with `--force`. `--out` is required otherwise. `--dry-run` and `--out` together are exit 2. `--out -` and `--chart -` are rejected. Emit walks each flow with the `when` equalities that no action assigns, so a later guard can still produce a total map. `--chart` writes `specFromFacts` (one initial) whenever `--chart` is set, even when the workflow set is empty or missing. A flow whose start is not reachable from that initial fails `verify`. Edge text is the clause that contains the action, extended through the object, with a leading when, after, before, or once removed. A guard’s text is appended when the clause does not already contain it. A rejected flow that cites a fact uses the forbidden fact’s source sentence.
+`spec emit` writes the chosen paths as a workflow set of full valuation maps. `--chart` writes the unfolded Spec as `clew.spec.v1` YAML, including a valid empty spec (no vars, no actions) when that is what the frames yield. The draft overlay is keyed by frame id. `--dry-run` prints the YAML in the JSON document (`yaml` and `chartYaml`) and does not write a file, even with `--force`. `--out` is required otherwise. `--dry-run` and `--out` together are exit 2. `--out -` and `--chart -` are rejected. Emit walks each flow with the `when` equalities that no action assigns, so a later guard can still produce a total map. `--chart` writes the compiled spec (one initial, every var `null` or `false`) whenever `--chart` is set, even when the workflow set is empty or missing. A flow whose start is not reachable from that initial fails `verify`. Edge text is the clause that contains the action, extended through the object, with a leading when, after, before, or once removed. A guard’s text is appended when the clause does not already contain it. A rejected flow uses the forbidden frame’s source sentence.
 
-Emit refuses while a blocking finding remains on the graph layer. `--force` writes the requested files anyway, sets `forced: true`, lists the findings, and still exits 1. `--force --chart` still writes the chart when there are no workflows. Earlier-layer warnings, such as an unreviewed entity, do not block emit. There is no per-finding waiver. There is no `stale-graph`: unfold recomputes on read, and split/group overlays survive when fact ids remain. Emit does not write the session. Check failures from the workflow-set rules are `workflow-check` findings, with refs to the flow, its facts, and their sources. They are not `issues`. The set id is the object name plus `Flows` (`order` becomes `orderFlows`). Two objects join as `orderAndShipmentFlows`.
+Emit refuses while a blocking finding remains on the graph layer. `--force` writes the requested files anyway, sets `forced: true`, lists the findings, and still exits 1. `--force --chart` still writes the chart when there are no workflows. Earlier-layer warnings, such as `frame-missing-object`, do not block emit. There is no per-finding waiver. There is no `stale-graph`: unfold recomputes on read, and split/group overlays survive when frame ids remain. Emit does not write the session. Check failures from the workflow-set rules are `workflow-check` findings, with refs to the flow, its frames, and their sources. They are not `issues`. The set id is the object name plus `Flows` (`order` becomes `orderFlows`). Two objects join as `orderAndShipmentFlows`.
 
 `spec emit` findings:
 
@@ -286,7 +241,7 @@ Emit refuses while a blocking finding remains on the graph layer. `--force` writ
 | `path-not-linear` | blocking | a flow does not chain |
 | `missing-transition` | blocking | a flow cites a transition that is gone |
 | `missing-reject-at` | blocking | a rejected flow has no `rejectAt` |
-| `forbidden-uncovered` | blocking | a forbidden fact has no rejected flow |
+| `forbidden-uncovered` | blocking | a forbidden frame has no rejected flow |
 | `no-workflows` | blocking | there is nothing to emit |
 | `workflow-check` | blocking | the rendered set fails `workflows check` |
 
@@ -546,58 +501,75 @@ Bad arguments, when `--json` was passed, use `{ "command", "ok": false, "fault":
 
 A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` is false, `fault` is `session`, `locked`, `schema`, `unreadable`, or `usage`, `findings` is empty, and `issues` carries the message. The same shape is printed for `--json`. Without `--json`, exit 2 writes only to stderr.
 
-`spec.entities.list`, after `spec tag`. `ok` stays true when the only findings are warnings.
+`spec.concepts.list`, after `spec tag`. Concepts have no kind. This excerpt shows two of the six.
 
 ```json
 {
-  "command": "spec.entities.list",
+  "command": "spec.concepts.list",
   "ok": true,
   "session": "order-sentence",
-  "entities": [
-    { "id": "actor:customer", "kind": "actor", "name": "customer", "sources": ["s1.t3"], "origin": "tagger", "status": "candidate" },
-    { "id": "object:order", "kind": "object", "name": "order", "sources": ["s1.t6", "s1.t11"], "origin": "rule", "status": "candidate" },
-    { "id": "condition:c1", "kind": "condition", "text": "the total is under 500 dollars", "sources": ["s1.t12"], "origin": "rule", "status": "candidate" }
-  ],
-  "findings": [
-    { "id": "unreviewed:actor:customer", "kind": "coverage", "code": "unreviewed", "severity": "warning", "message": "actor:customer is an unreviewed candidate", "refs": ["actor:customer"] }
-  ],
-  "issues": []
-}
-```
-
-`spec.facts.propose`. The first action `when` is `order: null`. The agent supplies a source valuation with `spec facts edit --id f1 --when '{"op":"eq","var":"order","value":"draft"}'`. This excerpt omits the warning findings that proposal usually returns.
-
-```json
-{
-  "command": "spec.facts.propose",
-  "ok": true,
-  "session": "order-sentence",
-  "facts": [
-    { "id": "f1", "kind": "action", "event": "SUBMIT", "actor": "actor:customer", "when": { "op": "eq", "var": "order", "value": null }, "assign": { "order": "submit" }, "origin": "rule", "confidence": 0.5, "sources": ["s1.t4", "s1.t6"], "status": "current" },
-    { "id": "f2", "kind": "action", "event": "APPROVE", "actor": "actor:manager", "when": { "op": "and", "of": [{ "op": "eq", "var": "order", "value": "submit" }, { "op": "eq", "var": "c1", "value": true }] }, "assign": { "order": "approve" }, "origin": "rule", "confidence": 0.6, "sources": ["s1.t9", "s1.t11"], "status": "current" }
+  "concepts": [
+    { "id": "concept:customer", "canonical": "customer", "members": [{ "span": "sp:s1.t3..s1.t3", "surface": "customer", "sentence": "s1" }] },
+    { "id": "concept:order", "canonical": "order", "members": [{ "span": "sp:s1.t6..s1.t6", "surface": "order", "sentence": "s1" }, { "span": "sp:s1.t11..s1.t11", "surface": "order", "sentence": "s1" }] }
   ],
   "findings": [],
   "issues": []
 }
 ```
 
-`spec.facts.add --from patch.json` accepts one fact or `{ "facts": [ ... ] }`. `spec.facts.edit --from` accepts the fields to change, including `id`. `spec.facts.remove --from` accepts `{ "id": "f5" }` or `{ "ids": ["f5"] }`.
+`concepts.json` stores `{ "schemaVersion": 5, "concepts": [{ "id", "canonical", "members": ["sp:s1.t6..s1.t6"] }] }`.
 
-`spec.trace` for an implied fact. The chain still names the entity, and `orphan` says there is no sentence source on the fact itself.
+`spec.frames.list --sentence s1`, one frame. Only `actor` and `when` are shown; `event`, `object`, and `result` have the same field shape. `when` waits on the first clause and the condition clause, so the action is guarded by `condition:cond_s1_t12`.
+
+```json
+{
+  "command": "spec.frames.list",
+  "ok": true,
+  "session": "order-sentence",
+  "frames": [
+    {
+      "id": "fr:s1.t7",
+      "sentence": "s1",
+      "clause": { "text": "the manager approves the order", "start": 36, "end": 66 },
+      "roles": {
+        "actor": {
+          "original": { "value": { "text": "manager", "refs": ["concept:manager"] }, "dependsOn": ["sp:s1.t8..s1.t8"] },
+          "latest": { "value": { "text": "manager", "refs": ["concept:manager"] }, "dependsOn": ["sp:s1.t8..s1.t8"] },
+          "history": []
+        },
+        "when": {
+          "original": { "value": { "text": "When the customer submits an order and if the total is under 500 dollars", "refs": ["fr:s1.t1", "fr:s1.t12"] }, "dependsOn": ["sp:s1.t1..s1.t1", "sp:s1.t4..s1.t4", "sp:s1.t12..s1.t12", "sp:s1.t14..s1.t14"] },
+          "latest": { "value": { "text": "When the customer submits an order and if the total is under 500 dollars", "refs": ["fr:s1.t1", "fr:s1.t12"] }, "dependsOn": ["sp:s1.t1..s1.t1", "sp:s1.t4..s1.t4", "sp:s1.t12..s1.t12", "sp:s1.t14..s1.t14"] },
+          "history": []
+        }
+      },
+      "compiled": { "event": "APPROVE", "object": "order", "from": "submitted", "to": "approved", "actor": "manager", "kind": "action" }
+    }
+  ],
+  "findings": [
+    { "id": "value-never-assigned:cond_s1_t12=true", "kind": "gap", "code": "value-never-assigned", "severity": "warning", "message": "cond_s1_t12 is checked for true, but no action assigns it", "refs": ["cond_s1_t12", "fr:s1.t7"] }
+  ],
+  "issues": []
+}
+```
+
+The condition clause is its own frame, `fr:s1.t12`, with `"marker": "if"`, `"notTransition": { "reason": "no verb" }`, and every role `unknown`. `frames.json` stores `{ "schemaVersion": 5, "frames": [...] }` without `compiled`.
+
+`spec.trace concept:order`. A concept walks its member tokens and their sentence.
 
 ```json
 {
   "command": "spec.trace",
   "ok": true,
   "session": "order-sentence",
-  "id": "f3",
+  "id": "concept:order",
   "chain": [
-    { "layer": "fact", "id": "f3", "type": "init", "status": "current", "origin": "agent", "refs": [] },
-    { "layer": "entity", "id": "object:order", "kind": "object", "name": "order" }
+    { "layer": "concept", "id": "concept:order", "name": "order", "refs": ["sp:s1.t6..s1.t6", "sp:s1.t11..s1.t11"] },
+    { "layer": "token", "id": "s1.t6", "text": "order", "tags": ["Noun", "Singular"], "span": [29, 34], "origin": "tagger", "status": "current" },
+    { "layer": "sentence", "id": "s1", "status": "original", "text": "When the customer submits an order, the manager approves the order if the total is under 500 dollars.", "span": [0, 101], "section": "" },
+    { "layer": "token", "id": "s1.t11", "text": "order", "tags": ["Noun", "Singular"], "span": [61, 66], "origin": "tagger", "status": "current" }
   ],
-  "findings": [
-    { "id": "orphan:f3", "kind": "coverage", "code": "orphan", "severity": "warning", "message": "f3 has no sentence source", "refs": ["f3"] }
-  ],
+  "findings": [],
   "issues": []
 }
 ```
@@ -617,7 +589,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
 }
 ```
 
-`spec.session.list` after `spec init` of `examples/spec/order.md`. `updated` is the timestamp stored in `session.json`. Counts are the live sentences, facts, and flows.
+`spec.session.list` after `spec init` of `examples/spec/order.md`. `updated` is the timestamp stored in `session.json`. Counts are the live sentences, transition frames, and flows.
 
 ```json
 {
@@ -627,7 +599,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
     {
       "id": "order",
       "updated": "2026-10-27T01:24:00.000Z",
-      "summary": { "sentences": 3, "facts": 0, "flows": 0 }
+      "summary": { "sentences": 3, "frames": 0, "flows": 0 }
     }
   ],
   "findings": [],
@@ -658,10 +630,10 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
   "session": "order-sentence",
   "coverage": {
     "sentences": { "mapped": ["s1"], "pending": [], "deleted": [] },
-    "entities": { "candidate": 6, "confirmed": 0, "rejected": 1, "stale": 0 },
-    "facts": { "current": 6, "stale": 0, "implied": 1, "removed": 0 }
+    "concepts": 6,
+    "frames": { "transition": 2, "notTransition": 1, "incomplete": 0 }
   },
-  "layers": { "tokens": true, "entities": true, "facts": true, "graph": false },
+  "layers": { "tokens": true, "concepts": true, "frames": true, "graph": false },
   "findingsByLayer": {
     "graph": [
       { "id": "graph-absent", "kind": "coverage", "code": "graph-absent", "severity": "info", "message": "the graph layer has not been built", "refs": [] }
@@ -674,7 +646,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
 }
 ```
 
-`spec.graph.build` after the agent sets `f1`’s `when` to `draft` and adds an `init` fact. `approve` is not final, so the exit is 0 with a warning. Boolean condition vars do not raise `guard-without-else`.
+`spec.graph.build` after `spec frames list`. No init mark is proposed, so the order starts at `null` and the build warns `no-initial-state`. `approved` is not final, so the exit is 0 with warnings. Boolean condition vars do not raise `guard-without-else`. The two transitions chain into one flow.
 
 ```json
 {
@@ -684,27 +656,27 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
   "graph": {
     "objects": ["order"],
     "states": [
-      { "id": "draft", "object": "order", "initial": true, "facts": ["f1", "f3"] },
-      { "id": "submit", "object": "order", "facts": ["f1", "f2"] },
-      { "id": "approve", "object": "order", "facts": ["f2"] }
+      { "id": "null", "object": "order", "frames": ["fr:s1.t1"] },
+      { "id": "submitted", "object": "order", "frames": ["fr:s1.t1", "fr:s1.t7"] },
+      { "id": "approved", "object": "order", "frames": ["fr:s1.t7"] }
     ],
     "transitions": [
-      { "id": "f1", "from": "draft", "event": "SUBMIT", "to": "submit", "actor": "customer", "object": "order", "fact": "f1", "facts": ["f1"] },
-      { "id": "f2", "from": "submit", "event": "APPROVE", "to": "approve", "actor": "manager", "guard": "condition:c1", "object": "order", "fact": "f2", "facts": ["f2"] }
+      { "id": "fr:s1.t1", "from": "null", "event": "SUBMIT", "to": "submitted", "object": "order", "frame": "fr:s1.t1", "frames": ["fr:s1.t1"], "actor": "customer" },
+      { "id": "fr:s1.t7", "from": "submitted", "event": "APPROVE", "to": "approved", "object": "order", "frame": "fr:s1.t7", "frames": ["fr:s1.t7"], "actor": "manager", "guard": "condition:cond_s1_t12" }
     ]
   },
   "flows": [
-    { "id": "W1", "title": "Submit order", "expect": "accepted", "transitions": ["f1"], "origin": "rule" },
-    { "id": "W2", "title": "Approve order", "expect": "accepted", "transitions": ["f2"], "origin": "rule" }
+    { "id": "W1", "title": "Order lifecycle", "expect": "accepted", "transitions": ["fr:s1.t1", "fr:s1.t7"], "origin": "rule" }
   ],
   "findings": [
-    { "id": "no-final-state:order:approve", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approve has no outgoing transition and is not marked final", "refs": ["approve"] }
+    { "id": "no-initial-state:order", "kind": "gap", "code": "no-initial-state", "severity": "warning", "message": "order has no initial state", "refs": ["order"] },
+    { "id": "no-final-state:order:approved", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approved has no outgoing transition and is not marked final", "refs": ["approved"] }
   ],
   "issues": []
 }
 ```
 
-`spec.emit --dry-run` for that graph. Both transitions are accepted flows. `workflowSet` is that set as structured views, including each node's `assign`. The findings match the build, and they are omitted here. No file is written.
+`spec.emit --dry-run` for that graph. `workflowSet` is that set as structured views, including each node's `assign`. The findings match the build, and they are omitted here, as is the second edge. No file is written.
 
 ```json
 {
@@ -718,27 +690,20 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
     "workflows": [
       {
         "id": "W1",
-        "title": "Submit order",
+        "title": "Order lifecycle",
         "expect": "accepted",
-        "start": "draft",
+        "start": "null",
         "nodes": [
-          { "id": "draft", "assign": { "order": "draft", "c1": false, "total": null }, "state": "draft" },
-          { "id": "submit", "assign": { "order": "submit", "c1": false, "total": null }, "state": "submit" }
+          { "id": "null", "assign": { "cond_s1_t12": false, "order_status": null }, "state": "cond_s1_t12,order_status" },
+          { "id": "submitted", "assign": { "cond_s1_t12": false, "order_status": "submitted" }, "state": "submitted" },
+          { "id": "approved", "assign": { "cond_s1_t12": true, "order_status": "approved" }, "state": "approved" }
         ],
         "edges": [
-          {
-            "from": "draft",
-            "event": "SUBMIT",
-            "to": "submit",
-            "text": "The customer submits an order",
-            "stateFrom": "draft",
-            "stateTo": "submit"
-          }
+          { "from": "null", "event": "SUBMIT", "to": "submitted", "text": "The customer submits an order", "stateFrom": "cond_s1_t12,order_status", "stateTo": "submitted" }
         ]
       }
     ]
   },
-  "yaml": "id: orderFlows\nworkflows:\n  - id: W1\n    title: \"Submit order\"\n    expect: accepted\n    start: draft\n    nodes:\n      - { id: \"draft\", assign: { order: \"draft\", c1: false, total: null } }\n      - { id: \"submit\", assign: { order: \"submit\", c1: false, total: null } }\n    edges:\n      - { from: \"draft\", event: \"SUBMIT\", to: \"submit\", text: \"The customer submits an order\" }\n",
   "findings": [],
   "issues": []
 }

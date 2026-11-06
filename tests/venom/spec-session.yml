@@ -44,7 +44,7 @@ testcases:
     - result.systemoutjson.sessions.sessions0.id ShouldEqual order
     - result.systemoutjson.sessions.sessions0.updated ShouldNotBeEmpty
     - result.systemoutjson.sessions.sessions0.summary.sentences ShouldEqual 3
-    - result.systemoutjson.sessions.sessions0.summary.facts ShouldEqual 0
+    - result.systemoutjson.sessions.sessions0.summary.frames ShouldEqual 0
     - result.systemoutjson.sessions.sessions0.summary.flows ShouldEqual 0
     - result.systemoutjson.findings ShouldHaveLength 0
     - result.systemoutjson.issues ShouldHaveLength 0
@@ -54,7 +54,7 @@ testcases:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
     - result.systemout ShouldContainSubstring "order"
-    - result.systemout ShouldContainSubstring "3 sentences, 0 facts, 0 flows"
+    - result.systemout ShouldContainSubstring "3 sentences, 0 frames, 0 flows"
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec session remove missing --json"
     assertions:

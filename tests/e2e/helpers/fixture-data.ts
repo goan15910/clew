@@ -4,55 +4,26 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileFrames } from '../../../src/domain/spec-compile.js';
+import { attachOverlay } from '../../../src/domain/spec-graph.js';
+import type { Concept, DraftGraph, FieldVersion, Frame, RoleName, SpecFlow } from '../../../src/domain/spec.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 export const FIXTURE_SESSION_ID = 'viewer-matrix';
 export const FIXTURE_DIR = join(root, 'tests', 'fixtures', 'sessions', FIXTURE_SESSION_ID);
 
-export const VIEWS = ['facts', 'entities', 'sentences'] as const;
+export const VIEWS = ['frames', 'concepts', 'sentences'] as const;
 export type View = (typeof VIEWS)[number];
 
-export const KINDS = ['', 'actor', 'object', 'action', 'condition'] as const;
-export const TYPES = ['', 'action', 'init', 'terminal', 'forbidden'] as const;
-export const STATUSES = ['', 'current', 'stale'] as const;
-export const SEARCHES = ['', 'f1', 'customer', 's1', 'approve', 'zzzz-no-match'] as const;
-
-export type Kind = (typeof KINDS)[number];
-export type Type = (typeof TYPES)[number];
-export type Status = (typeof STATUSES)[number];
-export type Search = (typeof SEARCHES)[number];
+export const FRAME_FILTERS = ['', 'transition', 'not-transition', 'negated', 'incomplete'] as const;
+// Actor, two-member object, event-only (via the event span), and a concept cited by no frame role.
+export const CONCEPT_FILTERS = ['', 'concept:customer', 'concept:order', 'concept:submit', 'concept:total'] as const;
+export const SEARCHES = ['', 'fr:s1.t1', 'customer', 's2', 'approve', 'unknown', 'zzzz-no-match'] as const;
 
 export interface FixtureFilters {
   text: string;
-  kind: string;
-  type: string;
-  status: string;
-}
-
-interface Entity {
-  id: string;
-  kind: string;
-  name?: string;
-  text?: string;
-  note?: string;
-  sources?: string[];
-  status: string;
-  origin: string;
-}
-
-interface Fact {
-  id: string;
-  kind: string;
-  event?: string;
-  actor?: string;
-  when?: Record<string, unknown>;
-  assign?: Record<string, unknown>;
-  note?: string;
-  sources?: string[];
-  status: string;
-  origin: string;
-  confidence: number;
-  removed?: boolean;
+  frame: string;
+  concept: string;
 }
 
 interface SentenceText {
@@ -93,13 +64,8 @@ interface Span {
   tags?: string[];
   insignificant?: boolean;
   lemma?: string;
+  entityId?: string;
   clause?: { text: string; start: number; end: number };
-}
-
-interface Graph {
-  transitions?: Array<{ id: string; from: string; event: string; to: string; fact?: string; facts?: string[] }>;
-  states?: Array<{ id: string; object: string; facts?: string[] }>;
-  flows?: Array<{ id: string; forbidden?: string }>;
 }
 
 function sentenceView(record: StoredSentence): Sentence {
@@ -116,17 +82,18 @@ const session = loadJson<{ id: string; updated: string }>('session.json');
 const sentencesFile = loadJson<{ sentences: StoredSentence[] }>('sentences.json');
 const tokensFile = loadJson<{ sentences: TaggedSentence[] }>('tokens.json');
 const spansFile = loadJson<{ spans: Span[] }>('spans.json');
-const entitiesFile = loadJson<{ entities: Entity[] }>('entities.json');
-const factsFile = loadJson<{ facts: Fact[] }>('facts.json');
-const graph = loadJson<Graph>('graph.json');
+const conceptsFile = loadJson<{ concepts: Concept[] }>('concepts.json');
+const framesFile = loadJson<{ frames: Frame[] }>('frames.json');
+const flowsFile = loadJson<{ flows: SpecFlow[] }>('flows.json');
+const graph: DraftGraph = attachOverlay(compileFrames(framesFile.frames, conceptsFile.concepts).compiled, flowsFile.flows);
 
 export const fixture = {
   session,
   sentences: sentencesFile.sentences.map(sentenceView),
   tagged: tokensFile.sentences,
   spans: spansFile.spans,
-  entities: entitiesFile.entities,
-  facts: factsFile.facts,
+  concepts: conceptsFile.concepts,
+  frames: framesFile.frames,
   graph,
 };
 
@@ -136,20 +103,8 @@ function matchesText(haystacks: Array<string | null | undefined>, q: string): bo
   return haystacks.some((item) => item !== undefined && item !== null && String(item).toLowerCase().includes(needle));
 }
 
-function entityMap(): Map<string, Entity> {
-  return new Map(fixture.entities.map((entity) => [entity.id, entity]));
-}
-
 function spanMap(): Map<string, Span> {
   return new Map(fixture.spans.map((span) => [span.id, span]));
-}
-
-function tokenMap(): Map<string, { token: Token; sentenceId: string }> {
-  const map = new Map<string, { token: Token; sentenceId: string }>();
-  for (const row of fixture.tagged) {
-    for (const token of row.tokens ?? []) map.set(token.id, { token, sentenceId: row.id });
-  }
-  return map;
 }
 
 function tokenOrder(): Map<string, number> {
@@ -167,22 +122,6 @@ function tokenOrder(): Map<string, number> {
 function sentenceIdOfToken(tokenId: string): string {
   const dot = tokenId.indexOf('.');
   return dot > 0 ? tokenId.slice(0, dot) : '';
-}
-
-/** Sentence id for a fact/entity source: sentence id, token id, or span id. */
-function sentenceIdOfSource(source: string): string {
-  if (/^sp:/.test(source)) {
-    const body = source.slice(3);
-    const first = body.split('..')[0] ?? body;
-    return sentenceIdOfToken(first);
-  }
-  if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source)) return sentenceIdOfToken(source);
-  if (/^s[1-9][0-9]*$/.test(source)) return source;
-  return '';
-}
-
-function sourceTouchesSentence(source: string, sentenceId: string): boolean {
-  return sentenceIdOfSource(source) === sentenceId;
 }
 
 function spanCoversToken(span: Span, tokenId: string, order: Map<string, number>): boolean {
@@ -212,12 +151,12 @@ function spanRangeLabel(marks: Span[]): string {
   return marks.length > 1 ? `${first}–${marks[marks.length - 1]!.id}` : first;
 }
 
-function spanSentenceRow(sentence: Sentence, marks: Span[]): { layer: string; text: string } {
+function spanSentenceRow(sentence: Sentence, marks: Span[]): LineageRow {
   const ids = spanRangeLabel(marks);
   return { layer: 'span', text: `${ids} [${sentence.section}] “${sentence.text}”` };
 }
 
-function spanRow(span: Span, withTags: boolean): { layer: string; text: string } {
+function spanRow(span: Span, withTags: boolean): LineageRow {
   const tags = span.tags ?? [];
   const text = span.id + ` “${span.surface}”` + (withTags ? ` [${tags.join('|')}]` : '');
   return { layer: 'span', text };
@@ -237,7 +176,7 @@ function resolveSourceSpan(source: string): { span: Span; sentenceId: string } |
   return null;
 }
 
-function appendSpanSources(rows: Array<{ layer: string; text: string }>, sources: string[]): void {
+function appendSpanSources(rows: LineageRow[], sources: string[]): void {
   const order = tokenOrder();
   let run: Array<{ span: Span; sentenceId: string }> = [];
   const flush = (): void => {
@@ -265,100 +204,143 @@ function appendSpanSources(rows: Array<{ layer: string; text: string }>, sources
   flush();
 }
 
-function varNameForEntity(entity: Entity): string {
-  if (entity.kind === 'object' && entity.name) {
-    const name = entity.name.replace(/-/g, '_');
-    return /^[a-z][a-z0-9_]*$/.test(name) ? name : '';
-  }
-  if (entity.kind === 'condition') {
-    const suffix = entity.id.startsWith('condition:') ? entity.id.slice('condition:'.length) : entity.id;
-    const name = suffix.replace(/-/g, '_');
-    return /^[a-z][a-z0-9_]*$/.test(name) ? name : '';
-  }
-  return '';
+export interface LineageRow {
+  layer: string;
+  text: string;
 }
 
-function eventFromAction(entity: Entity): string {
-  if (entity.kind !== 'action' || !entity.name) return '';
-  const event = entity.name.replace(/-/g, '_').toUpperCase();
-  return /^[A-Z][A-Z0-9_]*$/.test(event) ? event : '';
+const ROLES: RoleName[] = ['actor', 'event', 'object', 'result', 'when'];
+
+function roleLatest(frame: Frame, role: RoleName): FieldVersion {
+  return frame.roles[role].latest;
 }
 
-function collectVars(node: unknown, names: Record<string, true>): void {
-  if (node === null || typeof node !== 'object') return;
-  const record = node as Record<string, unknown>;
-  if (typeof record.var === 'string') names[record.var] = true;
-  if (Array.isArray(record.of)) {
-    for (const child of record.of) collectVars(child, names);
-  } else if (record.of !== undefined) collectVars(record.of, names);
+function roleKnown(frame: Frame, role: RoleName): boolean {
+  return roleLatest(frame, role).value !== 'unknown';
 }
 
-function factCitedIds(fact: Fact): string[] {
+export function roleText(frame: Frame, role: RoleName): string {
+  const value = roleLatest(frame, role).value;
+  return value === 'unknown' ? 'unknown' : value.text;
+}
+
+function roleRefs(frame: Frame, role: RoleName): string[] {
+  const value = roleLatest(frame, role).value;
+  return value === 'unknown' ? [] : [...value.refs];
+}
+
+function roleConcepts(frame: Frame, role: RoleName): string[] {
+  const spans = spanMap();
+  return roleRefs(frame, role)
+    .map((ref) => (ref.startsWith('concept:') ? ref : (spans.get(ref)?.entityId ?? '')))
+    .filter((id) => id !== '');
+}
+
+export function conceptRoles(frame: Frame, conceptId: string): RoleName[] {
+  return (['actor', 'event', 'object', 'result'] as const).filter((role) => roleConcepts(frame, role).includes(conceptId));
+}
+
+export function frameIncomplete(frame: Frame): boolean {
+  if (frame.notTransition) return false;
+  return !roleKnown(frame, 'event') || !roleKnown(frame, 'object') || !roleKnown(frame, 'result');
+}
+
+function frameKind(frame: Frame): string {
+  if (frame.notTransition) return 'not a transition';
+  if (frame.negated === true) return 'negated';
+  if (frameIncomplete(frame)) return 'incomplete';
+  return 'transition';
+}
+
+export function frameFilterMatches(frame: Frame, value: string): boolean {
+  if (value === 'transition') return !frame.notTransition;
+  if (value === 'not-transition') return frame.notTransition !== undefined;
+  if (value === 'negated') return frame.negated === true;
+  if (value === 'incomplete') return frameIncomplete(frame);
+  return true;
+}
+
+function sortedSpanIds(ids: readonly string[]): string[] {
+  const spans = spanMap();
+  const order = tokenOrder();
+  const at = (id: string): number => {
+    const span = spans.get(id);
+    const index = span ? order.get(span.firstTokenId) : undefined;
+    return index ?? Number.MAX_SAFE_INTEGER;
+  };
+  return [...ids].sort((left, right) => at(left) - at(right));
+}
+
+function frameDependsOn(frame: Frame): string[] {
   const ids: string[] = [];
-  if (fact.actor) ids.push(fact.actor);
-  const names: Record<string, true> = {};
-  collectVars(fact.when, names);
-  if (fact.assign) {
-    for (const key of Object.keys(fact.assign)) names[key] = true;
+  for (const role of ROLES) {
+    for (const id of roleLatest(frame, role).dependsOn) {
+      if (!ids.includes(id)) ids.push(id);
+    }
   }
-  for (const entity of fixture.entities) {
-    const name = varNameForEntity(entity);
-    if (name && names[name] && !ids.includes(entity.id)) ids.push(entity.id);
-    const event = eventFromAction(entity);
-    if (event && fact.event === event && !ids.includes(entity.id)) ids.push(entity.id);
-  }
-  return ids;
+  return sortedSpanIds(ids);
 }
 
-export function expectedFactIds(filters: FixtureFilters): string[] {
-  const entities = entityMap();
-  return fixture.facts
-    .filter((fact) => {
-      if (fact.removed === true) return false;
-      if (filters.type && fact.kind !== filters.type) return false;
-      if (filters.status && fact.status !== filters.status) return false;
-      if (filters.kind) {
-        const hit = factCitedIds(fact).some((id) => entities.get(id)?.kind === filters.kind);
-        if (!hit) return false;
-      }
+export function frameTransitions(frameId: string): DraftGraph['transitions'] {
+  return fixture.graph.transitions.filter((transition) => transition.frame === frameId || transition.frames.includes(frameId));
+}
+
+function transitionRow(transition: DraftGraph['transitions'][number]): LineageRow {
+  return { layer: 'transition', text: `${transition.id} ${transition.from} -${transition.event}→ ${transition.to}` };
+}
+
+function frameRow(frame: Frame, label: string): LineageRow {
+  return { layer: 'frame', text: `${frame.id} ${label} “${frame.clause.text}”` };
+}
+
+function frameHaystacks(frame: Frame): string[] {
+  const items = [frame.id, frame.sentence, frame.clause.text, frame.marker ?? '', frameKind(frame)];
+  for (const role of ROLES) items.push(roleText(frame, role), ...roleRefs(frame, role), ...roleLatest(frame, role).dependsOn);
+  return items;
+}
+
+function conceptMembers(concept: Concept): Array<{ span: string; surface: string; sentence: string }> {
+  const spans = spanMap();
+  return concept.members.map((id) => {
+    const span = spans.get(id);
+    return { span: id, surface: span ? span.surface : id, sentence: span ? sentenceIdOfToken(span.firstTokenId) : '' };
+  });
+}
+
+export function expectedFrameIds(filters: FixtureFilters): string[] {
+  return fixture.frames
+    .filter((frame) => {
+      if (filters.frame && !frameFilterMatches(frame, filters.frame)) return false;
+      if (filters.concept && conceptRoles(frame, filters.concept).length === 0) return false;
+      return matchesText(frameHaystacks(frame), filters.text);
+    })
+    .map((frame) => frame.id);
+}
+
+export function expectedConceptIds(filters: FixtureFilters): string[] {
+  return fixture.concepts
+    .filter((concept) => {
+      if (filters.concept && concept.id !== filters.concept) return false;
+      const members = conceptMembers(concept);
       return matchesText(
-        [
-          fact.id,
-          fact.kind,
-          fact.event,
-          fact.actor,
-          JSON.stringify(fact.when ?? {}),
-          JSON.stringify(fact.assign ?? {}),
-          fact.note,
-          ...(fact.sources ?? []),
-        ],
+        [concept.id, concept.canonical, ...members.map((member) => member.span), ...members.map((member) => member.surface)],
         filters.text,
       );
     })
-    .map((fact) => fact.id);
-}
-
-function entityShown(entity: { status?: string }, showRejected = false): boolean {
-  return showRejected || entity.status !== 'rejected';
-}
-
-export function expectedEntityIds(filters: FixtureFilters, showRejected = false): string[] {
-  return fixture.entities
-    .filter((entity) => {
-      if (!entityShown(entity, showRejected)) return false;
-      if (filters.kind && entity.kind !== filters.kind) return false;
-      return matchesText(
-        [entity.id, entity.kind, entity.name, entity.text, entity.note, ...(entity.sources ?? [])],
-        filters.text,
-      );
-    })
-    .map((entity) => entity.id);
+    .map((concept) => concept.id);
 }
 
 export function expectedSentenceIds(filters: FixtureFilters): string[] {
   return fixture.sentences
     .filter((sentence) => {
       const spans = spansForSentence(sentence.id);
+      if (filters.concept && !spans.some((span) => span.entityId === filters.concept)) return false;
+      if (
+        filters.frame &&
+        !fixture.frames.some((frame) => frame.sentence === sentence.id && frameFilterMatches(frame, filters.frame))
+      ) {
+        return false;
+      }
       const surfaces = spans.map((span) => span.surface);
       const ids = spans.map((span) => span.id);
       return matchesText(
@@ -370,98 +352,86 @@ export function expectedSentenceIds(filters: FixtureFilters): string[] {
 }
 
 export function expectedVisibleIds(view: View, filters: FixtureFilters): string[] {
-  if (view === 'facts') return expectedFactIds(filters);
-  if (view === 'entities') return expectedEntityIds(filters);
+  if (view === 'frames') return expectedFrameIds(filters);
+  if (view === 'concepts') return expectedConceptIds(filters);
   return expectedSentenceIds(filters);
 }
 
-export function expectedFactLineage(factId: string): Array<{ layer: string; text: string }> {
-  const fact = fixture.facts.find((row) => row.id === factId);
-  if (!fact) return [];
-  const entities = entityMap();
-  const rows: Array<{ layer: string; text: string }> = [];
-  for (const id of factCitedIds(fact)) {
-    const entity = entities.get(id);
-    if (entity && !entityShown(entity)) continue;
-    const label = entity ? (entity.name || entity.text || id) : id;
-    const field = entity ? entity.kind : 'entity';
-    rows.push({ layer: 'entity', text: `${field} → ${id} (${label})` });
-    if (entity) appendSpanSources(rows, entity.sources ?? []);
-  }
-  for (const source of fact.sources ?? []) {
-    if (/^s[1-9][0-9]*$/.test(source)) {
-      const sentence = sentenceById(source);
-      rows.push({ layer: 'sentence', text: source + (sentence ? ` “${sentence.text}”` : '') });
-    } else if (/^s[1-9][0-9]*\.t[1-9][0-9]*$/.test(source) || /^sp:/.test(source)) {
-      const hit = resolveSourceSpan(source);
-      const sentence = hit ? sentenceById(hit.sentenceId) : undefined;
-      if (sentence && hit) rows.push(spanSentenceRow(sentence, [hit.span]));
-      else if (hit) rows.push(spanRow(hit.span, false));
-      else rows.push({ layer: 'source', text: source });
-    } else {
-      rows.push({ layer: 'source', text: source });
+export function expectedFrameLineage(frameId: string): LineageRow[] {
+  const frame = fixture.frames.find((row) => row.id === frameId);
+  if (!frame) return [];
+  const rows: LineageRow[] = [];
+  appendSpanSources(rows, frameDependsOn(frame));
+  const sentence = sentenceById(frame.sentence);
+  rows.push({ layer: 'sentence', text: frame.sentence + (sentence ? ` “${sentence.text}”` : '') });
+  const concepts = new Map(fixture.concepts.map((concept) => [concept.id, concept]));
+  for (const role of ['actor', 'event', 'object', 'result'] as const) {
+    for (const id of roleConcepts(frame, role)) {
+      rows.push({ layer: 'concept', text: `${role} → ${id} (${concepts.get(id)?.canonical ?? id})` });
     }
   }
-  for (const transition of fixture.graph.transitions ?? []) {
-    if (transition.fact === fact.id || (transition.facts ?? []).includes(fact.id)) {
-      rows.push({
-        layer: 'transition',
-        text: `${transition.id} ${transition.from} -${transition.event}→ ${transition.to}`,
-      });
+  const frames = new Map(fixture.frames.map((row) => [row.id, row]));
+  for (const id of roleRefs(frame, 'when')) {
+    const cited = frames.get(id);
+    rows.push(cited ? frameRow(cited, 'when →') : { layer: 'frame', text: `when → ${id}` });
+  }
+  for (const other of fixture.frames) {
+    if (roleRefs(other, 'when').includes(frame.id)) rows.push(frameRow(other, 'when of →'));
+  }
+  const transitions = frameTransitions(frame.id);
+  for (const transition of transitions) rows.push(transitionRow(transition));
+  for (const graphState of fixture.graph.states) {
+    if (graphState.frames.includes(frame.id)) rows.push({ layer: 'state', text: `${graphState.id} (${graphState.object})` });
+  }
+  for (const flow of fixture.graph.flows) {
+    for (const transition of transitions) {
+      if (flow.transitions.includes(transition.id)) rows.push({ layer: 'flow', text: `${flow.id} transition ${transition.id}` });
     }
   }
-  for (const graphState of fixture.graph.states ?? []) {
-    if ((graphState.facts ?? []).includes(fact.id)) {
-      rows.push({ layer: 'state', text: `${graphState.id} (${graphState.object})` });
-    }
-  }
-  for (const flow of fixture.graph.flows ?? []) {
-    if (flow.forbidden === fact.id) rows.push({ layer: 'flow', text: `${flow.id} forbidden ${fact.id}` });
+  for (const flow of fixture.graph.flows) {
+    if (flow.forbidden === frame.id) rows.push({ layer: 'flow', text: `${flow.id} forbidden ${frame.id}` });
   }
   return rows;
 }
 
-export function expectedEntityLineage(entityId: string): Array<{ layer: string; text: string }> {
-  const entity = fixture.entities.find((row) => row.id === entityId);
-  if (!entity) return [];
-  const rows: Array<{ layer: string; text: string }> = [];
-  appendSpanSources(rows, entity.sources ?? []);
-  for (const fact of fixture.facts) {
-    if (factCitedIds(fact).includes(entity.id)) rows.push({ layer: 'fact', text: `${fact.id} ${fact.kind}` });
+export function expectedConceptLineage(conceptId: string): LineageRow[] {
+  const concept = fixture.concepts.find((row) => row.id === conceptId);
+  if (!concept) return [];
+  const rows: LineageRow[] = [];
+  appendSpanSources(rows, sortedSpanIds(concept.members));
+  for (const frame of fixture.frames) {
+    const roles = conceptRoles(frame, concept.id);
+    if (roles.length) rows.push(frameRow(frame, roles.join(' · ')));
   }
   return rows;
 }
 
-export function expectedSentenceLineage(sentenceId: string): Array<{ layer: string; text: string }> {
+function spanInSentence(spanId: string, sentenceId: string): boolean {
+  const span = spanMap().get(spanId);
+  return span !== undefined && sentenceIdOfToken(span.firstTokenId) === sentenceId;
+}
+
+export function expectedSentenceLineage(sentenceId: string): LineageRow[] {
   const sentence = sentenceById(sentenceId);
   if (!sentence) return [];
-  const rows: Array<{ layer: string; text: string }> = [];
-  for (const entity of fixture.entities.filter((row) => entityShown(row))) {
-    for (const source of entity.sources ?? []) {
-      if (sourceTouchesSentence(source, sentence.id)) {
-        rows.push({ layer: 'entity', text: `${entity.id} via ${source}` });
-        break;
-      }
-    }
+  const rows: LineageRow[] = [];
+  for (const concept of fixture.concepts) {
+    const member = sortedSpanIds(concept.members).find((id) => spanInSentence(id, sentence.id));
+    if (member) rows.push({ layer: 'concept', text: `${concept.id} via ${member}` });
   }
-  for (const fact of fixture.facts) {
-    for (const source of fact.sources ?? []) {
-      if (sourceTouchesSentence(source, sentence.id)) {
-        rows.push({ layer: 'fact', text: `${fact.id} ${fact.kind} via ${source}` });
-        break;
-      }
-    }
+  const frames = fixture.frames.filter((frame) => frame.sentence === sentence.id);
+  for (const frame of frames) rows.push(frameRow(frame, frameKind(frame)));
+  for (const frame of frames) {
+    for (const transition of frameTransitions(frame.id)) rows.push(transitionRow(transition));
   }
   return rows;
 }
 
 /** Matches viewer-page.ts lineageBlock pane order. */
-const LINEAGE_ORDER = ['span', 'sentence', 'entity', 'fact', 'source', 'transition', 'state', 'flow'];
+export const LINEAGE_ORDER = ['span', 'sentence', 'concept', 'frame', 'source', 'transition', 'state', 'flow'];
 
-function groupLineageRows(
-  rows: Array<{ layer: string; text: string }>,
-): Array<{ layer: string; text: string }> {
-  const groups = new Map<string, Array<{ layer: string; text: string }>>();
+function groupLineageRows(rows: LineageRow[]): LineageRow[] {
+  const groups = new Map<string, LineageRow[]>();
   for (const row of rows) {
     const bucket = groups.get(row.layer);
     if (bucket) bucket.push(row);
@@ -478,22 +448,22 @@ function groupLineageRows(
   return layers.flatMap((layer) => groups.get(layer) ?? []);
 }
 
-export function expectedLineage(view: View, id: string): Array<{ layer: string; text: string }> {
+export function expectedLineage(view: View, id: string): LineageRow[] {
   const rows =
-    view === 'facts'
-      ? expectedFactLineage(id)
-      : view === 'entities'
-        ? expectedEntityLineage(id)
+    view === 'frames'
+      ? expectedFrameLineage(id)
+      : view === 'concepts'
+        ? expectedConceptLineage(id)
         : expectedSentenceLineage(id);
   return groupLineageRows(rows);
 }
 
-export function expectedMeta(): { id: string; sentences: number; entities: number; facts: number } {
+export function expectedMeta(): { id: string; sentences: number; concepts: number; frames: number } {
   return {
     id: fixture.session.id,
     sentences: fixture.sentences.length,
-    entities: fixture.entities.length,
-    facts: fixture.facts.filter((fact) => fact.removed !== true).length,
+    concepts: fixture.concepts.length,
+    frames: fixture.frames.length,
   };
 }
 

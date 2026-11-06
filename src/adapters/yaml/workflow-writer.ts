@@ -34,7 +34,7 @@ export function renderWorkflowYaml(draft: WorkflowSetDraft): string {
     lines.push(`    title: ${quote(workflow.title)}`);
     lines.push(`    expect: ${workflow.expect}`);
     if (workflow.rejectAt !== undefined) lines.push(`    rejectAt: ${workflow.rejectAt}`);
-    lines.push(`    start: ${workflow.start}`);
+    lines.push(`    start: ${quote(workflow.start)}`);
     lines.push('    nodes:');
     for (const node of workflow.nodes) {
       lines.push(`      - { id: ${quote(node.id)}, assign: ${renderAssign(node.assign)} }`);

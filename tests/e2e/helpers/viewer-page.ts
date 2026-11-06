@@ -16,9 +16,8 @@ export async function selectView(page: Page, view: View | 'spans' | 'graph'): Pr
 
 export async function applyFilters(page: Page, filters: FixtureFilters): Promise<void> {
   await page.locator('#filter-text').fill(filters.text);
-  await page.locator('#filter-kind').selectOption(filters.kind);
-  await page.locator('#filter-type').selectOption(filters.type);
-  await page.locator('#filter-status').selectOption(filters.status);
+  await page.locator('#filter-frame').selectOption(filters.frame);
+  await page.locator('#filter-concept').selectOption(filters.concept);
   await expect.poll(async () => readFilterState(page)).toEqual(filters);
 }
 
@@ -29,9 +28,8 @@ export async function clearFilters(page: Page): Promise<void> {
 export async function readFilterState(page: Page): Promise<FixtureFilters> {
   return {
     text: await page.locator('#filter-text').inputValue(),
-    kind: await page.locator('#filter-kind').inputValue(),
-    type: await page.locator('#filter-type').inputValue(),
-    status: await page.locator('#filter-status').inputValue(),
+    frame: await page.locator('#filter-frame').inputValue(),
+    concept: await page.locator('#filter-concept').inputValue(),
   };
 }
 

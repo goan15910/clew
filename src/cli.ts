@@ -12,19 +12,17 @@
 // clew spec init <spec.md> [--session id] [--json]
 // clew spec tag [--session id] [--sentence s1] [--json]
 // clew spec spans merge --lexicon file.json [--force-auto] [--session id] [--json]
-// clew spec spans merge --id sp:... --id sp:... [--tags Noun] [--entity id|--link none] [--session id] [--json]
+// clew spec spans merge --id sp:... --id sp:... [--tags Noun] [--entity concept:id|--link none] [--session id] [--json]
 // clew spec spans check --lexicon file.json [--session id] [--json]
-// clew spec entities list [--kind actor] [--status candidate] [--session id] [--json]
-// clew spec entities merge|rename|reject|promote [--session id] [--json]
-// clew spec facts propose [--sentence s1] [--session id] [--json]
-// clew spec facts add|edit|remove [--from file.json] [--session id] [--json]
+// clew spec concepts list [--session id] [--json]
+// clew spec frames list [--sentence s1] [--session id] [--json]
 // clew spec graph build [--session id] [--json]
-// clew spec graph split --id W1 --at f2 [--session id] [--json]
+// clew spec graph split --id W1 --at fr:s1.t2 [--session id] [--json]
 // clew spec graph group --id W1 --id W2 [--title text] [--session id] [--json]
 // clew spec emit (--dry-run | --out file) [--chart file] [--force] [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
-// clew spec show tagged|tokens|entities|facts [--session id] [--json]
+// clew spec show sentences|tagged|tokens|spans|concepts|frames [--session id] [--json]
 // clew spec view <session-id> [--open] [--json]
 // clew spec session list [--json]
 // clew spec session remove <id> [--json]
@@ -39,7 +37,6 @@ import { ghProvenance, npmGlobal } from './adapters/upgrade/npm-global.js';
 import { jsonSelectionLoader } from './adapters/json/selection-loader.js';
 import { packageVersion } from './adapters/package/package-version.js';
 import { compromiseTagger } from './adapters/pos/compromise-tagger.js';
-import { loadAddedFacts, loadFactEdit, loadRemovedFacts } from './adapters/spec-store/fact-patch.js';
 import { loadGroupPatch, loadSplitPatch } from './adapters/spec-store/flow-patch.js';
 import { jsonSpecStore } from './adapters/spec-store/json-file-store.js';
 import { loadSpanLexicon } from './adapters/spec-store/lexicon-loader.js';
@@ -73,19 +70,17 @@ import { checkChart } from './application/check-chart.js';
 import { checkSpans } from './application/check-spans.js';
 import { checkWorkflows } from './application/check-workflows.js';
 import { compareResults } from './application/compare-results.js';
-import { editEntities } from './application/edit-entities.js';
-import { editFacts } from './application/edit-facts.js';
 import { editGraph } from './application/edit-graph.js';
 import { editSentence } from './application/edit-sentences.js';
 import { emitSpec } from './application/emit-spec.js';
 import { exportSpec } from './application/export-spec.js';
 import { initSpec } from './application/init-spec.js';
-import { listEntities } from './application/list-entities.js';
+import { listConcepts } from './application/list-concepts.js';
+import { listFrames } from './application/list-frames.js';
 import { listSpecSessions } from './application/list-spec-sessions.js';
 import { mergeSpans } from './application/merge-spans.js';
 import { SPEC_SHOW_LAYERS, formatIssues, type CommandDocument, type DiagramViewDocument, type Outcome, type OutputIssue, type SpecShowLayer } from './application/documents.js';
 import type { ComparePorts, UpgradePorts, VerifyPorts } from './application/ports.js';
-import { proposeSpecFacts } from './application/propose-facts.js';
 import { readSpecStatus } from './application/spec-status.js';
 import { showSpec } from './application/show-spec.js';
 import { removeSpecSession } from './application/remove-spec-session.js';
@@ -96,9 +91,7 @@ import { upgradeClew } from './application/upgrade-clew.js';
 import { viewChart, viewWorkflows } from './application/view-diagram.js';
 import { viewSpecSession } from './application/view-spec.js';
 import { assertManuals, findCommand, fullHelp, jsonNote, listCommands, sessionNote, setManual, specExits } from './cli/help.js';
-import { predicateFromScalars, type FactDraft } from './domain/spec-facts.js';
-import { ENTITY_KINDS, FACT_KINDS, SPEC_ENTITY_ID_MESSAGE, SPEC_ENTITY_ID_PATTERN, SPEC_FACT_ID_MESSAGE, SPEC_FACT_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
-import { patchFromScalars } from './domain/valuation.js';
+import { SPEC_CONCEPT_ID_MESSAGE, SPEC_CONCEPT_ID_PATTERN, SPEC_FRAME_ID_MESSAGE, SPEC_FRAME_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE, SPEC_SENTENCE_ID_PATTERN, SPEC_SESSION_ID_MESSAGE, SPEC_SESSION_ID_PATTERN } from './domain/spec.js';
 import { WORKFLOW_ID_MESSAGE, WORKFLOW_ID_PATTERN } from './domain/workflow.js';
 
 const EXIT_PASS = 0;
@@ -190,7 +183,7 @@ const SpecSpansMergeFlags = z.object({
   forceAuto: z.boolean().optional(),
   id: z.array(z.string().regex(SPAN_ID, 'span ids look like sp:s1.t1..s1.t2')).optional(),
   tags: z.array(z.string().min(1)).optional(),
-  entity: z.string().regex(SPEC_ENTITY_ID_PATTERN, SPEC_ENTITY_ID_MESSAGE).optional(),
+  entity: z.string().regex(SPEC_CONCEPT_ID_PATTERN, SPEC_CONCEPT_ID_MESSAGE).optional(),
   link: z.literal('none').optional(),
 }).superRefine((value, context) => {
   const hasLexicon = value.lexicon !== undefined;
@@ -213,105 +206,10 @@ const SpecSpansCheckFlags = z.object({
   lexicon: z.string().min(1, 'lexicon path is required'),
 });
 const SessionOption = z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional();
-const EntityIdOption = z.string().regex(SPEC_ENTITY_ID_PATTERN, SPEC_ENTITY_ID_MESSAGE);
-const FactIdOption = z.string().regex(SPEC_FACT_ID_PATTERN, SPEC_FACT_ID_MESSAGE);
-const SpecEntityListFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  kind: z.enum(ENTITY_KINDS).optional(),
-  status: z.enum(['candidate', 'confirmed', 'rejected', 'stale']).optional(),
-});
-const SpecEntityMergeFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  into: EntityIdOption,
-  id: z.array(EntityIdOption).min(1, 'merge needs --id'),
-});
-const SpecEntityRenameFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  id: EntityIdOption,
-  name: z.string().min(1).optional(),
-  text: z.string().min(1).optional(),
-}).superRefine((value, context) => {
-  if (value.name === undefined && value.text === undefined) {
-    context.addIssue({ code: 'custom', message: 'rename needs --name or --text', path: ['name'] });
-  }
-});
-const SpecEntityRejectFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  id: EntityIdOption,
-  reason: z.string().min(1).optional(),
-});
-const SpecEntityPromoteFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  id: EntityIdOption,
-  kind: z.enum(ENTITY_KINDS).optional(),
-});
-const SpecFactProposeFlags = z.object({
+const SpecFramesListFlags = z.object({
   json: z.boolean().optional(),
   session: SessionOption,
   sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
-});
-const SpecFactAddFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  from: z.string().min(1).optional(),
-  kind: z.enum(FACT_KINDS).optional(),
-  event: z.string().min(1).optional(),
-  actor: z.string().min(1).optional(),
-  when: z.string().min(1).optional(),
-  assign: z.string().min(1).optional(),
-  source: z.array(z.string().min(1)).optional(),
-  note: z.string().optional(),
-  confidence: z.union([z.number(), z.string()]).optional(),
-}).superRefine((value, context) => {
-  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
-  const flagged = value.kind !== undefined || value.event !== undefined || value.actor !== undefined
-    || value.when !== undefined || value.assign !== undefined
-    || (value.source !== undefined && value.source.length > 0) || value.note !== undefined || value.confidence !== undefined;
-  if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
-  if (value.from === undefined && value.kind === undefined) context.addIssue({ code: 'custom', message: 'add needs --kind or --from', path: ['kind'] });
-  if (value.confidence !== undefined && !validConfidence(value.confidence)) {
-    context.addIssue({ code: 'custom', message: 'confidence must be between 0 and 1', path: ['confidence'] });
-  }
-});
-const SpecFactEditFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  from: z.string().min(1).optional(),
-  id: FactIdOption.optional(),
-  kind: z.enum(FACT_KINDS).optional(),
-  event: z.string().min(1).optional(),
-  actor: z.string().min(1).optional(),
-  when: z.string().min(1).optional(),
-  assign: z.string().min(1).optional(),
-  source: z.array(z.string().min(1)).optional(),
-  note: z.string().optional(),
-  confidence: z.union([z.number(), z.string()]).optional(),
-}).superRefine((value, context) => {
-  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
-  const flagged = value.kind !== undefined || value.event !== undefined || value.actor !== undefined
-    || value.when !== undefined || value.assign !== undefined
-    || (value.source !== undefined && value.source.length > 0) || value.note !== undefined || value.confidence !== undefined;
-  if (value.from !== undefined && flagged) context.addIssue({ code: 'custom', message: 'pass flags or --from, not both', path: ['from'] });
-  if (value.from === undefined && value.id === undefined) context.addIssue({ code: 'custom', message: 'edit needs --id or --from', path: ['id'] });
-  if (value.confidence !== undefined && !validConfidence(value.confidence)) {
-    context.addIssue({ code: 'custom', message: 'confidence must be between 0 and 1', path: ['confidence'] });
-  }
-});
-const SpecFactRemoveFlags = z.object({
-  json: z.boolean().optional(),
-  session: SessionOption,
-  from: z.string().min(1).optional(),
-  id: z.array(FactIdOption).optional(),
-}).superRefine((value, context) => {
-  if (value.from === '-') context.addIssue({ code: 'custom', message: 'Clew never reads stdin', path: ['from'] });
-  const hasIds = value.id !== undefined && value.id.length > 0;
-  if (value.from !== undefined && hasIds) context.addIssue({ code: 'custom', message: 'pass --id or --from, not both', path: ['from'] });
-  if (value.from === undefined && !hasIds) context.addIssue({ code: 'custom', message: 'remove needs --id or --from', path: ['id'] });
 });
 const FlowIdOption = z.string().regex(WORKFLOW_ID_PATTERN, WORKFLOW_ID_MESSAGE);
 const SpecGraphSplitFlags = z.object({
@@ -333,7 +231,7 @@ const SpecGraphGroupFlags = z.object({
   session: SessionOption,
   from: z.string().min(1).optional(),
   id: z.array(FlowIdOption).optional(),
-  transition: z.array(z.string().regex(/^f[1-9][0-9]*$/, 'transition ids are fact ids')).optional(),
+  transition: z.array(z.string().regex(SPEC_FRAME_ID_PATTERN, SPEC_FRAME_ID_MESSAGE)).optional(),
   title: z.string().min(1).optional(),
   into: FlowIdOption.optional(),
 }).superRefine((value, context) => {
@@ -479,62 +377,6 @@ async function emitDiagramView(
 
 function collectFlow(value: string, previous: string[]): string[] {
   return [...previous, value];
-}
-
-function validConfidence(value: number | string): boolean {
-  const number = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(number) && number >= 0 && number <= 1;
-}
-
-function confidenceOf(value: number | string | undefined): number | undefined {
-  if (value === undefined) return undefined;
-  return typeof value === 'number' ? value : Number(value);
-}
-
-function draftFromFlags(flags: {
-  kind?: FactDraft['kind'];
-  event?: string;
-  actor?: string;
-  when?: string;
-  assign?: string;
-  source?: string[];
-  note?: string;
-  confidence?: number | string;
-}): FactDraft {
-  const draft: FactDraft = {};
-  if (flags.kind !== undefined) draft.kind = flags.kind;
-  if (flags.event !== undefined) draft.event = flags.event;
-  if (flags.actor !== undefined) draft.actor = flags.actor;
-  if (flags.when !== undefined) {
-    const when = predicateFromScalars(parseJsonFlag(flags.when));
-    if (when !== undefined) draft.when = when;
-  }
-  if (flags.assign !== undefined) {
-    const raw = parseJsonFlag(flags.assign);
-    if (raw !== undefined && typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
-      const assign: Record<string, boolean | number | string | null> = {};
-      for (const key of Object.keys(raw)) {
-        const value = (raw as Record<string, unknown>)[key];
-        if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
-          assign[key] = value;
-        }
-      }
-      draft.assign = patchFromScalars(assign);
-    }
-  }
-  if (flags.source !== undefined && flags.source.length > 0) draft.sources = flags.source.slice();
-  if (flags.note !== undefined) draft.note = flags.note;
-  const confidence = confidenceOf(flags.confidence);
-  if (confidence !== undefined) draft.confidence = confidence;
-  return draft;
-}
-
-function parseJsonFlag(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
 }
 
 const installed = packageVersion();
@@ -932,13 +774,13 @@ const spans = spec.command('spans').description('Live span partition: lexicon me
 
 setManual(spans
   .command('merge')
-  .description('Merge live spans from a lexicon, or interactively with operator tags/entity link.')
+  .description('Merge live spans from a lexicon, or interactively with operator tags/concept link.')
   .option('--lexicon <file>', 'JSON lexicon for deterministic multi-word merges')
   .option('--force-auto', 'allow lexicon merge to absorb explicitlySet spans')
   .option('--id <spanId>', 'live span to merge (repeatable, interactive)', collectFlow, [] as string[])
   .option('--tags <tag>', 'operator tags for interactive merge (repeatable)', collectFlow, [] as string[])
-  .option('--entity <id>', 'explicit entity link for interactive merge')
-  .option('--link <none>', 'explicit no-entity link for interactive merge (pass none)')
+  .option('--entity <id>', 'explicit concept link for interactive merge, for example concept:order')
+  .option('--link <none>', 'explicit no-concept link for interactive merge (pass none)')
   .option('--session <id>', 'session to edit; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
@@ -1019,233 +861,46 @@ setManual(spans
   notes: [jsonNote, sessionNote],
 });
 
-const entities = spec.command('entities').description('List and refine entity candidates.').helpCommand(false);
+const concepts = spec.command('concepts').description('Group spans that name the same thing.').helpCommand(false);
 
-setManual(entities
+setManual(concepts
   .command('list')
-  .description('Derive entity candidates from tagged tokens and list them.')
-  .option('--session <id>', 'session to read; defaults to the only open session')
-  .option('--kind <kind>', 'actor, object, action, or condition')
-  .option('--status <status>', 'candidate, confirmed, rejected, or stale')
-  .option('--json', 'print the result document as JSON on stdout')
-  .action((opts) => {
-    const parsed = SpecEntityListFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.entities.list', opts, parsed.error);
-    emit(listEntities({
-      sessionId: parsed.data.session,
-      kind: parsed.data.kind,
-      status: parsed.data.status,
-    }, jsonSpecStore), parsed.data.json === true);
-  }), {
-  examples: ['clew spec entities list --json'],
-  exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
-});
-
-setManual(entities
-  .command('merge')
-  .description('Merge entities of the same kind into one.')
-  .option('--into <id>', 'entity that keeps the sources')
-  .option('--id <id>', 'entity to merge (repeatable)', collectFlow, [] as string[])
+  .description('Derive concepts from the live spans, link each span to its concept, and list them.')
   .option('--session <id>', 'session to edit; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
-    const parsed = SpecEntityMergeFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.entities.merge', opts, parsed.error);
-    emit(editEntities({ action: 'merge', sessionId: parsed.data.session, into: parsed.data.into, ids: parsed.data.id }, jsonSpecStore), parsed.data.json === true);
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.concepts.list', opts, parsed.error);
+    emit(listConcepts({ sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
   }), {
-  examples: ['clew spec entities merge --into actor:customer --id actor:buyer --json'],
+  examples: ['clew spec concepts list --json'],
   exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
+  notes: ['A run with no change writes nothing and adds no history line.', jsonNote, sessionNote],
 });
 
-setManual(entities
-  .command('rename')
-  .description('Rename an entity. Conditions take --text; other kinds take --name.')
-  .option('--id <id>', 'entity to rename')
-  .option('--name <name>', 'new name for an actor, object, or action')
-  .option('--text <text>', 'new text for a condition')
+const frames = spec.command('frames').description('Read one clause frame per clause.').helpCommand(false);
+
+setManual(frames
+  .command('list')
+  .description('Derive concepts when missing, then one frame per clause, and list them with what they compile to.')
+  .option('--sentence <id>', 'only show frames of this sentence')
   .option('--session <id>', 'session to edit; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
-    const parsed = SpecEntityRenameFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.entities.rename', opts, parsed.error);
-    emit(editEntities({
-      action: 'rename',
-      sessionId: parsed.data.session,
-      id: parsed.data.id,
-      name: parsed.data.name,
-      text: parsed.data.text,
-    }, jsonSpecStore), parsed.data.json === true);
+    const parsed = SpecFramesListFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.frames.list', opts, parsed.error);
+    emit(listFrames({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore), parsed.data.json === true);
   }), {
-  examples: ['clew spec entities rename --id actor:customer --name customer --json'],
+  examples: ['clew spec frames list --json', 'clew spec frames list --sentence s2 --json'],
   exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
-});
-
-setManual(entities
-  .command('reject')
-  .description('Reject an entity so later steps ignore it.')
-  .option('--id <id>', 'entity to reject')
-  .option('--reason <text>', 'why the entity is not part of the model')
-  .option('--session <id>', 'session to edit; defaults to the only open session')
-  .option('--json', 'print the result document as JSON on stdout')
-  .action((opts) => {
-    const parsed = SpecEntityRejectFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.entities.reject', opts, parsed.error);
-    emit(editEntities({
-      action: 'reject',
-      sessionId: parsed.data.session,
-      id: parsed.data.id,
-      reason: parsed.data.reason,
-    }, jsonSpecStore), parsed.data.json === true);
-  }), {
-  examples: ['clew spec entities reject --id object:draft --reason "not part of the model" --json'],
-  exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
-});
-
-setManual(entities
-  .command('promote')
-  .description('Confirm an entity, optionally changing its kind.')
-  .option('--id <id>', 'entity to confirm')
-  .option('--kind <kind>', 'actor, object, or action, when the tagger chose the wrong kind')
-  .option('--session <id>', 'session to edit; defaults to the only open session')
-  .option('--json', 'print the result document as JSON on stdout')
-  .action((opts) => {
-    const parsed = SpecEntityPromoteFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.entities.promote', opts, parsed.error);
-    emit(editEntities({
-      action: 'promote',
-      sessionId: parsed.data.session,
-      id: parsed.data.id,
-      kind: parsed.data.kind,
-    }, jsonSpecStore), parsed.data.json === true);
-  }), {
-  examples: ['clew spec entities promote --id object:customer --kind actor --json'],
-  exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
-});
-
-const facts = spec.command('facts').description('Propose facts and record agent judgment.').helpCommand(false);
-
-setManual(facts
-  .command('propose')
-  .description('Propose draft facts from entities and live spans.')
-  .option('--session <id>', 'session to read; defaults to the only open session')
-  .option('--sentence <id>', 'propose only from this sentence, for example s1')
-  .option('--json', 'print the result document as JSON on stdout')
-  .action((opts) => {
-    const parsed = SpecFactProposeFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.facts.propose', opts, parsed.error);
-    emit(proposeSpecFacts({ sessionId: parsed.data.session, sentenceId: parsed.data.sentence }, jsonSpecStore), parsed.data.json === true);
-  }), {
-  examples: ['clew spec facts propose --json'],
-  exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
-});
-
-setManual(facts
-  .command('add')
-  .description('Add a fact from flags or a JSON file.')
-  .option('--from <file>', 'JSON fact, or { "facts": [ ... ] }')
-  .option('--kind <kind>', 'action, init, terminal, or forbidden')
-  .option('--event <name>', 'UPPER_SNAKE event name')
-  .option('--actor <id>', 'actor entity id')
-  .option('--when <json>', 'predicate JSON, for example {"op":"eq","var":"order","value":null}')
-  .option('--assign <json>', 'non-empty assign patch JSON, for example {"order":"submit"}')
-  .option('--source <id>', 'provenance id (repeatable)', collectFlow, [] as string[])
-  .option('--note <text>', 'note stored with the fact')
-  .option('--confidence <number>', 'advisory confidence from 0 to 1')
-  .option('--session <id>', 'session to edit; defaults to the only open session')
-  .option('--json', 'print the result document as JSON on stdout')
-  .action((opts) => {
-    const parsed = SpecFactAddFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.facts.add', opts, parsed.error);
-    const flags = parsed.data;
-    if (flags.from !== undefined) {
-      const loaded = loadAddedFacts(flags.from);
-      if (!loaded.ok) {
-        usage('spec.facts.add', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
-      }
-      emit(editFacts({ action: 'add', sessionId: flags.session, drafts: loaded.drafts }, jsonSpecStore), flags.json === true);
-    }
-    emit(editFacts({ action: 'add', sessionId: flags.session, drafts: [draftFromFlags(flags)] }, jsonSpecStore), flags.json === true);
-  }), {
-  examples: ['clew spec facts add --kind action --event SUBMIT --actor actor:customer --assign \'{"order":"submit"}\' --source s1 --json'],
-  exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
-});
-
-setManual(facts
-  .command('edit')
-  .description('Edit a fact from flags or a JSON file.')
-  .option('--id <id>', 'fact to edit, for example f3')
-  .option('--from <file>', 'JSON object with the fields to change')
-  .option('--kind <kind>', 'action, init, terminal, or forbidden')
-  .option('--event <name>', 'UPPER_SNAKE event name')
-  .option('--actor <id>', 'actor entity id')
-  .option('--when <json>', 'predicate JSON, for example {"op":"eq","var":"order","value":null}')
-  .option('--assign <json>', 'non-empty assign patch JSON, for example {"order":"submit"}')
-  .option('--source <id>', 'provenance id (repeatable)', collectFlow, [] as string[])
-  .option('--note <text>', 'note stored with the fact')
-  .option('--confidence <number>', 'advisory confidence from 0 to 1')
-  .option('--session <id>', 'session to edit; defaults to the only open session')
-  .option('--json', 'print the result document as JSON on stdout')
-  .action((opts) => {
-    const parsed = SpecFactEditFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.facts.edit', opts, parsed.error);
-    const flags = parsed.data;
-    if (flags.from !== undefined) {
-      const loaded = loadFactEdit(flags.from);
-      if (!loaded.ok) {
-        usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
-      }
-      const id = flags.id ?? loaded.id;
-      if (id === undefined) usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: 'edit needs an id', path: ['id'] }]));
-      if (flags.id !== undefined && loaded.id !== undefined && flags.id !== loaded.id) {
-        usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: `file id ${loaded.id} does not match --id ${flags.id}`, path: ['id'] }]));
-      }
-      emit(editFacts({ action: 'edit', sessionId: flags.session, id, draft: loaded.draft }, jsonSpecStore), flags.json === true);
-    }
-    if (flags.id === undefined) usage('spec.facts.edit', opts, new z.ZodError([{ code: 'custom', message: 'edit needs --id', path: ['id'] }]));
-    emit(editFacts({ action: 'edit', sessionId: flags.session, id: flags.id, draft: draftFromFlags(flags) }, jsonSpecStore), flags.json === true);
-  }), {
-  examples: ['clew spec facts edit --id f1 --note "confirmed by the agent" --json'],
-  exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
-});
-
-setManual(facts
-  .command('remove')
-  .description('Remove facts. A later propose will not recreate them.')
-  .option('--id <id>', 'fact to remove (repeatable)', collectFlow, [] as string[])
-  .option('--from <file>', 'JSON { "id": "f1" } or { "ids": ["f1"] }')
-  .option('--session <id>', 'session to edit; defaults to the only open session')
-  .option('--json', 'print the result document as JSON on stdout')
-  .action((opts) => {
-    const parsed = SpecFactRemoveFlags.safeParse(opts);
-    if (!parsed.success) usage('spec.facts.remove', opts, parsed.error);
-    const flags = parsed.data;
-    if (flags.from !== undefined) {
-      const loaded = loadRemovedFacts(flags.from);
-      if (!loaded.ok) {
-        usage('spec.facts.remove', opts, new z.ZodError([{ code: 'custom', message: loaded.message, path: ['from'] }]));
-      }
-      emit(editFacts({ action: 'remove', sessionId: flags.session, ids: loaded.ids }, jsonSpecStore), flags.json === true);
-    }
-    emit(editFacts({ action: 'remove', sessionId: flags.session, ids: flags.id ?? [] }, jsonSpecStore), flags.json === true);
-  }), {
-  examples: ['clew spec facts remove --id f1 --json'],
-  exitCodes: specExits,
-  notes: [jsonNote, sessionNote],
+  notes: ['--sentence filters the document only; every frame is still derived and stored.', 'Findings frame-missing-event, frame-missing-object, frame-missing-result, and value-never-assigned are warnings.', jsonNote, sessionNote],
 });
 
 const graph = spec.command('graph').description('Assemble a draft graph and choose named paths.').helpCommand(false);
 
 setManual(graph
   .command('build')
-  .description('Assemble states and transitions from facts, and propose one path per transition.')
+  .description('Assemble states and transitions from the compiled frames, and propose one path per transition.')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
@@ -1262,8 +917,8 @@ setManual(graph
   .command('split')
   .description('Split one accepted path into two. --at is the first edge of the second path.')
   .option('--id <id>', 'flow to split, for example W1')
-  .option('--at <edge>', '1-based edge number or fact id, for example 2 or f2')
-  .option('--from <file>', 'JSON { "id": "W1", "at": "f2" }')
+  .option('--at <edge>', '1-based edge number or frame id, for example 2 or fr:s2.t1')
+  .option('--from <file>', 'JSON { "id": "W1", "at": "fr:s2.t1" }')
   .option('--session <id>', 'session to edit; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
@@ -1278,7 +933,7 @@ setManual(graph
     if (flags.id === undefined || flags.at === undefined) usage('spec.graph.split', opts, new z.ZodError([{ code: 'custom', message: 'split needs --id and --at', path: ['id'] }]));
     emit(editGraph({ action: 'split', sessionId: flags.session, id: flags.id, at: flags.at }, jsonSpecStore), flags.json === true);
   }), {
-  examples: ['clew spec graph split --id W1 --at f2 --json'],
+  examples: ['clew spec graph split --id W1 --at fr:s2.t1 --json'],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
 });
@@ -1290,7 +945,7 @@ setManual(graph
   .option('--transition <id>', 'transition to join, in walk order (repeatable)', collectFlow, [] as string[])
   .option('--title <text>', 'title of the grouped path')
   .option('--into <id>', 'flow id to keep')
-  .option('--from <file>', 'JSON { "ids": ["W1", "W2"], "title": "..." } or { "transitions": ["f1", "f2"] }')
+  .option('--from <file>', 'JSON { "ids": ["W1", "W2"], "title": "..." } or { "transitions": ["fr:s1.t1", "fr:s2.t1"] }')
   .option('--session <id>', 'session to edit; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
@@ -1347,8 +1002,8 @@ setManual(spec
 
 setManual(spec
   .command('trace')
-  .description('Follow an id back to facts, entities, tokens, and the sentence.')
-  .argument('<id>', 'entity, fact, token, sentence, or state id')
+  .description('Follow an id back to frames, concepts, tokens, and the sentence.')
+  .argument('<id>', 'concept, frame, transition, token, sentence, flow, or state id')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((id, opts) => {
@@ -1357,7 +1012,7 @@ setManual(spec
     if (id.trim() === '') usage('spec.trace', opts, new z.ZodError([{ code: 'custom', message: 'trace needs an id', path: ['id'] }]));
     emit(traceSpec({ sessionId: parsed.data.session, id }, jsonSpecStore), parsed.data.json === true);
   }), {
-  examples: ['clew spec trace actor:customer --json'],
+  examples: ['clew spec trace concept:customer --json'],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote],
 });
@@ -1399,13 +1054,13 @@ const SHOW_HELP: Record<SpecShowLayer, { description: string; example: string }>
     description: 'Print unique tokens and their tag readings.',
     example: 'clew spec show tokens --json',
   },
-  entities: {
-    description: 'Print stored entities, including rejected and stale ones.',
-    example: 'clew spec show entities --json',
+  concepts: {
+    description: 'Print stored concepts with their member spans.',
+    example: 'clew spec show concepts --json',
   },
-  facts: {
-    description: 'Print stored facts. Removed facts stay hidden.',
-    example: 'clew spec show facts --json',
+  frames: {
+    description: 'Print stored clause frames with what they compile to.',
+    example: 'clew spec show frames --json',
   },
 };
 
@@ -1566,7 +1221,7 @@ setManual(program
   }), {
   examples: [
     'clew help',
-    'clew help spec facts propose',
+    'clew help spec frames list',
   ],
   exitCodes: [
     { code: 0, meaning: 'the help text was written' },

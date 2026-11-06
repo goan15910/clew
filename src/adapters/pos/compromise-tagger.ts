@@ -5,6 +5,7 @@ import type { PosTagging, PosToken } from '../../domain/spec.js';
 
 interface RawTerm {
   text?: unknown;
+  implicit?: unknown;
   tags?: unknown;
   offset?: { start?: unknown; length?: unknown };
 }
@@ -28,6 +29,23 @@ function verbInfinitive(text: string): string | undefined {
   return infinitive;
 }
 
+function pastParticiple(lemma: string): string | undefined {
+  const forms: unknown = nlp(lemma).verbs().conjugate()[0];
+  if (typeof forms !== 'object' || forms === null) return undefined;
+  const participle = 'Participle' in forms && typeof forms.Participle === 'string' ? forms.Participle : undefined;
+  const past = 'PastTense' in forms && typeof forms.PastTense === 'string' ? forms.PastTense : undefined;
+  const form = (participle ?? past ?? '').trim().toLowerCase();
+  return form === '' ? undefined : form;
+}
+
+/** Contractions expand into a text-less term ("cannot" → "can" + ""), so its tags belong to the written token. */
+function foldImplicit(token: PosToken | undefined, tags: readonly string[]): void {
+  if (token === undefined) return;
+  for (const tag of tags) {
+    if (!token.tags.includes(tag)) token.tags.push(tag);
+  }
+}
+
 export const compromiseTagger: PosTaggerPort = {
   name: 'compromise',
   version: nlp.version,
@@ -40,7 +58,11 @@ export const compromiseTagger: PosTaggerPort = {
     for (const sentence of sentences) {
       const terms = Array.isArray(sentence.terms) ? sentence.terms : [];
       for (const term of terms) {
-        if (typeof term.text !== 'string' || term.text === '') continue;
+        if (term.text === '') {
+          foldImplicit(tokens.at(-1), tagList(term.tags));
+          continue;
+        }
+        if (typeof term.text !== 'string') continue;
         const tags = tagList(term.tags);
         const offsetStart = typeof term.offset?.start === 'number' ? term.offset.start : undefined;
         const offsetLength = typeof term.offset?.length === 'number' ? term.offset.length : term.text.length;
@@ -63,8 +85,12 @@ export const compromiseTagger: PosTaggerPort = {
         }
         const token: PosToken = { text: term.text, tags, start, end };
         if (tags.includes('Verb')) {
-          const lemma = verbInfinitive(term.text);
-          if (lemma !== undefined) token.lemma = lemma;
+          const lemma = verbInfinitive(typeof term.implicit === 'string' ? term.implicit : term.text);
+          if (lemma !== undefined) {
+            token.lemma = lemma;
+            const participle = pastParticiple(lemma);
+            if (participle !== undefined) token.participle = participle;
+          }
         }
         tokens.push(token);
       }

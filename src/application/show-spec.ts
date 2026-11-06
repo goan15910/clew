@@ -1,32 +1,33 @@
+import { compileFrames } from '../domain/spec-compile.js';
 import { liveSentences, type SpecSnapshot } from '../domain/spec.js';
 import { sentenceWorkflows, uniqueTokens } from '../domain/spec-query.js';
 import type { Outcome, SpecFault, SpecShowDocument, SpecShowLayer } from './documents.js';
 import { specInput } from './documents.js';
 import type { SpecStore } from './ports.js';
 import { resolveSession } from './spec-session.js';
-import { entityViews, factViews, sentenceContextViews, spanViews, taggedViews, uniqueTokenViews } from './spec-views.js';
+import { conceptViews, frameViews, sentenceContextViews, spanViews, taggedViews, uniqueTokenViews } from './spec-views.js';
 
 export interface ShowSpecCommand {
   layer: SpecShowLayer;
   sessionId?: string;
 }
 
-type Need = 'tag' | 'spans' | 'entities' | 'facts';
+type Need = 'tag' | 'spans' | 'concepts' | 'frames';
 
 const NEEDS: Record<SpecShowLayer, readonly Need[]> = {
   sentences: [],
   tagged: ['tag'],
   tokens: ['tag'],
   spans: ['tag', 'spans'],
-  entities: ['tag', 'entities'],
-  facts: ['tag', 'entities', 'facts'],
+  concepts: ['tag', 'concepts'],
+  frames: ['tag', 'frames'],
 };
 
 const PRODUCER: Record<Need, string> = {
   tag: 'no tokens; run clew spec tag first',
   spans: 'no spans; run clew spec tag again to promote tokens into spans',
-  entities: 'no entities; run clew spec entities list first',
-  facts: 'no facts; run clew spec entities list first',
+  concepts: 'no concepts; run clew spec concepts list first',
+  frames: 'no frames; run clew spec frames list first',
 };
 
 export function showSpec(command: ShowSpecCommand, store: SpecStore): Outcome<SpecShowDocument> {
@@ -52,10 +53,10 @@ function written(snapshot: SpecSnapshot, need: Need): boolean {
       return tagLayerWritten(snapshot);
     case 'spans':
       return snapshot.spans !== undefined;
-    case 'entities':
-      return snapshot.entities !== undefined;
-    case 'facts':
-      return snapshot.facts !== undefined;
+    case 'concepts':
+      return snapshot.concepts !== undefined;
+    case 'frames':
+      return snapshot.frames !== undefined;
   }
 }
 
@@ -78,10 +79,12 @@ function shown(layer: SpecShowLayer, snapshot: SpecSnapshot): SpecShowDocument {
       return { ...base, command: 'spec.show.tokens', tokens: uniqueTokenViews(uniqueTokens(snapshot.sentences, snapshot.tagged)) };
     case 'spans':
       return { ...base, command: 'spec.show.spans', spans: spanViews(snapshot.spans ?? []) };
-    case 'entities':
-      return { ...base, command: 'spec.show.entities', entities: entityViews(snapshot.entities ?? []) };
-    case 'facts':
-      return { ...base, command: 'spec.show.facts', facts: factViews(snapshot.facts ?? []) };
+    case 'concepts':
+      return { ...base, command: 'spec.show.concepts', concepts: conceptViews(snapshot.concepts ?? [], snapshot.spans ?? []) };
+    case 'frames': {
+      const compilation = compileFrames(snapshot.frames ?? [], snapshot.concepts ?? []);
+      return { ...base, command: 'spec.show.frames', frames: frameViews(snapshot.frames ?? [], compilation.compiled.items, compilation.restated) };
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 // Use case: assemble the draft graph and a deterministic path cover.
-import { compileFacts } from '../domain/spec-facts.js';
+import { compileSnapshot } from '../domain/spec-compile.js';
 import { buildGraph, sameGraph } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding, type SpecSnapshot } from '../domain/spec.js';
 import type { Outcome, SpecGraphDocument } from './documents.js';
@@ -19,15 +19,11 @@ export function buildSpecGraph(command: BuildGraphCommand, store: SpecStore): Ou
   let findings: Finding[] = [];
   const result = store.update(resolved.id, { create: false }, (current) => {
     if (current === undefined) return undefined;
-    if (current.entities === undefined) {
-      problem = 'no entities; run clew spec entities list first';
+    if (current.frames === undefined) {
+      problem = 'no frames; run clew spec frames list first';
       return undefined;
     }
-    if (current.facts === undefined) {
-      problem = 'no facts; run clew spec entities list first';
-      return undefined;
-    }
-    const built = buildGraph(compileFacts(current.entities, current.facts), current.graph);
+    const built = buildGraph(compileSnapshot(current), current.graph);
     findings = built.findings;
     if (sameGraph(current.graph, built.graph)) return undefined;
     const now = new Date().toISOString();
@@ -75,8 +71,8 @@ function copySnapshot(current: SpecSnapshot, updated: string): SpecSnapshot {
   };
   if (current.tagger !== undefined) snapshot.tagger = { name: current.tagger.name, version: current.tagger.version };
   if (current.spans !== undefined) snapshot.spans = current.spans;
-  if (current.entities !== undefined) snapshot.entities = current.entities;
-  if (current.facts !== undefined) snapshot.facts = current.facts;
+  if (current.concepts !== undefined) snapshot.concepts = current.concepts;
+  if (current.frames !== undefined) snapshot.frames = current.frames;
   if (current.graph !== undefined) snapshot.graph = current.graph;
   return snapshot;
 }

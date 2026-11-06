@@ -6,6 +6,7 @@ import type { Issue } from './issue.js';
 import { chartEventName, chartStateId } from './model.js';
 import {
   compiledSpec,
+  DEFAULT_INITIAL_ATOM,
   findItem,
   type CompiledAction,
   type CompiledForbidden,
@@ -92,7 +93,7 @@ export function graphLayerFindings(compiled: CompiledSpec, stored: DraftGraph | 
   return [...fresh.findings, ...truncationFindings(compiled, bound), ...flowCoverage(graph, compiled.items)];
 }
 
-/** Persistable overlay: flows keyed by fact id. States and transitions are recomputed on read. */
+/** Persistable overlay: flows keyed by frame id. States and transitions are recomputed on read. */
 export function overlayGraph(graph: DraftGraph | undefined): DraftGraph | undefined {
   if (graph === undefined) return undefined;
   const flows: SpecFlow[] = [];
@@ -204,7 +205,7 @@ export function workflowCheckFindings(issues: readonly Issue[], draft: WorkflowS
           refs.push(transitionId);
           const transition = findTransition(graph.transitions, transitionId);
           if (transition === undefined) continue;
-          for (const itemId of transition.facts) {
+          for (const itemId of transition.frames) {
             refs.push(itemId);
             const item = findItem(items, itemId);
             if (item === undefined) continue;
@@ -275,7 +276,7 @@ function assembleGraph(compiled: CompiledSpec): Assembled {
     if (item.kind === 'init') state.initial = true;
     else state.final = true;
   }
-  for (const state of states) state.facts = itemsForState(state, live, transitions);
+  for (const state of states) state.frames = itemsForState(state, live, transitions);
   for (const finding of reachability(states, transitions, objects)) findings.push(finding);
   for (const finding of guardFindings(transitions, live)) findings.push(finding);
   for (const finding of sameStateNames(states)) findings.push(finding);
@@ -355,7 +356,7 @@ function coverAcceptedPaths(
   }
   const flows: SpecFlow[] = [];
   for (const locals of byObject.values()) {
-    locals.sort((left, right) => factNumber(left.fact) - factNumber(right.fact));
+    locals.sort((left, right) => compareItemIds(left.frame, right.frame));
     const path = coverObjectLifecycle(locals);
     if (path.length === 0) continue;
     for (const id of path) covered.add(id);
@@ -439,7 +440,7 @@ function stitchScenarios(
     if (flow.expect === 'accepted' && flow.origin === 'rule') accepted.push(flow);
     else rest.push(flow);
   }
-  accepted.sort((left, right) => minFactNumber(left, transitions) - minFactNumber(right, transitions));
+  accepted.sort((left, right) => compareItemIds(firstItemId(left, transitions), firstItemId(right, transitions)));
   const merged: SpecFlow[] = [];
   let index = 0;
   while (index < accepted.length) {
@@ -497,15 +498,14 @@ function lastTransition(
   return id === undefined ? undefined : findTransition(transitions, id);
 }
 
-function minFactNumber(flow: SpecFlow, transitions: readonly GraphTransition[]): number {
-  let min = Number.POSITIVE_INFINITY;
+function firstItemId(flow: SpecFlow, transitions: readonly GraphTransition[]): string {
+  let first: string | undefined;
   for (const id of flow.transitions) {
     const transition = findTransition(transitions, id);
     if (transition === undefined) continue;
-    const number = factNumber(transition.fact);
-    if (number < min) min = number;
+    if (first === undefined || compareItemIds(transition.frame, first) < 0) first = transition.frame;
   }
-  return min;
+  return first ?? '';
 }
 
 function keepRuleFlow(
@@ -780,26 +780,26 @@ function syntheticRejected(
   tagged: readonly TaggedSentence[],
   spec: Spec | undefined,
 ): { workflow?: WorkflowSetDraft['workflows'][number]; problem?: string } {
-  const fact = flow.forbidden === undefined ? undefined : findItem(items, flow.forbidden);
-  if (fact === undefined || fact.kind !== 'forbidden') return { problem: `${flow.id} has no forbidden fact` };
-  const object = fact.object;
-  const event = fact.event;
+  const forbidden = flow.forbidden === undefined ? undefined : findItem(items, flow.forbidden);
+  if (forbidden === undefined || forbidden.kind !== 'forbidden') return { problem: `${flow.id} has no forbidden frame` };
+  const object = forbidden.object;
+  const event = forbidden.event;
   if (object === undefined || event === undefined) return { problem: `${flow.id} has no object or action` };
   const initial = graph.states.find((state) => state.object === object && state.initial === true);
   if (initial === undefined) return { problem: `${flow.id} has no initial state on ${object}` };
-  let to = fact.attempted ?? event.toLowerCase().replace(/_/g, '-');
+  let to = forbidden.attempted ?? event.toLowerCase().replace(/_/g, '-');
   if (!WORKFLOW_WORD_PATTERN.test(to)) return { problem: `${flow.id} has no workflow name for ${event}` };
   if (to === initial.id) to = `${to}-refused`;
-  const sentence = sentenceFor(fact, sentences, tagged);
+  const sentence = sentenceFor(forbidden, sentences, tagged);
   const text = sentence !== undefined
     ? cleanClause(sentence.text)
-    : `The ${fact.actor ?? 'actor'} cannot ${event} the ${object}`;
+    : `The ${forbidden.actor ?? 'actor'} cannot ${event} the ${object}`;
   const startAssign = spec === undefined
     ? phaseAssign(initial.id)
-    : patchFromValuation(startFromWhen(spec, fact.when));
+    : patchFromValuation(startFromWhen(spec, forbidden.when));
   const endAssign = spec === undefined
     ? phaseAssign(to)
-    : patchFromValuation(applyAttempt(spec, startFromWhen(spec, fact.when), fact.assign ?? {}));
+    : patchFromValuation(applyAttempt(spec, startFromWhen(spec, forbidden.when), forbidden.assign ?? {}));
   const workflow: WorkflowSetDraft['workflows'][number] = {
     id: flow.id,
     title: flow.title,
@@ -830,7 +830,7 @@ function transitionText(
     const actor = transition.actor ?? 'actor';
     return `The ${actor} cannot ${transition.event} the ${transition.object}`;
   }
-  const action = findItem(items, transition.fact);
+  const action = findItem(items, transition.frame);
   const sentence = action === undefined ? undefined : sentenceFor(action, sentences, tagged);
   if (sentence === undefined) {
     const actor = transition.actor === undefined ? '' : `The ${transition.actor} `;
@@ -901,32 +901,32 @@ function cleanClause(text: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function readyAction(fact: CompiledAction, findings: Finding[]): boolean {
-  const overlay = fact.overlay;
+function readyAction(action: CompiledAction, findings: Finding[]): boolean {
+  const overlay = action.overlay;
   if (overlay === undefined || overlay.to === '') {
-    findings.push(blocked('type-mismatch', `${fact.id} has no target assign`, [fact.id]));
+    findings.push(blocked('type-mismatch', `${action.id} has no target assign`, [action.id]));
     return false;
   }
   if (overlay.from === undefined || overlay.from === '') {
     findings.push({
-      id: `transition-without-from:${fact.id}`,
+      id: `transition-without-from:${action.id}`,
       kind: 'gap',
       code: 'transition-without-from',
       severity: 'blocking',
-      message: `${fact.id} has no source valuation for ${overlay.object}`,
-      refs: [fact.id, ...fact.sources],
+      message: `${action.id} has no source valuation for ${overlay.object}`,
+      refs: [action.id, ...action.sources],
     });
     return false;
   }
   if (!WORKFLOW_WORD_PATTERN.test(overlay.from) || !WORKFLOW_WORD_PATTERN.test(overlay.to)) {
-    findings.push(blocked('vocabulary', `${fact.id} uses a state name that is not workflow vocabulary`, [fact.id]));
+    findings.push(blocked('vocabulary', `${action.id} uses a state name that is not workflow vocabulary`, [action.id]));
     return false;
   }
   return true;
 }
 
-function makeTransition(fact: CompiledAction, id: string): { transition: GraphTransition; findings: Finding[] } | undefined {
-  const overlay = fact.overlay;
+function makeTransition(action: CompiledAction, id: string): { transition: GraphTransition; findings: Finding[] } | undefined {
+  const overlay = action.overlay;
   if (overlay === undefined || overlay.from === undefined) return undefined;
   const findings: Finding[] = [];
   if (overlay.actor === undefined) {
@@ -936,20 +936,20 @@ function makeTransition(fact: CompiledAction, id: string): { transition: GraphTr
       code: 'transition-without-actor',
       severity: 'warning',
       message: `${id} has no actor`,
-      refs: [id, fact.id],
+      refs: [id, action.id],
     });
   }
   if (overlay.from === overlay.to) {
-    findings.push(blocked('self-loop', `${id} links ${overlay.from} to itself`, [id, fact.id]));
+    findings.push(blocked('self-loop', `${id} links ${overlay.from} to itself`, [id, action.id]));
   }
   const transition: GraphTransition = {
     id,
     from: overlay.from,
-    event: fact.event,
+    event: action.event,
     to: overlay.to,
     object: overlay.object,
-    fact: fact.id,
-    facts: [fact.id],
+    frame: action.id,
+    frames: [action.id],
   };
   if (overlay.actor !== undefined) transition.actor = overlay.actor;
   if (overlay.guard !== undefined) transition.guard = overlay.guard;
@@ -1032,17 +1032,17 @@ function guardFindings(transitions: readonly GraphTransition[], live: readonly C
   const findings: Finding[] = [];
   for (const transition of transitions) {
     if (transition.guard === undefined) continue;
-    // Condition entities are boolean vars, so false is the else value.
+    // Condition frames are boolean vars, so false is the else value.
     if (transition.guard.startsWith('condition:')) continue;
     if (hasElse(transition, transitions, live)) continue;
-    const action = findItem(live, transition.fact);
+    const action = findItem(live, transition.frame);
     const guardText = action?.kind === 'action' ? action.overlay?.guardText : undefined;
     const short = transition.guard.includes(':') ? transition.guard.split(':')[1] ?? transition.guard : transition.guard;
     const detail = guardText === undefined ? short : `${short} (${guardText})`;
     findings.push(blocked(
       'guard-without-else',
       `${transition.event} is guarded by ${detail}; nothing says what happens to a ${transition.from} ${transition.object} otherwise`,
-      [transition.id, transition.fact, transition.guard],
+      [transition.id, transition.frame, transition.guard],
     ));
   }
   return findings;
@@ -1098,7 +1098,7 @@ function itemsForState(state: GraphState, live: readonly CompiledItem[], transit
   }
   for (const transition of transitions) {
     if (transition.object !== state.object) continue;
-    if (transition.from === state.id || transition.to === state.id) ids.push(transition.fact);
+    if (transition.from === state.id || transition.to === state.id) ids.push(transition.frame);
   }
   return unique(sortIds(ids));
 }
@@ -1155,8 +1155,8 @@ function splitIndex(flow: SpecFlow, transitions: readonly GraphTransition[], at:
   return { index };
 }
 
-function sentenceFor(fact: { sources: readonly string[] }, sentences: readonly LiveSentence[], tagged: readonly TaggedSentence[]): LiveSentence | undefined {
-  for (const source of fact.sources) {
+function sentenceFor(item: { sources: readonly string[] }, sentences: readonly LiveSentence[], tagged: readonly TaggedSentence[]): LiveSentence | undefined {
+  for (const source of item.sources) {
     const direct = findSentence(sentences, source);
     if (direct !== undefined) return direct;
     if (source.startsWith('sp:')) {
@@ -1186,7 +1186,7 @@ function ensureState(states: GraphState[], object: string, id: string): GraphSta
   for (const state of states) {
     if (state.object === object && state.id === id) return state;
   }
-  const state: GraphState = { id, object, facts: [] };
+  const state: GraphState = { id, object, frames: [] };
   states.push(state);
   return state;
 }
@@ -1220,15 +1220,15 @@ function sameStructure(left: { objects: readonly string[]; states: readonly Grap
     const b = right.states[index];
     if (a === undefined || b === undefined) return false;
     if (a.id !== b.id || a.object !== b.object || a.initial !== b.initial || a.final !== b.final) return false;
-    if (!sameList(a.facts, b.facts)) return false;
+    if (!sameList(a.frames, b.frames)) return false;
   }
   for (let index = 0; index < left.transitions.length; index += 1) {
     const a = left.transitions[index];
     const b = right.transitions[index];
     if (a === undefined || b === undefined) return false;
     if (a.id !== b.id || a.from !== b.from || a.event !== b.event || a.to !== b.to) return false;
-    if (a.actor !== b.actor || a.guard !== b.guard || a.object !== b.object || a.fact !== b.fact) return false;
-    if (!sameList(a.facts, b.facts)) return false;
+    if (a.actor !== b.actor || a.guard !== b.guard || a.object !== b.object || a.frame !== b.frame) return false;
+    if (!sameList(a.frames, b.frames)) return false;
   }
   return true;
 }
@@ -1288,12 +1288,20 @@ function overlaps(left: readonly string[], right: readonly string[]): boolean {
 }
 
 function sortIds(ids: readonly string[]): string[] {
-  return ids.slice().sort((left, right) => factNumber(left) - factNumber(right));
+  return ids.slice().sort(compareItemIds);
 }
 
-function factNumber(id: string): number {
-  const number = Number(id.replace(/^[a-z]+/i, ''));
-  return Number.isFinite(number) ? number : 0;
+/** Sentence, then token order of `fr:s<a>.t<b>` ids, so paths follow the text. */
+function compareItemIds(left: string, right: string): number {
+  const a = itemPosition(left);
+  const b = itemPosition(right);
+  return a[0] - b[0] || a[1] - b[1];
+}
+
+function itemPosition(id: string): [number, number] {
+  const match = /s([0-9]+)\.t([0-9]+)/.exec(id);
+  if (match === null) return [0, 0];
+  return [Number(match[1]), Number(match[2])];
 }
 
 function unique(values: readonly string[]): string[] {
@@ -1387,10 +1395,10 @@ function stateLabels(items: readonly CompiledItem[], draft: SpecDraft): SpecDraf
   const labels: SpecDraft['labels'][number][] = [];
   const used = new Set<string>();
   const terminals = new Set<string>();
-  for (const fact of items) {
-    if (fact.kind !== 'terminal' || fact.assign === undefined) continue;
-    for (const key of Object.keys(fact.assign)) {
-      const value = fact.assign[key];
+  for (const item of items) {
+    if (item.kind !== 'terminal' || item.assign === undefined) continue;
+    for (const key of Object.keys(item.assign)) {
+      const value = item.assign[key];
       if (value?.t === 'atom') terminals.add(`${key}:${value.v}`);
     }
   }
@@ -1411,7 +1419,7 @@ function stateLabels(items: readonly CompiledItem[], draft: SpecDraft): SpecDraf
     if (used.has(id) || !WORKFLOW_WORD_PATTERN.test(item.atom)) continue;
     used.add(id);
     const match: Record<string, Value> = {};
-    match[item.varName] = { t: 'atom', v: item.atom };
+    match[item.varName] = item.atom === DEFAULT_INITIAL_ATOM ? { t: 'null' } : { t: 'atom', v: item.atom };
     labels.push({
       id,
       match,
@@ -1427,23 +1435,23 @@ function walkValuations(
   transitions: readonly GraphTransition[],
   items: readonly CompiledItem[],
 ): { assigns: Patch[]; problem?: string } {
-  const actionFacts: CompiledAction[] = [];
+  const actionItems: CompiledAction[] = [];
   for (const transition of transitions) {
-    const fact = findItem(items, transition.fact);
-    if (fact?.kind !== 'action') return overlayAssigns(transitions);
-    actionFacts.push(fact);
+    const action = findItem(items, transition.frame);
+    if (action?.kind !== 'action') return overlayAssigns(transitions);
+    actionItems.push(action);
   }
   if (spec === undefined) return overlayAssigns(transitions);
-  const first = actionFacts[0];
+  const first = actionItems[0];
   const env = first !== undefined ? envEqs([first]) : {};
   let current = applySafe(spec.initial, env);
   if (first !== undefined && !holds(first.when, current)) {
     current = applySafe(current, eqPatch(first.when));
   }
   const assigns: Patch[] = [patchFromValuation(current)];
-  for (const fact of actionFacts) {
-    if (!holds(fact.when, current)) current = applySafe(current, eqPatch(fact.when));
-    current = applySafe(current, fact.assign);
+  for (const action of actionItems) {
+    if (!holds(action.when, current)) current = applySafe(current, eqPatch(action.when));
+    current = applySafe(current, action.assign);
     assigns.push(patchFromValuation(current));
   }
   return { assigns };
@@ -1496,15 +1504,15 @@ function collectEq(predicate: Predicate, patch: Record<string, Value>): void {
   }
 }
 
-function envEqs(facts: readonly CompiledAction[]): Patch {
+function envEqs(actions: readonly CompiledAction[]): Patch {
   const assigned = new Set<string>();
-  for (const fact of facts) {
-    for (const key of Object.keys(fact.assign)) assigned.add(key);
+  for (const action of actions) {
+    for (const key of Object.keys(action.assign)) assigned.add(key);
   }
   const patch: Record<string, Value> = {};
-  for (const fact of facts) {
+  for (const action of actions) {
     const eqs: Record<string, Value> = {};
-    collectEq(fact.when, eqs);
+    collectEq(action.when, eqs);
     for (const key of Object.keys(eqs)) {
       const value = eqs[key];
       if (value === undefined || assigned.has(key)) continue;

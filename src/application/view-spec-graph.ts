@@ -1,6 +1,6 @@
 // Use case: draw the session draft graph for the inspector. Domain JSON stays read-only.
 import { draftChains, draftCharts, draftLabelModel } from '../domain/spec-graph-view.js';
-import { compileSnapshot } from '../domain/spec-facts.js';
+import { compileSnapshot } from '../domain/spec-compile.js';
 import { toWorkflowSetDraft } from '../domain/spec-graph.js';
 import { liveSentences } from '../domain/spec.js';
 import type { DraftGraphChartImage, DraftGraphImageDocument, DraftGraphWorkflowImage } from './documents.js';

@@ -7,8 +7,8 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import type {
-  SpecEntitiesDocument,
-  SpecFactsDocument,
+  SpecConceptsDocument,
+  SpecFramesDocument,
   SpecInitDocument,
   SpecShowDocument,
   SpecTagDocument,
@@ -160,53 +160,39 @@ describe('spec show', { concurrency: false }, () => {
     assert.equal(ids.includes('s3.t1'), false);
   });
 
-  test('entities and facts name the first missing layer, then match the written lists', () => {
+  test('concepts and frames name the first missing layer, then match the written lists', () => {
     withData((dir) => {
       prepare(dir, sample);
-      const beforeEntities = run(dir, ['spec', 'show', 'entities', '--json']);
-      assert.equal(beforeEntities.status, 2);
-      assert.match(beforeEntities.stderr, /spec entities list/);
-      const beforeFacts = run(dir, ['spec', 'show', 'facts', '--json']);
-      assert.equal(beforeFacts.status, 2);
-      assert.match(beforeFacts.stderr, /spec entities list/);
-      assert.doesNotMatch(beforeFacts.stderr, /spec facts propose/);
-      assert.deepEqual(json<SpecShowDocument>(beforeFacts).findings, []);
-      const listed = run(dir, ['spec', 'entities', 'list', '--json']);
+      const beforeConcepts = run(dir, ['spec', 'show', 'concepts', '--json']);
+      assert.equal(beforeConcepts.status, 2);
+      assert.match(beforeConcepts.stderr, /no concepts; run clew spec concepts list first/);
+      const beforeFrames = run(dir, ['spec', 'show', 'frames', '--json']);
+      assert.equal(beforeFrames.status, 2);
+      assert.match(beforeFrames.stderr, /no frames; run clew spec frames list first/);
+      assert.deepEqual(json<SpecShowDocument>(beforeFrames).findings, []);
+      const listed = run(dir, ['spec', 'concepts', 'list', '--json']);
       assert.equal(listed.status, 0, listed.stderr);
-      const entities = json<SpecEntitiesDocument>(listed);
-      const shownEntities = run(dir, ['spec', 'show', 'entities', '--json']);
-      assert.equal(shownEntities.status, 0, shownEntities.stderr);
-      const entityDocument = json<SpecShowDocument>(shownEntities);
-      assert.equal(entityDocument.command, 'spec.show.entities');
-      if (entityDocument.command !== 'spec.show.entities') return;
-      assert.deepEqual(entityDocument.entities?.map((entity) => entity.id), entities.entities?.map((entity) => entity.id));
-      const afterList = run(dir, ['spec', 'show', 'facts', '--json']);
-      assert.equal(afterList.status, 0, afterList.stderr);
-      const rejected = run(dir, ['spec', 'entities', 'reject', '--id', 'object:total', '--reason', 'not a thing with states', '--json']);
-      assert.equal(rejected.status, 0, rejected.stderr);
-      const afterReject = json<SpecShowDocument>(run(dir, ['spec', 'show', 'entities', '--json']));
-      assert.equal(afterReject.command, 'spec.show.entities');
-      if (afterReject.command !== 'spec.show.entities') return;
-      assert.equal(afterReject.entities?.find((entity) => entity.id === 'object:total')?.status, 'rejected');
-      const proposed = run(dir, ['spec', 'facts', 'propose', '--json']);
-      assert.equal(proposed.status, 0, proposed.stderr);
-      const facts = json<SpecFactsDocument>(proposed);
-      const shownFacts = json<SpecShowDocument>(run(dir, ['spec', 'show', 'facts', '--json']));
-      assert.equal(shownFacts.command, 'spec.show.facts');
-      if (shownFacts.command !== 'spec.show.facts') return;
-      assert.deepEqual(shownFacts.facts?.map((fact) => fact.id), facts.facts?.map((fact) => fact.id));
-      assert.deepEqual(shownFacts.findings, []);
-      const removedId = facts.facts?.[0]?.id;
-      assert.ok(removedId);
-      const removed = run(dir, ['spec', 'facts', 'remove', '--id', removedId, '--json']);
-      assert.equal(removed.status, 0, removed.stderr);
-      const hidden = json<SpecShowDocument>(run(dir, ['spec', 'show', 'facts', '--json']));
-      assert.equal(hidden.command, 'spec.show.facts');
-      if (hidden.command !== 'spec.show.facts') return;
-      assert.equal(hidden.facts?.some((fact) => fact.id === removedId), false);
-      assert.deepEqual(hidden.facts?.map((fact) => fact.id), json<SpecFactsDocument>(removed).facts?.map((fact) => fact.id));
+      const concepts = json<SpecConceptsDocument>(listed);
+      const shownConcepts = run(dir, ['spec', 'show', 'concepts', '--json']);
+      assert.equal(shownConcepts.status, 0, shownConcepts.stderr);
+      const conceptDocument = json<SpecShowDocument>(shownConcepts);
+      assert.equal(conceptDocument.command, 'spec.show.concepts');
+      if (conceptDocument.command !== 'spec.show.concepts') return;
+      assert.deepEqual(conceptDocument.concepts, concepts.concepts);
+      assert.equal(run(dir, ['spec', 'show', 'frames', '--json']).status, 2);
+      const framed = run(dir, ['spec', 'frames', 'list', '--json']);
+      assert.equal(framed.status, 0, framed.stderr);
+      const frames = json<SpecFramesDocument>(framed);
+      const shownFrames = json<SpecShowDocument>(run(dir, ['spec', 'show', 'frames', '--json']));
+      assert.equal(shownFrames.command, 'spec.show.frames');
+      if (shownFrames.command !== 'spec.show.frames') return;
+      assert.deepEqual(shownFrames.frames, frames.frames);
+      assert.deepEqual(shownFrames.findings, []);
+      const human = run(dir, ['spec', 'show', 'frames']);
+      assert.match(human.stdout, /3 frames/);
+      assert.match(human.stdout, /compiles to APPROVE: order submitted -> approved by manager/);
       const history = historyCount(dir, 'order-sentence');
-      assert.equal(run(dir, ['spec', 'show', 'facts', '--json']).status, 0);
+      assert.equal(run(dir, ['spec', 'show', 'frames', '--json']).status, 0);
       assert.equal(historyCount(dir, 'order-sentence'), history);
     });
   });
@@ -250,10 +236,7 @@ describe('spec show', { concurrency: false }, () => {
       assert.equal(sentence.section, json<SpecInitDocument>(init).sentences?.[0]?.section);
       assert.deepEqual(sentence.workflows, []);
       run(dir, ['spec', 'tag', '--json']);
-      run(dir, ['spec', 'entities', 'list', '--json']);
-      run(dir, ['spec', 'facts', 'propose', '--json']);
-      run(dir, ['spec', 'facts', 'edit', '--id', 'f1', '--when', '{"op":"eq","var":"order","value":"draft"}', '--json']);
-      run(dir, ['spec', 'facts', 'add', '--kind', 'init', '--assign', '{"order":"draft"}', '--json']);
+      run(dir, ['spec', 'frames', 'list', '--json']);
       run(dir, ['spec', 'graph', 'build', '--json']);
       const built = json<SpecShowDocument>(run(dir, ['spec', 'show', 'sentences', '--json']));
       if (built.command !== 'spec.show.sentences') return;
@@ -270,8 +253,8 @@ describe('spec show', { concurrency: false }, () => {
     assert.match(help.stdout, /spec show spans/);
     assert.match(help.stdout, /spec show tagged/);
     assert.match(help.stdout, /spec show tokens/);
-    assert.match(help.stdout, /spec show entities/);
-    assert.match(help.stdout, /spec show facts/);
+    assert.match(help.stdout, /spec show concepts/);
+    assert.match(help.stdout, /spec show frames/);
   });
 });
 

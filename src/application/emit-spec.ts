@@ -1,7 +1,7 @@
 // Use case: render the chosen paths as a workflow set, and optionally the unfolded spec.
 import { patchScalars } from '../domain/spec-model.js';
 import { assignDisplay, nodesInWalkOrder, workflowSetIssues } from '../domain/workflow.js';
-import { compileSnapshot } from '../domain/spec-facts.js';
+import { compileSnapshot } from '../domain/spec-compile.js';
 import { chartDraft, graphLayerFindings, toWorkflowSetDraft, workflowCheckFindings } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding, liveSentences } from '../domain/spec.js';
 import type { Outcome, SpecEmitDocument, WorkflowEdgeView, WorkflowView } from './documents.js';

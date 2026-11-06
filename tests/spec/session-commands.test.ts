@@ -7,7 +7,7 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { specSessionDir } from '../../src/adapters/spec-store/data-dir.js';
 import { jsonSpecStore } from '../../src/adapters/spec-store/json-file-store.js';
-import type { SpecFactsDocument, SpecGraphDocument, SpecSessionListDocument, SpecSessionRemoveDocument } from '../../src/application/documents.js';
+import type { SpecFramesDocument, SpecGraphDocument, SpecSessionListDocument, SpecSessionRemoveDocument } from '../../src/application/documents.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -60,11 +60,11 @@ describe('spec session list and remove', { concurrency: false }, () => {
       assert.deepEqual(Object.keys(sessionA).sort(), ['id', 'summary', 'updated']);
       assert.equal(sessionA.updated, storedUpdated(dir, 'a'));
       assert.equal(sessionB.updated, storedUpdated(dir, 'b'));
-      assert.deepEqual(sessionA.summary, { sentences: 2, facts: 0, flows: 0 });
-      assert.deepEqual(sessionB.summary, { sentences: 1, facts: 0, flows: 0 });
+      assert.deepEqual(sessionA.summary, { sentences: 2, frames: 0, flows: 0 });
+      assert.deepEqual(sessionB.summary, { sentences: 1, frames: 0, flows: 0 });
       const human = clew(['spec', 'session', 'list'], dir);
-      assert.match(human.stdout, /^a {2}2 sentences, 0 facts, 0 flows {2}\S+$/m);
-      assert.match(human.stdout, /^b {2}1 sentence, 0 facts, 0 flows {2}\S+$/m);
+      assert.match(human.stdout, /^a {2}2 sentences, 0 frames, 0 flows {2}\S+$/m);
+      assert.match(human.stdout, /^b {2}1 sentence, 0 frames, 0 flows {2}\S+$/m);
       assert.equal(human.stdout.includes(dir), false);
       assert.equal(existsSync(outside.secret), true);
       assert.equal(existsSync(outside.other), true);
@@ -79,28 +79,20 @@ describe('spec session list and remove', { concurrency: false }, () => {
     }
   });
 
-  test('live fact and flow counts follow the store', () => {
+  test('transition frame and flow counts follow the store', () => {
     const dir = mkdtempSync(join(tmpdir(), 'clew-session-counts-'));
     try {
       assert.equal(clew(['spec', 'init', sample, '--json'], dir).status, 0);
       assert.equal(clew(['spec', 'tag', '--json'], dir).status, 0);
-      assert.equal(clew(['spec', 'entities', 'list', '--json'], dir).status, 0);
-      const proposed = clew(['spec', 'facts', 'propose', '--json'], dir);
-      assert.equal(proposed.status, 0, proposed.stderr);
-      const facts = json<SpecFactsDocument>(proposed);
-      const afterPropose = json<SpecSessionListDocument>(clew(['spec', 'session', 'list', '--json'], dir));
-      assert.equal(afterPropose.sessions[0]?.id, 'order-sentence');
-      assert.equal(afterPropose.sessions[0]?.summary.facts, facts.facts?.length);
-      assert.equal(afterPropose.sessions[0]?.summary.flows, 0);
-      const factId = facts.facts?.[0]?.id;
-      assert.ok(factId);
-      const removed = clew(['spec', 'facts', 'remove', '--id', factId, '--json'], dir);
-      assert.equal(removed.status, 0, removed.stderr);
-      const afterRemove = json<SpecSessionListDocument>(clew(['spec', 'session', 'list', '--json'], dir));
-      assert.equal(afterRemove.sessions[0]?.summary.facts, (facts.facts?.length ?? 0) - 1);
+      const listed = clew(['spec', 'frames', 'list', '--json'], dir);
+      assert.equal(listed.status, 0, listed.stderr);
+      const frames = json<SpecFramesDocument>(listed).frames ?? [];
+      const afterList = json<SpecSessionListDocument>(clew(['spec', 'session', 'list', '--json'], dir));
+      assert.equal(afterList.sessions[0]?.id, 'order-sentence');
+      assert.equal(afterList.sessions[0]?.summary.frames, frames.filter((frame) => frame.notTransition === undefined).length);
+      assert.equal(afterList.sessions[0]?.summary.frames, 2);
+      assert.equal(afterList.sessions[0]?.summary.flows, 0);
 
-      assert.equal(clew(['spec', 'facts', 'edit', '--id', 'f2', '--when', '{"op":"eq","var":"order","value":"draft"}', '--json'], dir).status, 0);
-      assert.equal(clew(['spec', 'facts', 'add', '--kind', 'init', '--assign', '{"order":"draft"}', '--json'], dir).status, 0);
       const built = clew(['spec', 'graph', 'build', '--json'], dir);
       assert.equal(built.status, 0, built.stderr);
       assert.equal(built.stderr, '');

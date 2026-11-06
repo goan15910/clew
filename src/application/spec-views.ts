@@ -1,13 +1,14 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
-import { sentenceState, type DraftGraph, type Entity, type Fact, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
-import { predicateScalars, visibleFacts } from '../domain/spec-facts.js';
-import { scalarsFromPatch } from '../domain/valuation.js';
+import type { CompiledItem } from '../domain/spec-actions.js';
+import { sentenceState, type Concept, type DraftGraph, type Frame, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
+import { copyFrame } from '../domain/spec-frames.js';
 import { sentenceIdOfToken } from '../domain/spec-spans.js';
 import type {
-  SpecEntityView,
+  ConceptView,
+  FrameCompiledView,
+  FrameView,
   SpecSentenceContextView,
-  SpecFactView,
   SpecFlowView,
   SpecGraphView,
   SpecSpanView,
@@ -116,57 +117,39 @@ export function uniqueTokenViews(tokens: readonly UniqueToken[]): SpecUniqueToke
   return views;
 }
 
-export function entityView(entity: Entity): SpecEntityView {
-  const sources: string[] = [];
-  for (const source of entity.sources) sources.push(source);
-  const view: SpecEntityView = {
-    id: entity.id,
-    kind: entity.kind,
-    sources,
-    origin: entity.origin,
-    status: entity.status,
-  };
-  if (entity.name !== undefined) view.name = entity.name;
-  if (entity.text !== undefined) view.text = entity.text;
-  if (entity.status === 'stale' && entity.review !== undefined) view.review = entity.review;
-  if (entity.note !== undefined) view.note = entity.note;
-  return view;
-}
-
-export function entityViews(entities: readonly Entity[]): SpecEntityView[] {
-  const views: SpecEntityView[] = [];
-  for (const entity of entities) views.push(entityView(entity));
+export function conceptViews(concepts: readonly Concept[], spans: readonly LiveSpan[]): ConceptView[] {
+  const byId = new Map<string, LiveSpan>();
+  for (const span of spans) byId.set(span.id, span);
+  const views: ConceptView[] = [];
+  for (const concept of concepts) {
+    const members: ConceptView['members'] = [];
+    for (const id of concept.members) {
+      const span = byId.get(id);
+      members.push({ span: id, surface: span?.surface ?? '', sentence: sentenceIdOfToken(span?.firstTokenId ?? '') ?? '' });
+    }
+    views.push({ id: concept.id, canonical: concept.canonical, members });
+  }
   return views;
 }
 
-export function factView(fact: Fact): SpecFactView {
-  const sources: string[] = [];
-  for (const source of fact.sources) sources.push(source);
-  const view: SpecFactView = {
-    id: fact.id,
-    kind: fact.kind,
-    origin: fact.origin,
-    confidence: fact.confidence,
-    sources,
-    status: fact.status,
-  };
-  if (fact.kind === 'action') {
-    view.event = fact.event;
-    view.actor = fact.actor;
-    view.when = predicateScalars(fact.when);
-    view.assign = scalarsFromPatch(fact.assign);
-  } else {
-    if (fact.actor !== undefined) view.actor = fact.actor;
-    if (fact.when !== undefined) view.when = predicateScalars(fact.when);
-    if (fact.assign !== undefined) view.assign = scalarsFromPatch(fact.assign);
+export function frameViews(frames: readonly Frame[], items: readonly CompiledItem[], restated: Readonly<Record<string, string>>): FrameView[] {
+  const compiled = new Map<string, FrameCompiledView>();
+  for (const item of items) {
+    if (item.kind === 'action' && item.overlay !== undefined) {
+      const view: FrameCompiledView = { event: item.event, object: item.overlay.object, to: item.overlay.to, actor: item.overlay.actor ?? '', kind: 'action' };
+      if (item.overlay.from !== undefined) view.from = item.overlay.from;
+      compiled.set(item.id, view);
+    } else if (item.kind === 'forbidden' && item.event !== undefined && item.object !== undefined && item.attempted !== undefined) {
+      compiled.set(item.id, { event: item.event, object: item.object, to: item.attempted, actor: item.actor ?? '', kind: 'forbidden' });
+    }
   }
-  if (fact.note !== undefined) view.note = fact.note;
-  return view;
-}
-
-export function factViews(facts: readonly Fact[]): SpecFactView[] {
-  const views: SpecFactView[] = [];
-  for (const fact of visibleFacts(facts)) views.push(factView(fact));
+  const views: FrameView[] = [];
+  for (const frame of frames) {
+    const view: FrameView = copyFrame(frame);
+    const item = compiled.get(restated[frame.id] ?? frame.id);
+    if (item !== undefined) view.compiled = item;
+    views.push(view);
+  }
   return views;
 }
 
@@ -175,25 +158,25 @@ export function graphView(graph: DraftGraph): SpecGraphView {
   for (const object of graph.objects) objects.push(object);
   const states: SpecGraphView['states'] = [];
   for (const state of graph.states) {
-    const facts: string[] = [];
-    for (const fact of state.facts) facts.push(fact);
-    const view: SpecGraphView['states'][number] = { id: state.id, object: state.object, facts };
+    const frames: string[] = [];
+    for (const frame of state.frames) frames.push(frame);
+    const view: SpecGraphView['states'][number] = { id: state.id, object: state.object, frames };
     if (state.initial === true) view.initial = true;
     if (state.final === true) view.final = true;
     states.push(view);
   }
   const transitions: SpecGraphView['transitions'] = [];
   for (const transition of graph.transitions) {
-    const facts: string[] = [];
-    for (const fact of transition.facts) facts.push(fact);
+    const frames: string[] = [];
+    for (const frame of transition.frames) frames.push(frame);
     const view: SpecGraphView['transitions'][number] = {
       id: transition.id,
       from: transition.from,
       event: transition.event,
       to: transition.to,
       object: transition.object,
-      fact: transition.fact,
-      facts,
+      frame: transition.frame,
+      frames,
     };
     if (transition.actor !== undefined) view.actor = transition.actor;
     if (transition.guard !== undefined) view.guard = transition.guard;
