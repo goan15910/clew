@@ -118,7 +118,8 @@
           "history": []
         }
       },
-      "marker": "when"
+      "marker": "when",
+      "history": []
     },
     {
       "id": "fr:s1.t7",
@@ -258,7 +259,8 @@
           },
           "history": []
         }
-      }
+      },
+      "history": []
     },
     {
       "id": "fr:s1.t12",
@@ -328,7 +330,8 @@
       "marker": "if",
       "notTransition": {
         "reason": "no verb"
-      }
+      },
+      "history": []
     },
     {
       "id": "fr:s2.t1",
@@ -449,7 +452,8 @@
           "history": []
         }
       },
-      "negated": true
+      "negated": true,
+      "history": []
     }
   ]
 }

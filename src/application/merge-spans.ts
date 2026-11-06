@@ -6,10 +6,11 @@ import {
   type LexiconEntry,
   type SpanConflictWindow,
 } from '../domain/spec-spans.js';
-import { rebuildLayers } from '../domain/spec-frames.js';
+import { rebuildLayers, type RefinementDrop } from '../domain/spec-refine.js';
 import { hasBlocking, liveSentences, type LiveSpan, type SpecSnapshot } from '../domain/spec.js';
 import { specInput, type Outcome, type SpecSpanConflictView, type SpecSpansDocument } from './documents.js';
 import type { SpecStore } from './ports.js';
+import { dropFindings, dropHistory } from './refinement-drops.js';
 import { resolveSession } from './spec-session.js';
 import { spanViews } from './spec-views.js';
 
@@ -39,6 +40,7 @@ export function mergeSpans(command: MergeSpansCommand, store: SpecStore): Outcom
   let merged: string[] = [];
   let skipped: SpecSpanConflictView[] = [];
   let spansOut: LiveSpan[] = [];
+  let drops: RefinementDrop[] = [];
 
   const result = store.update(resolved.id, { create: false }, (current) => {
     if (current === undefined) return undefined;
@@ -58,21 +60,25 @@ export function mergeSpans(command: MergeSpansCommand, store: SpecStore): Outcom
       spansOut = pass.spans;
       if (pass.unchanged) return undefined;
       const now = new Date().toISOString();
-      const snapshot = withSpans(current, pass.spans, now);
+      const { snapshot, drops: dropped } = withSpans(current, pass.spans, now);
+      drops = dropped;
       spansOut = snapshot.spans ?? pass.spans;
       return {
         snapshot,
-        history: {
-          at: now,
-          command: commandName,
-          args: {
-            session: current.id,
-            lexicon: command.lexiconPath,
-            forceAuto: command.forceAuto === true,
+        history: [
+          {
+            at: now,
+            command: commandName,
+            args: {
+              session: current.id,
+              lexicon: command.lexiconPath,
+              forceAuto: command.forceAuto === true,
+            },
+            before: beforeIds(current.spans, pass.spans),
+            after: merged.slice(),
           },
-          before: beforeIds(current.spans, pass.spans),
-          after: merged.slice(),
-        },
+          ...dropHistory(commandName, current.id, now, dropped),
+        ],
       };
     }
 
@@ -92,7 +98,8 @@ export function mergeSpans(command: MergeSpansCommand, store: SpecStore): Outcom
     }
     merged = [edited.mergedId];
     const now = new Date().toISOString();
-    const snapshot = withSpans(current, edited.spans, now);
+    const { snapshot, drops: dropped } = withSpans(current, edited.spans, now);
+    drops = dropped;
     spansOut = snapshot.spans ?? edited.spans;
     const args: {
       session: string;
@@ -106,13 +113,16 @@ export function mergeSpans(command: MergeSpansCommand, store: SpecStore): Outcom
     else if (command.entityId !== undefined) args.entity = command.entityId;
     return {
       snapshot,
-      history: {
-        at: now,
-        command: commandName,
-        args,
-        before: command.spanIds.slice(),
-        after: [edited.mergedId],
-      },
+      history: [
+        {
+          at: now,
+          command: commandName,
+          args,
+          before: command.spanIds.slice(),
+          after: [edited.mergedId],
+        },
+        ...dropHistory(commandName, current.id, now, dropped),
+      ],
     };
   });
 
@@ -128,7 +138,7 @@ export function mergeSpans(command: MergeSpansCommand, store: SpecStore): Outcom
       spans: spanViews(live),
       merged,
       skipped,
-      findings: [],
+      findings: dropFindings(drops),
       issues: [],
     },
   };
@@ -162,7 +172,7 @@ function beforeIds(previous: readonly LiveSpan[], next: readonly LiveSpan[]): st
 }
 
 /** Merged spans change span ids, so concepts and frames are rebuilt over them. */
-function withSpans(current: SpecSnapshot, spans: readonly LiveSpan[], updated: string): SpecSnapshot {
+function withSpans(current: SpecSnapshot, spans: readonly LiveSpan[], updated: string): { snapshot: SpecSnapshot; drops: RefinementDrop[] } {
   const snapshot: SpecSnapshot = {
     schemaVersion: current.schemaVersion,
     id: current.id,
@@ -176,9 +186,10 @@ function withSpans(current: SpecSnapshot, spans: readonly LiveSpan[], updated: s
   const layers = rebuildLayers(liveSentences(current.sentences), spans, current);
   snapshot.spans = layers.spans;
   if (layers.concepts !== undefined) snapshot.concepts = layers.concepts;
+  if (layers.groups !== undefined) snapshot.groups = layers.groups;
   if (layers.frames !== undefined) snapshot.frames = layers.frames;
   if (current.graph !== undefined) snapshot.graph = current.graph;
-  return snapshot;
+  return { snapshot, drops: layers.drops };
 }
 
 function invalid(command: SpecSpansDocument['command'], fault: SpecSpansDocument['fault'], message: string): Outcome<SpecSpansDocument> {

@@ -1,0 +1,130 @@
+name: spec refinements
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: refine, impact, edit the cited sentence, and status
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      printf '%s\n' 'When the customer submits an order, the manager approves the order if the total is under 500 dollars.' 'A clerk must not cancel a shipped package.' > '{{.dir}}/refine.md'
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/refine.md' --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames set --frame fr:s1.t7 --role actor --value concept:clerk --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "--reason is required"
+    - result.systemoutjson.fault ShouldEqual usage
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames set --frame fr:s1.t7 --role actor --value concept:clerk --reason 'the clerk approves' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.frames.set
+    - result.systemoutjson.frame.roles.actor.latest.value.text ShouldEqual clerk
+    - result.systemoutjson.frame.roles.actor.original.value.text ShouldEqual manager
+    - result.systemoutjson.frame.roles.actor.latest.dependsOn.dependsOn0 ShouldEqual sp:s2.t2..s2.t2
+    - result.systemoutjson.frame.roles.actor.history.history0.who ShouldEqual agent
+    - result.systemoutjson.frame.compiled.actor ShouldEqual clerk
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames set --frame fr:s1.t7 --role actor --value concept:clerk --reason again --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "fr:s1.t7 actor already reads that value"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec impact s2 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.impact
+    - result.systemoutjson.sentence ShouldEqual s2
+    - result.systemoutjson.frames.frames0 ShouldEqual fr:s2.t1
+    - result.systemoutjson.impact.impact0.kind ShouldEqual field
+    - result.systemoutjson.impact.impact0.frame ShouldEqual fr:s1.t7
+    - result.systemoutjson.impact.impact0.role ShouldEqual actor
+    - result.systemoutjson.impact.impact0.refined ShouldBeTrue
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec impact s2"
+    assertions:
+    - result.code ShouldEqual 0
+    - 'result.systemout ShouldContainSubstring "refined fr:s1.t7 actor = clerk"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec sentences edit --id s2 --text 'A clerk must not cancel a packed package.' --reason 'packed, not shipped' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.command ShouldEqual spec.sentences.edit
+    - result.systemoutjson.findings.findings0.code ShouldEqual refinement-dropped
+    - result.systemoutjson.findings.findings0.id ShouldEqual refinement-dropped:fr:s1.t7:actor
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.command ShouldEqual spec.status
+    - result.systemoutjson.findingsByLayer.frames.frames1.code ShouldEqual refinement-dropped
+    - result.systemoutjson.findingsByLayer.frames.frames1.kind ShouldEqual stale
+    - result.systemoutjson.findingsByLayer.frames.frames1.severity ShouldEqual warning
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status"
+    assertions:
+    - result.code ShouldEqual 0
+    - 'result.systemout ShouldContainSubstring "warning refinement-dropped: fr:s1.t7 actor fell back to its derived value (s2 changed)"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --sentence s1 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.frames.frames1.roles.actor.latest.value.text ShouldEqual manager
+    - result.systemoutjson.frames.frames1.roles.actor.history ShouldHaveLength 2
+    - result.systemoutjson.frames.frames1.roles.actor.history.history1.who ShouldEqual clew
+    - result.systemoutjson.frames.frames1.roles.actor.history.history1.value.value.text ShouldEqual clerk
+
+- name: concepts group and not-transition
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init tests/fixtures/specs/order-sentence.md --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json"
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec concepts group --span sp:s1.t8..s1.t8 --into concept:approver --reason 'a role of its own' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.concepts.group
+    - result.systemoutjson.grouping.original ShouldEqual concept:manager
+    - result.systemoutjson.grouping.latest ShouldEqual concept:approver
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --sentence s1 --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.frames.frames1.roles.actor.latest.value.text ShouldEqual approver
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec concepts group --span sp:s1.t8..s1.t8 --into concept:approver --reason again"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemerr ShouldContainSubstring "already reads that value"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames not-transition --frame fr:s1.t7 --reason 'a policy' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.command ShouldEqual spec.frames.not-transition
+    - result.systemoutjson.frame.notTransition.reason ShouldEqual "a policy"
+    - result.systemoutjson.frame.notTransition.who ShouldEqual agent
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames not-transition --frame fr:s1.t7 --clear --reason 'a step after all' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.frame.history ShouldHaveLength 2
+    - result.systemoutjson.frame.compiled.event ShouldEqual APPROVE

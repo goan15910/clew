@@ -2,6 +2,7 @@
 import type { CommandDocument, ConceptView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import { formatIssues } from '../../application/documents.js';
 import { ROLE_NAMES } from '../../domain/spec-frames.js';
+import { CLEW_AUTHOR } from '../../domain/spec.js';
 
 function list(ids: readonly string[]): string {
   return ids.length > 0 ? ` (${ids.join(', ')})` : '';
@@ -94,9 +95,32 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
-  if (document.command === 'spec.concepts.list') {
+  if (document.command === 'spec.concepts.list' || document.command === 'spec.concepts.group') {
     if (document.fault !== undefined || document.session === undefined) return '';
-    return [`session ${document.session}: ${countPhrase(document.concepts?.length ?? 0, 'concept', 'concepts')}`, ...conceptLines(document.concepts ?? [])].join('\n');
+    const lines = [`session ${document.session}: ${countPhrase(document.concepts?.length ?? 0, 'concept', 'concepts')}`];
+    const grouping = document.grouping;
+    if (grouping !== undefined) lines.push(`  ${grouping.span} -> ${grouping.latest ?? 'no concept'} (derived ${grouping.original ?? 'no concept'})`);
+    else lines.push(...conceptLines(document.concepts ?? []));
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.frames.set' || document.command === 'spec.frames.not-transition') {
+    if (document.fault !== undefined || document.session === undefined || document.frame === undefined) return '';
+    const lines = [`session ${document.session}: ${document.frame.id}`, ...frameLines([document.frame])];
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.impact') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const impact = document.impact ?? [];
+    const refined = impact.filter((entry) => entry.refined).length;
+    const lines = [`session ${document.session}: ${document.sentence ?? ''} cited by ${countPhrase(impact.length, 'field or grouping', 'fields or groupings')} (${refined} refined), ${countPhrase(document.frames?.length ?? 0, 'frame', 'frames')}`];
+    for (const entry of impact) {
+      const where = entry.kind === 'grouping' ? `${entry.span ?? ''} concept` : `${entry.frame ?? ''} ${entry.role ?? ''}`;
+      const value = entry.value === null ? 'no concept' : entry.value === 'unknown' ? '?' : typeof entry.value === 'string' ? entry.value : entry.value.text;
+      lines.push(`  ${entry.refined ? 'refined' : 'derived'} ${where} = ${value}  <- ${entry.dependsOn.join(', ')}`);
+    }
+    return lines.join('\n');
   }
   if (document.command === 'spec.frames.list') {
     if (document.fault !== undefined || document.session === undefined) return '';
@@ -273,8 +297,11 @@ function frameLines(frames: readonly FrameView[]): string[] {
     lines.push(`  ${frame.id}  ${frame.sentence}  "${frame.clause.text}"${flags.length === 0 ? '' : `  (${flags.join(', ')})`}`);
     const roles: string[] = [];
     for (const name of ROLE_NAMES) {
-      const role = frame.roles[name].latest.value;
-      roles.push(`${name}=${role === 'unknown' ? '?' : role.text}`);
+      const field = frame.roles[name];
+      const role = field.latest.value;
+      const last = field.history[field.history.length - 1];
+      const mark = last === undefined ? '' : last.who === CLEW_AUTHOR ? ' (dropped)' : ' (refined)';
+      roles.push(`${name}=${role === 'unknown' ? '?' : role.text}${mark}`);
     }
     lines.push(`    ${roles.join(' ')}`);
     const compiled = frame.compiled;
