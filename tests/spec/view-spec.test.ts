@@ -54,6 +54,11 @@ describe('spec view', { concurrency: false }, () => {
       assert.match(html, /fetch\(sessionBase\(\) \+ name/);
       assert.match(html, /loadJson\("concepts\.json"\)/);
       assert.match(html, /loadJson\("frames\.json"\)/);
+      assert.match(html, /function loadDeferred/);
+      assert.match(html, /rebuildIndexes\(\)/);
+      assert.match(html, /Promise\.all/);
+      assert.doesNotMatch(html, /await loadJson\("clause-reach\.json"\)/);
+      assert.doesNotMatch(html, /await loadJson\("graph\.json"\)/);
       assert.doesNotMatch(html, /entities\.json|facts\.json/);
       assert.match(html, /: "\.\/";/);
       assert.equal(readFileSync(join(session, 'session.json'), 'utf8'), beforeSession);
@@ -213,8 +218,16 @@ describe('spec view', { concurrency: false }, () => {
         assert.deepEqual(missing.charts, []);
         assert.deepEqual(missing.workflows, []);
         assert.equal((await fetch(`${origin}/sessions/..%2f..%2fx/draft-graph.json`)).status, 400);
+        const compiled = await fetch(`${origin}/graph.json`);
+        assert.equal(compiled.status, 200);
+        const compiledGraph = await compiled.json() as { flows?: { id: string }[] };
+        assert.ok(compiledGraph.flows?.some((flow) => flow.id === 'W1'));
+        assert.equal((await fetch(`${origin}/sessions/no-graph/graph.json`)).status, 404);
+        assert.equal((await fetch(`${origin}/sessions/..%2f..%2fx/graph.json`)).status, 400);
         assert.equal(existsSync(join(withGraph, 'draft-graph.json')), false);
         assert.equal(existsSync(join(withoutGraph, 'draft-graph.json')), false);
+        assert.equal(existsSync(join(withoutGraph, 'flows.json')), false);
+        assert.equal(existsSync(join(withoutGraph, 'graph.json')), false);
         assert.deepEqual(snapshotBytes(withGraph), before);
       } finally {
         await server.close();
