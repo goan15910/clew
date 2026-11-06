@@ -1,7 +1,8 @@
 // Use case: render the chosen paths as a workflow set, and optionally the unfolded spec.
 import { patchScalars } from '../domain/spec-model.js';
 import { assignDisplay, nodesInWalkOrder, workflowSetIssues } from '../domain/workflow.js';
-import { chartDraftFromFacts, graphLayerFindings, toWorkflowSetDraft, workflowCheckFindings } from '../domain/spec-graph.js';
+import { compileSnapshot } from '../domain/spec-facts.js';
+import { chartDraft, graphLayerFindings, toWorkflowSetDraft, workflowCheckFindings } from '../domain/spec-graph.js';
 import { hasBlocking, type Finding, liveSentences } from '../domain/spec.js';
 import type { Outcome, SpecEmitDocument, WorkflowEdgeView, WorkflowView } from './documents.js';
 import { specInput } from './documents.js';
@@ -38,9 +39,10 @@ export function emitSpec(
   const snapshot = result.snapshot;
   const graph = snapshot.graph;
   if (graph === undefined) return invalid('session', 'no graph; run clew spec graph build first');
+  const compiled = compileSnapshot(snapshot);
   const findings: Finding[] = [];
-  for (const finding of graphLayerFindings(snapshot)) findings.push(finding);
-  const rendered = toWorkflowSetDraft(graph, snapshot.entities ?? [], snapshot.facts ?? [], liveSentences(snapshot.sentences), snapshot.tagged, snapshot.spans ?? []);
+  for (const finding of graphLayerFindings(compiled, graph)) findings.push(finding);
+  const rendered = toWorkflowSetDraft(graph, compiled, liveSentences(snapshot.sentences), snapshot.tagged, snapshot.spans ?? []);
   for (const finding of rendered.findings) findings.push(finding);
   let yaml: string | undefined;
   let views: WorkflowView[] | undefined;
@@ -48,13 +50,12 @@ export function emitSpec(
     yaml = writer.render(rendered.draft);
     const issues = workflowSetIssues(rendered.draft);
     if (issues.length > 0) {
-      for (const finding of workflowCheckFindings(issues, rendered.draft, graph, snapshot.facts ?? [])) findings.push(finding);
+      for (const finding of workflowCheckFindings(issues, rendered.draft, graph, compiled.items)) findings.push(finding);
     } else {
       views = workflowViews(rendered.draft);
     }
   }
-  const chartDraft = chartDraftFromFacts(snapshot.entities ?? [], snapshot.facts ?? []);
-  const chartYaml = charts.render(chartDraft);
+  const chartYaml = charts.render(chartDraft(compiled));
   const blocking = hasBlocking(findings);
   const document: SpecEmitDocument = {
     command: 'spec.emit',
