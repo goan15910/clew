@@ -1,5 +1,7 @@
 // Stable HTML shell for one spec session. Fetches sibling JSON over HTTP; no domain data baked in.
 export const VIEWER_FILE = 'viewer.html';
+/** Served per request from the compiled spec; never written to the session folder. */
+export const CLAUSE_REACH_FILE = 'clause-reach.json';
 
 export const VIEWER_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -511,6 +513,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     ["incomplete", "incomplete"],
   ];
   const ROLES = ["actor", "event", "object", "result", "when"];
+  const REACH_TONES = { reachable: "ok", unreachable: "bad", unexplored: "warn" };
   const state = {
     session: null,
     sentences: [],
@@ -519,6 +522,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     concepts: [],
     groups: [],
     frames: [],
+    reach: {},
     graph: null,
     graphView: null,
     graphStatus: "loading",
@@ -1171,6 +1175,21 @@ details.lineage[open] > summary::before { content: "▾ "; }
     return html;
   }
 
+  function frameReachHtml(reach) {
+    if (!reach) return "";
+    if (reach.status === "reachable") {
+      return '<p class="frame-graph" data-graph="reach"><span class="k">reachable via</span>' +
+        (reach.witness || []).map(function (event) { return '<span class="line-type">' + esc(event) + "</span>"; }).join("→") + "</p>";
+    }
+    if (reach.status === "unreachable") {
+      const blocked = reach.blockedBy || [];
+      return '<p class="frame-graph" data-graph="reach"><span class="k">unreachable</span>' +
+        (blocked.length ? blocked.map(function (item) { return "<code>" + esc(item) + "</code>"; }).join("") : "<span>its guard</span>") +
+        "<span>never holds</span></p>";
+    }
+    return '<p class="frame-graph" data-graph="reach"><span class="k">unexplored</span><span>the search reached its state bound</span></p>';
+  }
+
   function frameHaystacks(frame) {
     const items = [frame.id, frame.sentence, clauseText(frame), frame.marker, frameKind(frame)];
     for (const role of ROLES) {
@@ -1203,11 +1222,14 @@ details.lineage[open] > summary::before { content: "▾ "; }
       if (frame.negated === true) pills += pill("negated", "bad");
       if (frame.notTransition) pills += pill("not a transition", "warn") + pill(frame.notTransition.reason);
       if (frameIncomplete(frame)) pills += pill("incomplete", "warn");
+      const reach = state.reach[frame.id];
+      if (reach) pills += '<span class="reach-pill" data-reach="' + esc(reach.status) + '">' + pill(reach.status, REACH_TONES[reach.status]) + "</span>";
       return (
         '<article class="card">' +
         '<h2><span class="id">' + esc(frame.id) + "</span>" + pills + "</h2>" +
         '<p class="blurb">' + esc(clauseText(frame)) + "</p>" +
         rolesHtml(frame) +
+        frameReachHtml(reach) +
         frameGraphHtml(frame) +
         frameLineage(frame) +
         "</article>"
@@ -1849,6 +1871,8 @@ details.lineage[open] > summary::before { content: "▾ "; }
       state.groups = (conceptsFile && conceptsFile.groups) || [];
       const framesFile = await loadJson("frames.json");
       state.frames = (framesFile && framesFile.frames) || [];
+      const reachFile = await loadJson("${CLAUSE_REACH_FILE}");
+      state.reach = (reachFile && reachFile.frames) || {};
       state.graph = await loadJson("graph.json");
       const graphReady = loadGraphView();
       setSessionOptions(Array.from(els.sessionId.options, function (opt) { return opt.value; })

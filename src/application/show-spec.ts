@@ -1,4 +1,5 @@
 import { compileFrames } from '../domain/spec-compile.js';
+import { clauseReach } from '../domain/spec-kernel.js';
 import { liveSentences, type SpecSnapshot } from '../domain/spec.js';
 import { sentenceWorkflows, uniqueTokens } from '../domain/spec-query.js';
 import type { Outcome, SpecFault, SpecShowDocument, SpecShowLayer } from './documents.js';
@@ -83,7 +84,7 @@ function shown(layer: SpecShowLayer, snapshot: SpecSnapshot): SpecShowDocument {
       return { ...base, command: 'spec.show.concepts', concepts: conceptViews(snapshot.concepts ?? [], snapshot.spans ?? []) };
     case 'frames': {
       const compilation = compileFrames(snapshot.frames ?? [], snapshot.concepts ?? []);
-      return { ...base, command: 'spec.show.frames', frames: frameViews(snapshot.frames ?? [], compilation.compiled.items, compilation.restated) };
+      return { ...base, command: 'spec.show.frames', frames: frameViews(snapshot.frames ?? [], compilation.compiled.items, compilation.restated, clauseReach(compilation.compiled)) };
     }
   }
 }

@@ -1,0 +1,76 @@
+name: spec clause kernel
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: status reports clause-unreachable and frames list shows the witness
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      printf '%s\n' 'The clerk packs the order.' 'When the clerk packs the order, the courier ships the order.' 'If the coupon is valid, the clerk discounts the order.' > '{{.dir}}/kernel.md'
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/kernel.md' --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.frames.frames0.id ShouldEqual fr:s1.t1
+    - result.systemoutjson.frames.frames0.reach.status ShouldEqual reachable
+    - result.systemoutjson.frames.frames0.reach.witness.witness0 ShouldEqual PACK
+    - result.systemoutjson.frames.frames2.id ShouldEqual fr:s2.t7
+    - result.systemoutjson.frames.frames2.reach.status ShouldEqual reachable
+    - result.systemoutjson.frames.frames2.reach.witness ShouldHaveLength 2
+    - result.systemoutjson.frames.frames2.reach.witness.witness0 ShouldEqual PACK
+    - result.systemoutjson.frames.frames2.reach.witness.witness1 ShouldEqual SHIP
+    - result.systemoutjson.frames.frames4.id ShouldEqual fr:s3.t6
+    - result.systemoutjson.frames.frames4.reach.status ShouldEqual unreachable
+    - result.systemoutjson.frames.frames4.reach.blockedBy.blockedBy0 ShouldEqual "cond_s3_t1 = true"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list"
+    assertions:
+    - result.code ShouldEqual 0
+    - 'result.systemout ShouldContainSubstring "reachable via PACK → SHIP"'
+    - 'result.systemout ShouldContainSubstring "unreachable: cond_s3_t1 = true"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.status
+    - result.systemoutjson.clauses ShouldHaveLength 3
+    - result.systemoutjson.clauses.clauses1.frame ShouldEqual fr:s2.t7
+    - result.systemoutjson.clauses.clauses1.sentence ShouldEqual s2
+    - result.systemoutjson.clauses.clauses1.witness.witness1 ShouldEqual SHIP
+    - result.systemoutjson.clauses.clauses2.frame ShouldEqual fr:s3.t6
+    - result.systemoutjson.clauses.clauses2.status ShouldEqual unreachable
+    - result.systemoutjson.findingsByLayer.frames.frames1.id ShouldEqual clause-unreachable:fr:s3.t6
+    - result.systemoutjson.findingsByLayer.frames.frames1.code ShouldEqual clause-unreachable
+    - result.systemoutjson.findingsByLayer.frames.frames1.kind ShouldEqual gap
+    - result.systemoutjson.findingsByLayer.frames.frames1.severity ShouldEqual warning
+    - result.systemoutjson.findingsByLayer.frames.frames1.refs.refs0 ShouldEqual fr:s3.t6
+    - result.systemoutjson.findingsByLayer.frames.frames1.refs.refs1 ShouldEqual s3
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status"
+    assertions:
+    - result.code ShouldEqual 0
+    - 'result.systemout ShouldContainSubstring "clause fr:s2.t7 SHIP reachable via PACK → SHIP"'
+    - 'result.systemout ShouldContainSubstring "warning clause-unreachable: fr:s3.t6 (DISCOUNT) is never enabled from the initial state: cond_s3_t1 = true never holds"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames set --frame fr:s3.t6 --role when --unknown --reason 'the coupon is not a state' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.command ShouldEqual spec.frames.set
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec status --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.clauses.clauses2.status ShouldEqual reachable
+    - result.systemoutjson.clauses.clauses2.witness.witness0 ShouldEqual DISCOUNT

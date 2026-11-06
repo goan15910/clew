@@ -1,6 +1,7 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
+import type { ClauseStatus } from '../domain/spec-kernel.js';
 import type { ImpactEntry } from '../domain/spec-refine.js';
 import type { Finding, FlowOrigin, Frame, Grouping, Revision, SentenceState, SentenceText } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
@@ -348,8 +349,24 @@ export interface FrameCompiledView {
   kind: 'action' | 'forbidden';
 }
 
+/** Whether the clause's action is ever enabled from the initial state. */
+export interface FrameReachView {
+  status: ClauseStatus;
+  /** Events to the first enabling state, then the clause's own event. */
+  witness?: string[];
+  /** Guard equalities that hold in no reached state. */
+  blockedBy?: string[];
+}
+
+export interface ClauseReachView extends FrameReachView {
+  frame: string;
+  sentence: string;
+  event: string;
+}
+
 export interface FrameView extends Frame {
   compiled?: FrameCompiledView;
+  reach?: FrameReachView;
 }
 
 export interface SpecFramesDocument {
@@ -470,6 +487,7 @@ export interface SpecStatusDocument {
   coverage?: StatusCoverage;
   layers?: { tokens: boolean; concepts: boolean; frames: boolean; graph: boolean };
   findingsByLayer?: { sentences: Finding[]; tokens: Finding[]; concepts: Finding[]; frames: Finding[]; graph: Finding[] };
+  clauses?: ClauseReachView[];
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -563,6 +581,15 @@ export interface DraftGraphImageDocument {
   /** Set when the session has no graph layer. */
   message?: string;
   /** Set when the session cannot be read or Graphviz cannot draw (interactive may still be present). */
+  error?: string;
+}
+
+/** JSON for the inspector Frames tab: kernel reach keyed by frame id. Not a CLI command document. */
+export interface ClauseReachDocument {
+  session: string;
+  /** Compiled frames only; a restating frame carries the reach of the frame it restates. */
+  frames: Record<string, FrameReachView>;
+  /** Set when the session cannot be read. */
   error?: string;
 }
 
