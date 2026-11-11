@@ -1,0 +1,69 @@
+name: spec tla scaffold and check
+vars:
+  clew: node_modules/.bin/tsx src/cli.ts
+  root: .
+testcases:
+- name: scaffold writes a module that checks clean, and never replaces it unasked
+  steps:
+  - type: exec
+    script: mktemp -d
+    vars:
+      dir:
+        from: result.systemout
+        regex: '(.+)'
+  - type: exec
+    script: |
+      printf '%s\n' 'The clerk packs the order.' 'When the clerk packs the order, the courier ships the order.' > '{{.dir}}/depot.md'
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec init '{{.dir}}/depot.md' --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tag --json && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list --json
+    assertions:
+    - result.code ShouldEqual 0
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla scaffold --dry-run --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.tla.scaffold
+    - result.systemoutjson.module ShouldEqual Order
+    - result.systemoutjson.dryRun ShouldEqual true
+    - 'result.systemoutjson.tla ShouldContainSubstring "MODULE Order"'
+    - 'result.systemoutjson.tla ShouldContainSubstring "@frame fr:s1.t1"'
+    - 'result.systemoutjson.cfg ShouldContainSubstring "SPECIFICATION Spec"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla scaffold --out '{{.dir}}/Depot.tla' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemoutjson.module ShouldEqual Depot
+    - result.systemoutjson.written ShouldEqual "{{.dir}}/Depot.tla"
+    - result.systemoutjson.cfgWritten ShouldEqual "{{.dir}}/Depot.cfg"
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla scaffold --out '{{.dir}}/Depot.tla' --json"
+    assertions:
+    - result.code ShouldEqual 2
+    - result.systemoutjson.fault ShouldEqual exists
+    - 'result.systemerr ShouldContainSubstring "pass --force to replace it"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla check '{{.dir}}/Depot.tla' --json"
+    assertions:
+    - result.code ShouldEqual 0
+    - result.systemerr ShouldBeEmpty
+    - result.systemoutjson.command ShouldEqual spec.tla.check
+    - result.systemoutjson.module ShouldEqual Depot
+    - result.systemoutjson.counts.missing ShouldEqual 0
+    - result.systemoutjson.counts.changed ShouldEqual 0
+    - result.systemoutjson.findings ShouldBeEmpty
+    - result.systemoutjson.alignment.alignment0.frame ShouldEqual fr:s1.t1
+    - result.systemoutjson.alignment.alignment0.status ShouldEqual modelled
+    - result.systemoutjson.alignment.alignment0.expects.event ShouldEqual PACK
+  - type: exec
+    script: |
+      grep -v '@frame fr:s1.t1 ' '{{.dir}}/Depot.tla' > '{{.dir}}/Loose.tla'
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla check '{{.dir}}/Loose.tla'
+    assertions:
+    - result.code ShouldEqual 1
+    - result.systemerr ShouldBeEmpty
+    - 'result.systemout ShouldContainSubstring "blocking frame-not-modelled: fr:s1.t1"'
+  - type: exec
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list"
+    assertions:
+    - result.code ShouldEqual 0
+    - 'result.systemout ShouldContainSubstring "when order_status = null"'

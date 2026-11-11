@@ -10,6 +10,7 @@ import {
   frameIncomplete,
   frameReach,
   frameTransitions,
+  frameWhen,
   PACKAGE_VERSION,
   posLabel,
   roleText,
@@ -89,6 +90,20 @@ test.describe('frames tab', () => {
     const notTransition = fixture.frames.find((frame) => frame.notTransition !== undefined)!;
     await page.locator('#filter-frame').selectOption('not-transition');
     await expect(cardById(page, 'frames', notTransition.id).locator('.reach-pill')).toHaveCount(0);
+  });
+
+  test('the when row reads the compiled guard as one expression, ahead of the clause words it came from', async ({ page }) => {
+    const guarded = fixture.frames.filter((frame) => frameWhen(frame.id) !== undefined);
+    expect(guarded.some((frame) => frameWhen(frame.id)!.includes('∧'))).toBe(true);
+    for (const frame of guarded) {
+      const row = cardById(page, 'frames', frame.id).locator('.roles dd[data-role="when"]');
+      await expect(row).toHaveClass('has-expr');
+      await expect(row.locator('.when-expr')).toHaveText(frameWhen(frame.id)!);
+      await expect(row.locator('.role-value')).toHaveText(roleText(frame, 'when'));
+      if (roleText(frame, 'when') === 'unknown') await expect(row.locator('.role-value')).toBeHidden();
+    }
+    const plain = fixture.frames.find((frame) => frameWhen(frame.id) === undefined)!;
+    await expect(cardById(page, 'frames', plain.id).locator('.when-expr')).toHaveCount(0);
   });
 
   test('a forbidden flow that cites a negated frame shows on its card and in its lineage', async ({ page, viewer }) => {

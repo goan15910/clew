@@ -1,4 +1,4 @@
-// Use case: kernel reach of each compiled clause for the inspector Frames tab. Domain JSON stays read-only.
+// Use case: what each clause compiles to, and its kernel reach, for the inspector Frames tab. Domain JSON stays read-only.
 import { compileFrames } from '../domain/spec-compile.js';
 import { clauseReach } from '../domain/spec-kernel.js';
 import type { ClauseReachDocument } from './documents.js';
@@ -11,12 +11,14 @@ export interface ViewClauseReachCommand {
 
 export function viewClauseReach(command: ViewClauseReachCommand, store: SpecStore): ClauseReachDocument {
   const result = store.update(command.id, { create: false }, () => undefined);
-  if (!result.ok) return { session: command.id, frames: {}, error: result.message };
+  if (!result.ok) return { session: command.id, frames: {}, compiled: {}, error: result.message };
   const frames = result.snapshot.frames ?? [];
   const compilation = compileFrames(frames, result.snapshot.concepts ?? []);
   const reach: ClauseReachDocument['frames'] = {};
+  const compiled: ClauseReachDocument['compiled'] = {};
   for (const view of frameViews(frames, compilation.compiled.items, compilation.restated, clauseReach(compilation.compiled))) {
     if (view.reach !== undefined) reach[view.id] = view.reach;
+    if (view.compiled !== undefined) compiled[view.id] = view.compiled;
   }
-  return { session: result.snapshot.id, frames: reach };
+  return { session: result.snapshot.id, frames: reach, compiled };
 }

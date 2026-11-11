@@ -1,6 +1,7 @@
 // Label-flat Model for chart analyze/view and verify coverage diagrams.
 // Verify itself uses Spec.step; this projection is not a proof.
 import { chartStateId, type FieldType, type Guard, type Model, type State, type Transition } from '../../domain/model.js';
+import { predicateText, predicateVars, withoutVar } from '../../domain/spec-expr.js';
 import { matchHolds, type Label, type Spec } from '../../domain/spec-model.js';
 import type { Patch, Predicate, ValueType, VarId } from '../../domain/valuation.js';
 
@@ -129,31 +130,11 @@ function atomAssign(patch: Patch, id: VarId): string | undefined {
   return undefined;
 }
 
+/** What the action waits on besides the control state, as one expression: `title ≠ ""`. */
 function extraGuard(predicate: Predicate, control: VarId): Guard | undefined {
-  if (predicate.op === 'true') return undefined;
-  if (predicate.op === 'eq' && predicate.var === control) return undefined;
-  if (predicate.op === 'and') {
-    let extra = false;
-    for (const child of predicate.of) {
-      if (child.op === 'eq' && child.var === control) continue;
-      extra = true;
-      break;
-    }
-    if (!extra) return undefined;
-  }
-  const reads = firstVar(predicate);
+  const extra = withoutVar(predicate, control);
+  if (extra.op === 'true') return undefined;
+  const reads = predicateVars(extra)[0];
   if (reads === undefined) return undefined;
-  return { name: 'when', reads };
-}
-
-function firstVar(predicate: Predicate): string | undefined {
-  if (predicate.op === 'eq' || predicate.op === 'neq') return predicate.var;
-  if (predicate.op === 'not') return firstVar(predicate.of);
-  if (predicate.op === 'and' || predicate.op === 'or') {
-    for (const child of predicate.of) {
-      const found = firstVar(child);
-      if (found !== undefined) return found;
-    }
-  }
-  return undefined;
+  return { name: predicateText(extra, 'math'), reads };
 }

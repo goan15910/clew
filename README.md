@@ -92,6 +92,16 @@ clew spec tag
 clew spec view <session-id> --open
 ```
 
+Draft a TLA+ model from the frames, finish it by hand or with an agent, and check that it still accounts for every frame:
+
+```bash
+clew spec frames list
+clew spec tla scaffold --out Order.tla
+clew spec tla check Order.tla
+```
+
+The scaffold is a starting point, not a strict mapping. Each definition carries a `\* @frame <id> <digest>` comment, and `check` puts each frame beside the definitions that cite it. See [docs/agent-cli.md](docs/agent-cli.md).
+
 View a chart or workflow set without a session (`--workflows` / `--chart` for a combined page):
 
 ```bash

@@ -122,8 +122,8 @@ describe('clause kernel', { concurrency: false }, () => {
       assert.match(status.stdout, /warning clause-unreachable: fr:s3\.t6 \(DISCOUNT\) is never enabled/);
       const frames = clew(['spec', 'frames', 'list']);
       assert.equal(frames.status, 0, frames.stderr);
-      assert.match(frames.stdout, /compiles to SHIP: order packed -> shipped by courier\n {4}reachable via PACK → SHIP/);
-      assert.match(frames.stdout, /compiles to DISCOUNT: order null -> discounted by clerk\n {4}unreachable: cond_s3_t1 = true/);
+      assert.match(frames.stdout, /compiles to SHIP: order packed -> shipped by courier\n {4}when order_status = "packed"\n {4}reachable via PACK → SHIP/);
+      assert.match(frames.stdout, /compiles to DISCOUNT: order null -> discounted by clerk\n {4}when order_status = null ∧ cond_s3_t1\n {4}unreachable: cond_s3_t1 = true/);
     });
   });
 });

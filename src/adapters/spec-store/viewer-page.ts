@@ -231,6 +231,11 @@ main { padding: 1rem 1.5rem 2.5rem; max-width: 1100px; }
 .roles dd { margin: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 0.45rem; align-items: baseline; }
 .role-value { font-weight: 600; }
 .role-value.unknown { font-weight: 400; font-style: italic; color: var(--muted); }
+.when-expr { font: 600 0.82rem var(--mono); color: var(--ink); background: #f1efe9; border: 1px solid var(--line); padding: 0.05rem 0.4rem; border-radius: 0.25rem; }
+.roles dd.has-expr .role-value { font-weight: 400; font-size: 0.82rem; color: var(--muted); }
+.roles dd.has-expr .role-value::before { content: "“"; }
+.roles dd.has-expr .role-value::after { content: "”"; }
+.roles dd.has-expr .role-value.unknown { display: none; }
 .role-dep, .member-span { font: 0.75rem var(--mono); color: #1d4ed8; background: #dbeafe; padding: 0.05rem 0.3rem; border-radius: 0.2rem; }
 .frame-graph, .members { margin: 0.45rem 0 0; display: flex; flex-wrap: wrap; gap: 0.3rem 0.5rem; align-items: baseline; font-size: 0.86rem; }
 .frame-graph .k { font: 600 0.72rem var(--mono); color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -523,6 +528,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
     groups: [],
     frames: [],
     reach: {},
+    compiled: {},
     graph: null,
     graphView: null,
     graphStatus: "loading",
@@ -1217,7 +1223,11 @@ details.lineage[open] > summary::before { content: "▾ "; }
       const deps = roleLatest(frame, role).dependsOn || [];
       const history = (frame.roles && frame.roles[role] && frame.roles[role].history) || [];
       const status = revisionState(history);
-      return "<dt>" + role + '</dt><dd data-role="' + role + '"><span class="role-value' + (known ? "" : " unknown") + '">' +
+      // The guard the frame compiles to reads as one expression; the clause words it came from follow it.
+      const expr = role === "when" && state.compiled[frame.id] ? state.compiled[frame.id].when : "";
+      return "<dt>" + role + '</dt><dd data-role="' + role + '"' + (expr ? ' class="has-expr"' : "") + ">" +
+        (expr ? '<code class="when-expr">' + esc(expr) + "</code>" : "") +
+        '<span class="role-value' + (known ? "" : " unknown") + '">' +
         esc(roleText(frame, role)) + "</span>" +
         (status ? '<span class="role-state" data-state="' + status + '">' + pill(status, status === "dropped" ? "warn" : "ok") + "</span>" : "") +
         deps.map(function (id) { return '<code class="role-dep">' + esc(id) + "</code>"; }).join("") +
@@ -1922,10 +1932,12 @@ details.lineage[open] > summary::before { content: "▾ "; }
     loadJson("${CLAUSE_REACH_FILE}").then(function (reachFile) {
       if (ticket !== loadTicket) return;
       state.reach = (reachFile && reachFile.frames) || {};
+      state.compiled = (reachFile && reachFile.compiled) || {};
       if (state.tab === "frames") render();
     }).catch(function () {
       if (ticket !== loadTicket) return;
       state.reach = {};
+      state.compiled = {};
     });
     loadJson("graph.json").then(function (graph) {
       if (ticket !== loadTicket) return;
@@ -1965,6 +1977,7 @@ details.lineage[open] > summary::before { content: "▾ "; }
       state.groups = (conceptsFile && conceptsFile.groups) || [];
       state.frames = (framesFile && framesFile.frames) || [];
       state.reach = {};
+      state.compiled = {};
       state.graph = null;
       state.graphView = null;
       state.graphStatus = "loading";

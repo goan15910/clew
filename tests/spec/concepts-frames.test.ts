@@ -60,7 +60,16 @@ describe('spec concepts and frames', { concurrency: false }, () => {
       const approve = frameOf(frames, 'fr:s1.t7');
       assert.deepEqual(text(approve.roles.when.latest.value), 'When the customer submits an order and if the total is under 500 dollars');
       assert.deepEqual(refs(approve.roles.when.latest.value), ['fr:s1.t1', 'fr:s1.t12']);
-      assert.deepEqual(approve.compiled, { event: 'APPROVE', object: 'order', from: 'submitted', to: 'approved', actor: 'manager', kind: 'action' });
+      assert.deepEqual(approve.compiled, {
+        event: 'APPROVE',
+        object: 'order',
+        from: 'submitted',
+        to: 'approved',
+        actor: 'manager',
+        kind: 'action',
+        when: 'order_status = "submitted" ∧ cond_s1_t12',
+        effect: 'order_status\' = "approved"',
+      });
 
       const total = frameOf(frames, 'fr:s1.t12');
       assert.equal(total.marker, 'if');
@@ -127,7 +136,16 @@ describe('spec concepts and frames', { concurrency: false }, () => {
       assert.deepEqual(document.findings.map((finding) => [finding.id, finding.severity]), [['frame-missing-object:fr:s2.t1', 'warning']]);
       const frame = frameOf(frames, 'fr:s1.t1');
       assert.deepEqual(roles(frame), { actor: 'manager', event: 'cancel', object: 'order', result: 'cancelled', when: 'unknown' });
-      assert.deepEqual(frame.compiled, { event: 'CANCEL', object: 'order', from: 'null', to: 'cancelled', actor: 'manager', kind: 'action' });
+      assert.deepEqual(frame.compiled, {
+        event: 'CANCEL',
+        object: 'order',
+        from: 'null',
+        to: 'cancelled',
+        actor: 'manager',
+        kind: 'action',
+        when: 'order_status = null',
+        effect: 'order_status\' = "cancelled"',
+      });
     });
   });
 
