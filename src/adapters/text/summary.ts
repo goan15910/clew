@@ -2,6 +2,7 @@
 import type { CommandDocument, ConceptView, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import { formatIssues } from '../../application/documents.js';
 import { ROLE_NAMES } from '../../domain/spec-frames.js';
+import type { TlaAlignmentRow } from '../../domain/spec-tla-check.js';
 import { CLEW_AUTHOR } from '../../domain/spec.js';
 
 function list(ids: readonly string[]): string {
@@ -156,6 +157,29 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
+  if (document.command === 'spec.tla.scaffold') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const placed = document.placed?.length ?? 0;
+    const todo = document.todo ?? [];
+    const head = document.written !== undefined
+      ? `session ${document.session}: wrote ${document.written} (module ${document.module ?? ''})`
+      : `session ${document.session}: dry run, module ${document.module ?? ''} not written`;
+    const lines = [head, `  ${countPhrase(placed, 'frame', 'frames')} placed, ${todo.length} left as TODO${list(todo)}`];
+    if (document.cfgWritten !== undefined) lines.push(`  wrote ${document.cfgWritten}`);
+    else if (document.written !== undefined) lines.push('  kept the existing TLC config');
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    if (document.written === undefined && document.tla !== undefined) lines.push('', document.tla.trimEnd());
+    return lines.join('\n');
+  }
+  if (document.command === 'spec.tla.check') {
+    if (document.fault !== undefined || document.session === undefined) return '';
+    const rows = document.alignment ?? [];
+    const counts = document.counts ?? { modelled: 0, skipped: 0, changed: 0, missing: 0 };
+    const lines = [`session ${document.session}: ${document.file ?? ''} (module ${document.module ?? ''}) models ${counts.modelled} of ${countPhrase(rows.length, 'frame', 'frames')}, ${counts.skipped} skipped, ${counts.changed} changed, ${counts.missing} missing`];
+    for (const row of rows) lines.push(...alignmentLines(row));
+    for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    return lines.join('\n');
+  }
   if (document.command === 'spec.status') {
     if (document.fault !== undefined || document.session === undefined || document.coverage === undefined) return '';
     const sentences = document.coverage.sentences;
@@ -288,6 +312,27 @@ function conceptLines(concepts: readonly ConceptView[]): string[] {
   return lines;
 }
 
+/** One frame, what it expects, and the definitions that cite it, so the two can be read against each other. */
+function alignmentLines(row: TlaAlignmentRow): string[] {
+  const lines = [`  ${row.frame}  ${row.status}  ${row.kind}  ${row.digest}  "${row.clause}"`];
+  const expects = row.expects;
+  if (expects.event !== undefined) {
+    const actor = expects.actor === undefined ? '' : ` by ${expects.actor}`;
+    const restates = expects.restates === undefined ? '' : ` (restates ${expects.restates})`;
+    lines.push(`    frame  ${expects.event}${actor}: ${expects.when ?? 'TRUE'} -> ${expects.effect ?? ''}${restates}`);
+  } else if (expects.variable !== undefined) {
+    lines.push(`    frame  condition ${expects.variable}`);
+  } else if (expects.missing !== undefined) {
+    lines.push(`    frame  incomplete${expects.missing.length === 0 ? '' : `: no ${expects.missing.join(', no ')}`}`);
+  }
+  if (row.skip !== undefined) lines.push(`    skip   ${row.skip}`);
+  for (const definition of row.definitions) {
+    lines.push(`    model  ${definition.name} (line ${definition.line})`);
+    for (const line of definition.text.split('\n')) lines.push(`      | ${line}`);
+  }
+  return lines;
+}
+
 function frameLines(frames: readonly FrameView[]): string[] {
   const lines: string[] = [];
   for (const frame of frames) {
@@ -310,6 +355,7 @@ function frameLines(frames: readonly FrameView[]): string[] {
       const verb = compiled.kind === 'forbidden' ? 'forbids' : 'compiles to';
       const from = compiled.from === undefined ? '' : `${compiled.from} -> `;
       lines.push(`    ${verb} ${compiled.event}: ${compiled.object} ${from}${compiled.to} by ${compiled.actor}`);
+      lines.push(`    when ${compiled.when}`);
     }
     if (frame.reach !== undefined) lines.push(`    ${reachText(frame.reach)}`);
   }

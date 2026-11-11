@@ -152,6 +152,13 @@ export interface SpecWriter {
   write(file: string, yaml: string): { ok: true } | { ok: false; message: string };
 }
 
+/** Reads and writes a TLA+ module (or its TLC config) as text. Clew never runs TLC. */
+export interface TextFiles {
+  exists(file: string): boolean;
+  read(file: string): { ok: true; text: string } | { ok: false; message: string };
+  write(file: string, text: string): { ok: true } | { ok: false; message: string };
+}
+
 export type Fetched<T> = { ok: true; value: T } | { ok: false; message: string };
 
 export interface ReleaseAsset {

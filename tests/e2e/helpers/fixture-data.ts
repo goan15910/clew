@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileFrames } from '../../../src/domain/spec-compile.js';
+import { predicateText } from '../../../src/domain/spec-expr.js';
 import { attachOverlay } from '../../../src/domain/spec-graph.js';
 import { clauseReach, type ClauseReach } from '../../../src/domain/spec-kernel.js';
 import type { Concept, DraftGraph, FieldVersion, Frame, RoleName, SpecFlow } from '../../../src/domain/spec.js';
@@ -287,6 +288,16 @@ export function frameReach(frameId: string): ClauseReach | undefined {
   const compilation = compileFrames(fixture.frames, fixture.concepts);
   const id = compilation.restated[frameId] ?? frameId;
   return clauseReach(compilation.compiled).find((entry) => entry.frame === id);
+}
+
+/** The guard expression the Frames tab shows in the `when` row; undefined when the frame compiles to nothing. */
+export function frameWhen(frameId: string): string | undefined {
+  const compilation = compileFrames(fixture.frames, fixture.concepts);
+  const id = compilation.restated[frameId] ?? frameId;
+  for (const item of compilation.compiled.items) {
+    if (item.id === id && (item.kind === 'action' || item.kind === 'forbidden') && item.when !== undefined) return predicateText(item.when, 'math');
+  }
+  return undefined;
 }
 
 export function frameTransitions(frameId: string): DraftGraph['transitions'] {

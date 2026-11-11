@@ -1,6 +1,7 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
 import type { CompiledItem } from '../domain/spec-actions.js';
+import { effectText, predicateText } from '../domain/spec-expr.js';
 import type { ClauseReach } from '../domain/spec-kernel.js';
 import { sentenceState, type Concept, type DraftGraph, type Frame, type Grouping, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
 import { copyFrame } from '../domain/spec-frames.js';
@@ -151,11 +152,27 @@ export function frameViews(
   const compiled = new Map<string, FrameCompiledView>();
   for (const item of items) {
     if (item.kind === 'action' && item.overlay !== undefined) {
-      const view: FrameCompiledView = { event: item.event, object: item.overlay.object, to: item.overlay.to, actor: item.overlay.actor ?? '', kind: 'action' };
+      const view: FrameCompiledView = {
+        event: item.event,
+        object: item.overlay.object,
+        to: item.overlay.to,
+        actor: item.overlay.actor ?? '',
+        kind: 'action',
+        when: predicateText(item.when, 'math'),
+        effect: effectText(item.assign, 'math'),
+      };
       if (item.overlay.from !== undefined) view.from = item.overlay.from;
       compiled.set(item.id, view);
     } else if (item.kind === 'forbidden' && item.event !== undefined && item.object !== undefined && item.attempted !== undefined) {
-      compiled.set(item.id, { event: item.event, object: item.object, to: item.attempted, actor: item.actor ?? '', kind: 'forbidden' });
+      compiled.set(item.id, {
+        event: item.event,
+        object: item.object,
+        to: item.attempted,
+        actor: item.actor ?? '',
+        kind: 'forbidden',
+        when: predicateText(item.when ?? { op: 'true' }, 'math'),
+        effect: effectText(item.assign ?? {}, 'math'),
+      });
     }
   }
   const views: FrameView[] = [];

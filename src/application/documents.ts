@@ -3,6 +3,7 @@ import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { ClauseStatus } from '../domain/spec-kernel.js';
 import type { ImpactEntry } from '../domain/spec-refine.js';
+import type { TlaAlignmentRow, TlaAlignmentStatus } from '../domain/spec-tla-check.js';
 import type { Finding, FlowOrigin, Frame, Grouping, Revision, SentenceState, SentenceText } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
@@ -347,6 +348,10 @@ export interface FrameCompiledView {
   to: string;
   actor: string;
   kind: 'action' | 'forbidden';
+  /** The guard as one expression, for example `order_status = "submitted" ∧ cond_s1_t12`. */
+  when: string;
+  /** The primed assignment, for example `order_status' = "approved"`. */
+  effect: string;
 }
 
 /** Whether the clause's action is ever enabled from the initial state. */
@@ -399,6 +404,42 @@ export interface SpecImpactDocument {
   impact?: ImpactEntry[];
   /** Frames derived from the sentence. */
   frames?: string[];
+  findings: Finding[];
+  fault?: SpecFault;
+  issues: OutputIssue[];
+}
+
+/** `spec tla scaffold`: a TLA+ module and TLC config drafted from the frames. */
+export interface SpecTlaScaffoldDocument {
+  command: 'spec.tla.scaffold';
+  ok: boolean;
+  session?: string;
+  module?: string;
+  dryRun?: boolean;
+  forced?: boolean;
+  tla?: string;
+  cfg?: string;
+  written?: string;
+  /** Set when the TLC config was written. An existing config is kept unless --force. */
+  cfgWritten?: string;
+  /** Frame id → the definition or variable the scaffold put it on. */
+  placed?: { frame: string; name: string }[];
+  /** Transition frames the scaffold left as TODO comments. */
+  todo?: string[];
+  findings: Finding[];
+  fault?: SpecFault | 'exists';
+  issues: OutputIssue[];
+}
+
+/** `spec tla check`: each frame beside the definitions that cite it. */
+export interface SpecTlaCheckDocument {
+  command: 'spec.tla.check';
+  ok: boolean;
+  session?: string;
+  file?: string;
+  module?: string;
+  alignment?: TlaAlignmentRow[];
+  counts?: Record<TlaAlignmentStatus, number>;
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -589,6 +630,8 @@ export interface ClauseReachDocument {
   session: string;
   /** Compiled frames only; a restating frame carries the reach of the frame it restates. */
   frames: Record<string, FrameReachView>;
+  /** What each compiled frame compiles to, with its guard as an expression. */
+  compiled: Record<string, FrameCompiledView>;
   /** Set when the session cannot be read. */
   error?: string;
 }
@@ -699,7 +742,9 @@ export type CommandDocument =
   | SpecViewDocument
   | DiagramViewDocument
   | SpecGraphDocument
-  | SpecEmitDocument;
+  | SpecEmitDocument
+  | SpecTlaScaffoldDocument
+  | SpecTlaCheckDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 

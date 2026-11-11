@@ -50,6 +50,8 @@ clew spec graph build [--session <id>] [--json]
 clew spec graph split (--id <id> --at <edge> | --from <file.json>) [--session <id>] [--json]
 clew spec graph group (--id <id> --id <id> | --transition <id> --transition <id> | --from <file.json>) [--title <text>] [--into <id>] [--session <id>] [--json]
 clew spec emit (--dry-run | --out <file>) [--chart <file>] [--force] [--session <id>] [--json]
+clew spec tla scaffold (--dry-run | --out <file.tla>) [--force] [--session <id>] [--json]
+clew spec tla check <file.tla> [--session <id>] [--json]
 clew spec trace <id> [--session <id>] [--json]
 clew spec status [--session <id>] [--json]
 clew spec show tagged [--session <id>] [--json]
@@ -79,7 +81,7 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec concepts list` groups the spans into concepts, and `spec frames list` reads one clause frame per clause and compiles it. `spec concepts group`, `spec frames set`, and `spec frames not-transition` refine those layers, and `spec impact` lists what an edit of one sentence would drop. `spec graph build` assembles a draft graph from the compiled frames and proposes one path per transition, plus one rejected path per forbidden frame. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec concepts list` groups the spans into concepts, and `spec frames list` reads one clause frame per clause and compiles it. `spec concepts group`, `spec frames set`, and `spec frames not-transition` refine those layers, and `spec impact` lists what an edit of one sentence would drop. `spec graph build` assembles a draft graph from the compiled frames and proposes one path per transition, plus one rejected path per forbidden frame. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec tla scaffold` drafts a TLA+ module from the frames for the agent to finish, and `spec tla check` lines a module up against the frames. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
@@ -111,7 +113,7 @@ spec/<session-id>/
 
 `spec view <session-id>` installs a stable `viewer.html` into that session folder. The page is a self-contained browser inspector with Frames, Concepts, Sentences, Span, and Graph tabs. A Frames card shows the frame id, its sentence, `marker`, `negated`, and `not a transition` pills (with the reason), an `incomplete` pill when a transition frame's event, object, or result is unknown, the clause text, and the five roles with their latest value (or `unknown`) and `dependsOn` span ids. A role an agent or person wrote last has a `refined` pill, and a role Clew dropped back to its derived value has a `dropped` pill; both list their history as who, reason, and value. A frame with `notTransition` revisions lists them the same way. A Concepts member whose grouping was refined is marked `regrouped`. A frame that compiles to an action has a `reachable` pill and its witness events, an `unreachable` pill and the guard equalities that never hold (`blockedBy`), or an `unexplored` pill, as in `spec frames list`. When a graph transition or a forbidden flow cites the frame, the card shows that transition's event, `from`, and `to`, or the flow. A Concepts card shows the concept id, its canonical word, and its member spans with each span's surface and sentence id. Frames, Concepts, and Sentences have collapsed lineage drawers that link sentence, span, concept, frame, and graph rows: a frame lists its `dependsOn` spans marked in its sentence, the concepts its roles cite, the frames its `when` cites and the frames whose `when` cites it, and the transitions, states, and flows that cite it; a concept lists its member spans and the frames whose roles cite it; a sentence lists its concepts, its frames, and their transitions. Text search applies to every card tab. The Frame filter (`transition`, `not a transition`, `negated`, `incomplete`) applies to Frames and to Sentences (a sentence with a matching frame). The Concept filter applies to Frames (a role cites it), Concepts, and Sentences (a span links to it). The Span filter applies to Sentences and Span. The Graph tab draws the session draft graph and the workflows that graph can render, as images. It needs Graphviz (`dot`) on the machine serving the page. The page does not change domain JSON, `session.json` timestamps, or `history.jsonl`. The command names one session id (not `--session`, and not the session list). An unknown id or an unsafe id (`..`, a slash, or any id outside the session-id pattern) is exit 2. The document command is `spec.view`.
 
-Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `spans.json`, `concepts.json`, `frames.json`, and `flows.json`. Lineage requests `graph.json`, the Frames tab requests `clause-reach.json` (`{ session, frames }`, each compiled frame id mapped to its `reach`), and the Graph tab requests `draft-graph.json`. The server unfolds those responses when the page asks, and does not write them into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
+Browsers treat `file://` pages as opaque origins and block `fetch()` of sibling JSON, so opening `viewer.html` directly cannot reload live session files. With `--open`, Clew serves that session folder read-only on `127.0.0.1`, opens the browser, and keeps serving until Ctrl+C. A reload then picks up the latest `session.json`, `sentences.json`, `tokens.json`, `spans.json`, `concepts.json`, `frames.json`, and `flows.json`. Lineage requests `graph.json`, the Frames tab requests `clause-reach.json` (`{ session, frames, compiled }`: each compiled frame id mapped to its `reach`, and to the `compiled` view that carries its guard expression), and the Graph tab requests `draft-graph.json`. The server unfolds those responses when the page asks, and does not write them into the session folder. The 🔄 button next to the banner does the same reload without leaving the page. The session name in the header is a dropdown: opening it re-reads the sessions for this repo from the store (`/sessions.json`), and choosing one loads that session's files from `/sessions/<id>/` and sets `?session=<id>` in the URL. The server only serves session folders directly under this repo's spec root. Without `--open`, Clew only writes `viewer.html` and prints its path (or the JSON document).
 
 `spec session list` lists every session. Each row has the id, `updated` (the last time Clew wrote that session), and `summary` counts of live sentences, frames, and flows. A live sentence has `latest` text. A frame counts unless it is marked not a transition. Flows are the paths stored in `flows.json`; a session with no overlay counts zero. An empty list is exit 0. List does not take the write lock and does not change the store. A session whose files cannot be read is still listed, with empty counts and the file’s modification time.
 
@@ -159,7 +161,7 @@ Refinements are kept until their evidence changes. When `spec sentences add`, `e
 
 Roles are read by position. The event is the first content verb that is not adjectival ("a shipped order" is not an event). The actor is the last noun before it, and the object is the first noun after it, up to as, into, a condition marker, or then. A clause with only one noun reads it as the object. A passive verb takes the noun before it as the object and the noun after "by" as the actor. A clause that starts with and, or, or then, and has no actor, inherits the previous frame's actor. An object pronoun ("it", "them") after the event takes the previous frame's object in the same sentence, and the pronoun span joins its `dependsOn`. The result is the concept after "as" or "into", otherwise the event's compromise past participle (`approved`). `when` lists the condition frames and earlier frames this one waits on. A condition clause attaches to the next transition clause, or to the previous one when it comes last. A `then` clause waits on the frame before it, across sentences.
 
-Each frame compiles into the spec. An object becomes the atom var `<object>_status`, starting at `null`. The event becomes `UPPER_SNAKE` (`APPROVE`), and the action assigns the result. A `when` ref to a frame on the same object sets `from` to that frame's result. A ref to another object adds an equality on that object's result. A ref to a not-a-transition frame becomes the boolean var `cond_<sentence>_<token>` (`cond_s1_t12`), true for if and when, false for unless; the guard is `condition:cond_s1_t12`. A negated frame compiles to a forbidden item instead of an action. A frame with an unknown actor compiles without one. A frame that restates an earlier frame (same kind, object, event, from, result, and guard) adds nothing. Clew does not propose init or terminal marks, so every object starts at `null`. Each document frame that compiles carries `compiled` (`kind`, `event`, `object`, `from`, `to`, `actor`); a restating frame shows the earlier frame's.
+Each frame compiles into the spec. An object becomes the atom var `<object>_status`, starting at `null`. The event becomes `UPPER_SNAKE` (`APPROVE`), and the action assigns the result. A `when` ref to a frame on the same object sets `from` to that frame's result. A ref to another object adds an equality on that object's result. A ref to a not-a-transition frame becomes the boolean var `cond_<sentence>_<token>` (`cond_s1_t12`), true for if and when, false for unless; the guard is `condition:cond_s1_t12`. A negated frame compiles to a forbidden item instead of an action. A frame with an unknown actor compiles without one. A frame that restates an earlier frame (same kind, object, event, from, result, and guard) adds nothing. Clew does not propose init or terminal marks, so every object starts at `null`. Each document frame that compiles carries `compiled` (`kind`, `event`, `object`, `from`, `to`, `actor`, `when`, `effect`); a restating frame shows the earlier frame's. `when` is the guard as one expression (`order_status = "submitted" ∧ cond_s1_t12`) and `effect` is the primed assignment (`order_status' = "approved"`). A boolean test reads as the bare variable or `¬variable`, and `null` is the object's starting value. The text summary prints `when <expression>` under the `compiles to` line, and the inspector's Frames tab shows the same expression in the `when` row, ahead of the clause words it came from. `chart view` labels a guarded edge the same way, `SUBMIT / title ≠ ""`, with the control state left out.
 
 `spec frames list` also explores the compiled spec breadth-first from its initial valuation, up to 5000 states, and gives each frame that compiles to an action a `reach`. `reach.status` is `reachable` when the action's guard holds in a reached state; `witness` is then the shortest event path to the first such state, followed by the action's own event (`["PACK", "SHIP"]`). It is `unreachable` when the search finished without the guard holding; `blockedBy` lists the guard equalities that hold in no reached state (`cond_s3_t1 = true`, `order_status = "paid"`), and is empty when each holds somewhere but never together. It is `unexplored` when the search hit the bound first; the kernel never says `unreachable` after a truncated search. Forbidden and not-a-transition frames have no `reach`, and a restating frame shows the earlier frame's. The text summary prints `reachable via PACK → SHIP` or `unreachable: <blockedBy>` under the frame. Reach is derived on read and never stored. `spec status` reports the matching findings; `spec frames list` does not.
 
@@ -259,6 +261,24 @@ Emit refuses while a blocking finding remains on the graph layer. `--force` writ
 | `forbidden-uncovered` | blocking | a forbidden frame has no rejected flow |
 | `no-workflows` | blocking | there is nothing to emit |
 | `workflow-check` | blocking | the rendered set fails `workflows check` |
+
+`spec tla scaffold` drafts a TLA+ module from the frames. There is no direct route from a prose spec to a good TLA+ model, so Clew does not write the model: it writes a scaffold that already honors every frame, and the agent turns it into the model. The module declares one variable per object (`order_status`) and one boolean per condition frame, a value set per object, `TypeOK`, `Init`, one action per transition frame, one high-level action per event, `Next` as the disjunction of the high-level actions, and `Spec`. An event that one clause enables is its own high-level action (`Submit`). An event that several clauses enable gets one clause action each (`Approve_s1_t7`, `Approve_s2_t6`) and a high-level action that is their disjunction (`Approve`). A negated frame becomes a safety property (`NeverCancel == [][~(...)]_vars`). A condition no action assigns starts as `\in BOOLEAN`. A transition frame that does not compile is listed as a `TODO frame` comment at the end. `--out Order.tla` names the module after the file and writes `Order.cfg` beside it (`SPECIFICATION Spec`, `INVARIANT TypeOK`, one `PROPERTY` per forbidden frame, `CHECK_DEADLOCK FALSE`). An existing module is exit 2 with fault `exists`, because the file is the agent's once written; `--force` replaces the module and the config. Without `--force` an existing `.cfg` is kept. `--dry-run` puts the module in `tla` and the config in `cfg`, named after the first object. Scaffold does not write the session, and Clew never runs TLC.
+
+The link between a model and the frames is a comment. `\* @frame fr:s1.t7 4c1e5e8a` above a definition, or on a variable's line, says that definition models that frame as it stood at that digest. The digest is eight hex digits over the frame's roles and what it compiles to. The mapping is not strict: the agent may rename, merge, split, and strengthen. Several `@frame` comments may sit on one definition, one frame may be cited by several definitions, and a comment inside a definition's body cites that definition. `\* @frame fr:s3.t7 e0f785e8 skip: <reason>` leaves a frame out on purpose. The digest is optional; without it a later change to the frame goes unnoticed, which is an info `frame-unstamped`.
+
+`spec tla check <file.tla>` reads the comments back. `alignment` has one row per frame the model must account for: every transition frame, every restating frame, every forbidden frame, and every condition frame a guard reads. Other not-a-transition frames get a row only when the model cites them. A row has `frame`, `sentence`, `clause`, `kind` (`action`, `forbidden`, `restatement`, `condition`, `incomplete`, or `note`), `status` (`modelled`, `skipped`, `changed`, or `missing`), the frame's current `digest`, `expects`, and `definitions`. `expects` is what the frame compiles to in TLA+ ASCII: `event`, `actor`, `when`, and `effect`, or `variable` for a condition, `restates` for a restatement, and `missing` roles for an incomplete frame. Each definition has `name`, `line`, `kind` (`definition` or `variable`), and its `text` as written. The text summary prints the `frame` line and the definition text under each other, so a reader checks one against the other. Clew does not parse TLA+ semantics and does not prove the two agree. It proves that every frame is accounted for, that no definition was written against an older frame, and that every cited frame exists. `counts` totals the rows by status. Check writes neither the session nor the file. A file with no `MODULE` line is exit 2.
+
+`spec tla check` findings:
+
+| Code | Severity | When |
+|---|---|---|
+| `frame-not-modelled` | blocking | a frame the model must account for has no `@frame` comment; kind `coverage`, refs `[frame, sentence]` |
+| `frame-changed` | blocking | an `@frame` comment carries a digest that is not the frame's current one; the message names the definitions to review and the digest to write |
+| `unknown-frame` | blocking | an `@frame` comment cites an id that is not a frame of the session |
+| `annotation-without-definition` | blocking | an `@frame` comment is followed by no definition |
+| `skip-without-reason` | blocking | `skip:` has no reason after it |
+| `action-not-in-next` | warning | every definition that models an action frame is unreachable from `Next` |
+| `frame-unstamped` | info | an `@frame` comment has no digest |
 
 Input failures use `issues` with `{ kind, file, path, message }` and `kind: "input"`. Model problems stay in `findings`. A blocking finding is exit 1 with an empty stderr. A bad id, a missing layer, or a bad patch is exit 2.
 
@@ -578,7 +598,7 @@ A missing session, a live lock, a bad id, or an unreadable spec is exit 2: `ok` 
           "history": []
         }
       },
-      "compiled": { "event": "APPROVE", "object": "order", "from": "submitted", "to": "approved", "actor": "manager", "kind": "action" },
+      "compiled": { "event": "APPROVE", "object": "order", "from": "submitted", "to": "approved", "actor": "manager", "kind": "action", "when": "order_status = \"submitted\" ∧ cond_s1_t12", "effect": "order_status' = \"approved\"" },
       "reach": { "status": "unreachable", "blockedBy": ["cond_s1_t12 = true"] }
     }
   ],
@@ -610,7 +630,7 @@ The condition clause is its own frame, `fr:s1.t12`, with `"marker": "if"`, `"not
       }
     },
     "history": [],
-    "compiled": { "event": "APPROVE", "object": "order", "from": "submitted", "to": "approved", "actor": "clerk", "kind": "action" }
+    "compiled": { "event": "APPROVE", "object": "order", "from": "submitted", "to": "approved", "actor": "clerk", "kind": "action", "when": "order_status = \"submitted\" ∧ cond_s1_t12", "effect": "order_status' = \"approved\"" }
   },
   "findings": [
     { "id": "value-never-assigned:cond_s1_t12=true", "kind": "gap", "code": "value-never-assigned", "severity": "warning", "message": "cond_s1_t12 is checked for true, but no action assigns it", "refs": ["cond_s1_t12", "fr:s1.t7"] }
@@ -763,6 +783,35 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
     { "id": "no-initial-state:order", "kind": "gap", "code": "no-initial-state", "severity": "warning", "message": "order has no initial state", "refs": ["order"] },
     { "id": "no-final-state:order:approved", "kind": "gap", "code": "no-final-state", "severity": "warning", "message": "approved has no outgoing transition and is not marked final", "refs": ["approved"] }
   ],
+  "issues": []
+}
+```
+
+`spec.tla.check Order.tla`, one row. `text` is the definition as written in the module.
+
+```json
+{
+  "command": "spec.tla.check",
+  "ok": true,
+  "session": "order-sentence",
+  "file": "Order.tla",
+  "module": "Order",
+  "alignment": [
+    {
+      "frame": "fr:s1.t7",
+      "sentence": "s1",
+      "clause": "the manager approves the order",
+      "kind": "action",
+      "status": "modelled",
+      "digest": "4c1e5e8a",
+      "expects": { "event": "APPROVE", "actor": "manager", "when": "order_status = \"submitted\" /\\ cond_s1_t12", "effect": "order_status' = \"approved\"" },
+      "definitions": [
+        { "name": "Approve", "line": 41, "kind": "definition", "text": "Approve ==\n  /\\ order_status = \"submitted\"\n  /\\ cond_s1_t12\n  /\\ order_status' = \"approved\"\n  /\\ UNCHANGED cond_s1_t12" }
+      ]
+    }
+  ],
+  "counts": { "modelled": 3, "skipped": 0, "changed": 0, "missing": 0 },
+  "findings": [],
   "issues": []
 }
 ```

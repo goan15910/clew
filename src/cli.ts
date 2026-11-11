@@ -24,6 +24,8 @@
 // clew spec graph split --id W1 --at fr:s1.t2 [--session id] [--json]
 // clew spec graph group --id W1 --id W2 [--title text] [--session id] [--json]
 // clew spec emit (--dry-run | --out file) [--chart file] [--force] [--session id] [--json]
+// clew spec tla scaffold (--dry-run | --out file.tla) [--force] [--session id] [--json]
+// clew spec tla check <file.tla> [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show sentences|tagged|tokens|spans|concepts|frames [--session id] [--json]
@@ -76,7 +78,10 @@ import { checkWorkflows } from './application/check-workflows.js';
 import { compareResults } from './application/compare-results.js';
 import { editGraph } from './application/edit-graph.js';
 import { editSentence } from './application/edit-sentences.js';
+import { checkTla } from './application/check-tla.js';
 import { emitSpec } from './application/emit-spec.js';
+import { scaffoldTla } from './application/scaffold-tla.js';
+import { tlaTextFiles } from './adapters/tla/text-files.js';
 import { exportSpec } from './application/export-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listConcepts } from './application/list-concepts.js';
@@ -285,6 +290,17 @@ const SpecEmitFlags = z.object({
   if (value.chart === '-') context.addIssue({ code: 'custom', message: 'emit writes a file; Clew never writes the chart to stdout', path: ['chart'] });
   if (value.dryRun === true && value.out !== undefined) context.addIssue({ code: 'custom', message: 'pass --dry-run or --out, not both', path: ['out'] });
   if (value.dryRun !== true && (value.out === undefined || value.out === '')) context.addIssue({ code: 'custom', message: 'emit needs --dry-run or --out', path: ['out'] });
+});
+const SpecTlaScaffoldFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  dryRun: z.boolean().optional(),
+  out: z.string().min(1).optional(),
+  force: z.boolean().optional(),
+}).superRefine((value, context) => {
+  if (value.out === '-') context.addIssue({ code: 'custom', message: 'scaffold writes a file; Clew never writes the module to stdout', path: ['out'] });
+  if (value.dryRun === true && value.out !== undefined) context.addIssue({ code: 'custom', message: 'pass --dry-run or --out, not both', path: ['out'] });
+  if (value.dryRun !== true && value.out === undefined) context.addIssue({ code: 'custom', message: 'scaffold needs --dry-run or --out', path: ['out'] });
 });
 const SpecSessionFlags = z.object({
   json: z.boolean().optional(),
@@ -1127,6 +1143,63 @@ setManual(spec
   ],
   exitCodes: specExits,
   notes: [jsonNote, sessionNote, '--force writes the file while blocking findings remain and lists them. --chart writes the same Spec that verify replays.'],
+});
+
+const tla = spec.command('tla').description('Draft a TLA+ model from the frames, and check a model against them.').helpCommand(false);
+
+setManual(tla
+  .command('scaffold')
+  .description('Draft a TLA+ module from the frames: one action per transition frame, grouped under one action per event.')
+  .option('--dry-run', 'print the module in the document without writing a file')
+  .option('--out <file>', 'write the module to this .tla file, and a TLC config beside it')
+  .option('--force', 'replace an existing module and config')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecTlaScaffoldFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.tla.scaffold', opts, parsed.error);
+    const flags = parsed.data;
+    emit(scaffoldTla({ sessionId: flags.session, dryRun: flags.dryRun === true, out: flags.out, force: flags.force === true }, jsonSpecStore, tlaTextFiles), flags.json === true);
+  }), {
+  examples: [
+    'clew spec tla scaffold --dry-run --json',
+    'clew spec tla scaffold --out Order.tla --json',
+  ],
+  exitCodes: [
+    { code: 0, meaning: 'the scaffold was drafted, and written when --out was given' },
+    { code: 2, meaning: 'the file exists, the name is not a TLA+ module name, no frame compiles, or there is no spec session' },
+  ],
+  notes: [
+    'The scaffold is a starting point, not a strict mapping. Edit the module freely; keep the @frame comment on every definition that models a frame.',
+    'The module is named after the file. An existing module is never replaced without --force, and an existing .cfg is kept.',
+    'Clew does not run TLC. Check the model with the TLA+ tools, and its link to the frames with clew spec tla check.',
+    jsonNote,
+    sessionNote,
+  ],
+});
+
+setManual(tla
+  .command('check')
+  .description('Line a TLA+ module up against the frames through its @frame comments.')
+  .argument('<module>', 'TLA+ module file')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((file, opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.tla.check', opts, parsed.error);
+    if (file.trim() === '' || file === '-') usage('spec.tla.check', opts, new z.ZodError([{ code: 'custom', message: 'check reads a .tla file; Clew never reads stdin', path: ['module'] }]));
+    emit(checkTla({ sessionId: parsed.data.session, file }, jsonSpecStore, tlaTextFiles), parsed.data.json === true);
+  }), {
+  examples: ['clew spec tla check Order.tla --json'],
+  exitCodes: specExits,
+  notes: [
+    'A comment `\\* @frame fr:s1.t7 5d1c0f3a` above a definition says the definition models that frame as it was at that digest. Several comments may sit on one definition, and one frame may be cited by several definitions.',
+    '`\\* @frame fr:s3.t7 5d1c0f3a skip: <reason>` leaves a frame out on purpose.',
+    'Each row puts what the frame compiles to beside the text of the definitions that cite it. Clew does not prove they agree; it reports frames with no definition, frames that changed since, and comments that cite no frame.',
+    'check reads the session and the file. It writes neither.',
+    jsonNote,
+    sessionNote,
+  ],
 });
 
 setManual(spec
