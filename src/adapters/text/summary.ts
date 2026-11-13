@@ -157,18 +157,23 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
-  if (document.command === 'spec.tla.scaffold') {
+  if (document.command === 'spec.tla.export') {
     if (document.fault !== undefined || document.session === undefined) return '';
-    const placed = document.placed?.length ?? 0;
     const todo = document.todo ?? [];
     const head = document.written !== undefined
-      ? `session ${document.session}: wrote ${document.written} (module ${document.module ?? ''})`
-      : `session ${document.session}: dry run, module ${document.module ?? ''} not written`;
-    const lines = [head, `  ${countPhrase(placed, 'frame', 'frames')} placed, ${todo.length} left as TODO${list(todo)}`];
-    if (document.cfgWritten !== undefined) lines.push(`  wrote ${document.cfgWritten}`);
-    else if (document.written !== undefined) lines.push('  kept the existing TLC config');
+      ? `session ${document.session}: wrote ${document.written} (frames module ${document.module ?? ''})`
+      : `session ${document.session}: dry run, frames module ${document.module ?? ''} not written`;
+    const lines = [head, `  ${countPhrase(document.placed?.length ?? 0, 'frame', 'frames')} placed, ${todo.length} do not compile${list(todo)}`];
+    const model = document.model;
+    if (model?.written !== undefined) lines.push(`  wrote ${model.written} (model ${model.module})`);
+    if (model?.kept === true) lines.push(`  kept the existing model ${model.module}`);
+    if (model?.cfgWritten !== undefined) lines.push(`  wrote ${model.cfgWritten}`);
+    else if (model?.written !== undefined) lines.push('  kept the existing TLC config');
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
-    if (document.written === undefined && document.tla !== undefined) lines.push('', document.tla.trimEnd());
+    if (document.written === undefined && document.tla !== undefined) {
+      lines.push('', document.tla.trimEnd());
+      if (model !== undefined) lines.push('', model.tla.trimEnd());
+    }
     return lines.join('\n');
   }
   if (document.command === 'spec.tla.check') {
@@ -176,6 +181,7 @@ export function humanSummary(document: CommandDocument): string {
     const rows = document.alignment ?? [];
     const counts = document.counts ?? { modelled: 0, skipped: 0, changed: 0, missing: 0 };
     const lines = [`session ${document.session}: ${document.file ?? ''} (module ${document.module ?? ''}) models ${counts.modelled} of ${countPhrase(rows.length, 'frame', 'frames')}, ${counts.skipped} skipped, ${counts.changed} changed, ${counts.missing} missing`];
+    if (document.frames !== undefined) lines.push(`  refines ${document.frames.module} (${document.frames.file}), ${document.frames.current ? 'current' : 'out of date'}`);
     for (const row of rows) lines.push(...alignmentLines(row));
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');

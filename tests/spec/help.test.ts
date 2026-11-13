@@ -78,7 +78,7 @@ test('short help omits examples and clew help prints them for every command', ()
       assert.ok(examples.includes('clew spec emit --dry-run --json'));
       assert.ok(examples.includes('clew spec emit --out flows.yaml --chart spec.yaml --json'));
     }
-    if (label === 'spec tla scaffold') assert.ok(examples.includes('clew spec tla scaffold --out Order.tla --json'));
+    if (label === 'spec tla export') assert.ok(examples.includes('clew spec tla export --out OrderFrames.tla --model Order.tla --json'));
     if (label === 'spec tla check') assert.ok(examples.includes('clew spec tla check Order.tla --json'));
     if (label === 'spec trace') assert.ok(examples.includes('clew spec trace concept:customer --json'));
     if (label === 'spec frames list') assert.ok(examples.includes('clew spec frames list --sentence s2 --json'));

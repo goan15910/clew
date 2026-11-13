@@ -92,15 +92,15 @@ clew spec tag
 clew spec view <session-id> --open
 ```
 
-Draft a TLA+ model from the frames, finish it by hand or with an agent, and check that it still accounts for every frame:
+Export the frames as a TLA+ module, start a model that refines it, and check that the model still accounts for every frame:
 
 ```bash
 clew spec frames list
-clew spec tla scaffold --out Order.tla
+clew spec tla export --out OrderFrames.tla --model Order.tla
 clew spec tla check Order.tla
 ```
 
-The scaffold is a starting point, not a strict mapping. Each definition carries a `\* @frame <id> <digest>` comment, and `check` puts each frame beside the definitions that cite it. See [docs/agent-cli.md](docs/agent-cli.md).
+`OrderFrames.tla` is what the frames say, and Clew rewrites it on every export. `Order.tla` is yours: it instantiates `OrderFrames` with a name mapping, and `Order.cfg` asks TLC to check that it refines the frames. Clew does not ship or run TLC; run the [TLA+ tools](https://github.com/tlaplus/tlaplus) on `Order.tla` yourself. See [docs/agent-cli.md](docs/agent-cli.md).
 
 View a chart or workflow set without a session (`--workflows` / `--chart` for a combined page):
 

@@ -1,6 +1,7 @@
-// Frames → a TLA+ module scaffold. The scaffold is a starting point an agent rewrites, not a strict
-// mapping: every definition that models a frame carries an `@frame <id> <digest>` comment, and
-// spec-tla-check reads those comments back to line the model up against the frames.
+// Frames → two TLA+ modules. The frames module is the frames' own behavior, exported by Clew and
+// never edited. The model is the agent's: it starts as a copy, instantiates the frames module with
+// a name mapping, and asks TLC (run by the user, never by Clew) to check that it refines the frames.
+// Every definition that models a frame carries an `@frame <id> <digest>` comment for spec-tla-check.
 import { conditionVar, type FrameCompilation } from './spec-compile.js';
 import type { CompiledAction, CompiledForbidden, CompiledItem } from './spec-actions.js';
 import { conjunctTexts, effectText, effectTexts, predicateText, valueText } from './spec-expr.js';
@@ -39,18 +40,42 @@ export interface TlaObligation {
   expects: TlaExpectation;
 }
 
-export interface TlaScaffold {
+export interface TlaModuleText {
   module: string;
   tla: string;
-  cfg: string;
+  /** TLC config. Set for a model; the frames module is checked through the model. */
+  cfg?: string;
   /** Frame id → the definition or variable that models it. */
   placed: { frame: string; name: string }[];
-  /** Transition frames with a missing role. The scaffold lists them as TODO comments. */
+  /** Transition frames with a missing role. They are listed as comments. */
   todo: string[];
 }
 
-/** Names the scaffold defines itself. An action that would collide gets a `Step` suffix. */
-const RESERVED: ReadonlySet<string> = new Set(['Init', 'Next', 'Spec', 'TypeOK', 'Null', 'vars']);
+export interface TlaModuleInput {
+  module: string;
+  session: string;
+  frames: readonly Frame[];
+  compilation: FrameCompilation;
+}
+
+/** The first header line of a frames module. `spec tla check` finds the module a model instantiates by it. */
+export const TLA_FRAMES_MARKER = 'Exported by clew spec tla export. Do not edit';
+
+/** The name a model gives its instance of the frames module. */
+export const TLA_FRAMES_INSTANCE = 'Frames';
+
+/** Names the modules define themselves. An action that would collide gets a `Step` suffix. */
+const RESERVED: ReadonlySet<string> = new Set(['Init', 'Next', 'Spec', 'TypeOK', 'Null', 'vars', 'Frames', 'RefinesFrames', 'ConditionsChange']);
+
+/** The frames' own behavior. Regenerated from the session on every export; nobody edits it. */
+export function tlaFramesModule(input: TlaModuleInput): TlaModuleText {
+  return tlaModule(input, undefined);
+}
+
+/** A starter model: the frames module's actions under an identity mapping, for the agent to rewrite. */
+export function tlaModelStarter(input: TlaModuleInput, framesModule: string): TlaModuleText {
+  return tlaModule(input, framesModule);
+}
 
 /** One entry per frame the model must account for, in frame order. */
 export function tlaObligations(frames: readonly Frame[], compilation: FrameCompilation): TlaObligation[] {
@@ -123,7 +148,8 @@ export function pascalName(raw: string): string {
   return /^[A-Za-z]/.test(name) ? name : `M${name}`;
 }
 
-export function tlaScaffold(input: { module: string; session: string; frames: readonly Frame[]; compilation: FrameCompilation }): TlaScaffold {
+/** `refines` is the frames module a model instantiates; undefined writes the frames module itself. */
+function tlaModule(input: TlaModuleInput, refines: string | undefined): TlaModuleText {
   const draft = input.compilation.compiled.draft;
   const items = input.compilation.compiled.items;
   const obligations = new Map<string, TlaObligation>();
@@ -181,16 +207,29 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
   const rule = '-'.repeat(Math.max(4, Math.floor((72 - title.length) / 2)));
   lines.push(`${rule}${title}${rule}`);
   lines.push('(*');
-  lines.push(`  Scaffold from the frames of Clew session "${commentSafe(input.session)}" (clew spec tla scaffold).`);
-  lines.push('');
-  lines.push('  This is a starting point, not a strict mapping. Rename, merge, split, and');
-  lines.push('  strengthen the definitions until the module says what the spec means. Keep');
-  lines.push('  the "@frame" comment above every definition that models a frame: a merged');
-  lines.push('  definition keeps one line per frame, and a frame the model leaves out on');
-  lines.push('  purpose gets its "@frame" line with "skip:" and a reason.');
-  lines.push('');
-  lines.push(`  clew spec tla check ${input.module}.tla lines each frame up against its definition,`);
-  lines.push('  and reports frames with no definition and frames that changed since.');
+  if (refines === undefined) {
+    lines.push(`  ${TLA_FRAMES_MARKER}: export again instead.`);
+    lines.push('');
+    lines.push(`  What the frames of Clew session "${commentSafe(input.session)}" say, and nothing more: one`);
+    lines.push('  variable per object, one action per transition frame, one high-level');
+    lines.push('  action per event. A model instantiates this module with a name mapping');
+    lines.push('  and checks that it refines Spec.');
+  } else {
+    lines.push(`  A model of Clew session "${commentSafe(input.session)}". Yours to edit.`);
+    lines.push('');
+    lines.push(`  It starts as a copy of ${refines}, which Clew exports from the frames.`);
+    lines.push('  Rename, merge, split, and add the data the spec talks about, until the');
+    lines.push(`  module says what the spec means. Keep ${TLA_FRAMES_INSTANCE}, the mapping below, in step:`);
+    lines.push(`  it gives every variable of ${refines} as an expression over this`);
+    lines.push('  model\'s variables. TLC then checks RefinesFrames: every step of this');
+    lines.push('  model is a step the frames allow, or leaves the mapped variables alone.');
+    lines.push('');
+    lines.push('  Keep the "@frame" comment above every definition that models a frame: a');
+    lines.push('  merged definition keeps one line per frame, and a frame the model leaves');
+    lines.push('  out on purpose gets its "@frame" line with "skip:" and a reason.');
+    lines.push(`  clew spec tla check ${input.module}.tla reports frames with no definition, frames`);
+    lines.push(`  that changed since, and a copy of ${refines}.tla that is out of date.`);
+  }
   lines.push('*)');
   lines.push('');
 
@@ -212,13 +251,26 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
         return;
       }
       cite(lines, frameId, '  ');
-      if (!assigned.has(decl.id)) lines.push('  \\*   TODO: the spec never says what sets this. Name it, or model the data behind it.');
+      if (!assigned.has(decl.id)) {
+        lines.push(refines === undefined
+          ? '  \\*   The spec never says what sets this, so it may change at any time.'
+          : '  \\*   TODO: the spec never says what sets this. Model the data behind it, and map it below.');
+      }
       lines.push(`  ${decl.id}${comma}`);
       placed.push({ frame: frameId, name: decl.id });
     });
     lines.push('');
     lines.push(`vars == <<${draft.vars.map((decl) => decl.id).join(', ')}>>`);
     lines.push('');
+    if (refines !== undefined) {
+      lines.push(`\\* The name mapping: each variable of ${refines} as an expression over this model's`);
+      lines.push('\\* variables. It starts as the identity.');
+      lines.push(`${TLA_FRAMES_INSTANCE} == INSTANCE ${refines} WITH`);
+      draft.vars.forEach((decl, index) => {
+        lines.push(`  ${decl.id} <- ${decl.id}${index === draft.vars.length - 1 ? '' : ','}`);
+      });
+      lines.push('');
+    }
   }
 
   const sets = new Map<string, string>();
@@ -297,9 +349,20 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
     for (const member of group.members) lines.push(`  \\/ ${member}`);
     lines.push('');
   }
+  const free = draft.vars.filter((decl) => decl.type === 'boolean' && !assigned.has(decl.id));
+  const rigid = draft.vars.filter((decl) => !free.includes(decl));
+  if (refines === undefined && free.length > 0) {
+    lines.push('\\* The frames say nothing about when a condition becomes true or false.');
+    lines.push('ConditionsChange ==');
+    for (const decl of free) lines.push(`  /\\ ${decl.id}' \\in BOOLEAN`);
+    const kept = rigid.map((decl) => decl.id);
+    if (kept.length > 0) lines.push(`  /\\ UNCHANGED ${kept.length === 1 ? kept[0] : `<<${kept.join(', ')}>>`}`);
+    lines.push('');
+  }
   lines.push('Next ==');
-  if (events.length === 0) lines.push('  FALSE');
+  if (events.length === 0 && (refines !== undefined || free.length === 0)) lines.push('  FALSE');
   for (const event of events) lines.push(`  \\/ ${high.get(event) ?? pascalName(event)}`);
+  if (refines === undefined && free.length > 0) lines.push('  \\/ ConditionsChange');
   lines.push('');
   lines.push(draft.vars.length === 0 ? 'Spec == Init /\\ [][Next]_<<>>' : 'Spec == Init /\\ [][Next]_vars');
   lines.push('');
@@ -307,7 +370,9 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
   const properties: string[] = [];
   if (forbidden.length > 0) {
     lines.push(separator());
-    lines.push('\\* Forbidden steps: one safety property per negated frame.');
+    lines.push(refines === undefined
+      ? '\\* Forbidden steps: one safety property per negated frame.'
+      : `\\* Forbidden steps: the safety properties of ${refines}, read through the mapping.`);
     lines.push('');
     const counts = new Map<string, number>();
     for (const item of forbidden) counts.set(item.event ?? '', (counts.get(item.event ?? '') ?? 0) + 1);
@@ -317,6 +382,11 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
       properties.push(name);
       citeAll(lines, item.id, name);
       const parts = [...conjunctTexts(item.when ?? { op: 'true' }, 'tla'), ...effectTexts(item.assign ?? {}, 'tla')];
+      if (refines !== undefined) {
+        lines.push(`${name} == ${TLA_FRAMES_INSTANCE}!${name}`);
+        lines.push('');
+        continue;
+      }
       lines.push(`${name} ==`);
       parts.forEach((part, index) => {
         const open = index === 0 ? '  [][~(' : '       ';
@@ -336,8 +406,12 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
   }
   if (todo.length > 0) {
     lines.push(separator());
-    lines.push('\\* Frames the scaffold could not place. Model each one above and move its line');
-    lines.push('\\* there as an "@frame" comment, or keep the line here with "skip:" and a reason.');
+    if (refines === undefined) {
+      lines.push('\\* Frames that do not compile yet. They are not part of this module.');
+    } else {
+      lines.push('\\* Frames Clew could not place. Model each one above and move its line there');
+      lines.push('\\* as an "@frame" comment, or keep the line here with "skip:" and a reason.');
+    }
     lines.push('');
     for (const id of todo) {
       const obligation = obligations.get(id);
@@ -348,17 +422,27 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
     }
     lines.push('');
   }
+  if (refines !== undefined) {
+    lines.push(separator());
+    lines.push(`\\* What TLC checks (${input.module}.cfg): this model does nothing the frames do not allow.`);
+    lines.push(`RefinesFrames == ${TLA_FRAMES_INSTANCE}!Spec`);
+    lines.push('');
+  }
   lines.push('='.repeat(Math.max(4, rule.length * 2 + title.length)));
-
+  const text: TlaModuleText = { module: input.module, tla: `${lines.join('\n')}\n`, placed, todo };
+  if (refines === undefined) return text;
   const cfg: string[] = [
-    `\\* TLC model for ${input.module}.tla. Written once by clew spec tla scaffold; yours to edit.`,
+    `\\* TLC model for ${input.module}.tla. Written once by clew spec tla export; yours to edit.`,
+    `\\* Run TLC yourself, with ${refines}.tla beside it. Clew does not run TLC.`,
     'SPECIFICATION Spec',
     'INVARIANT TypeOK',
+    'PROPERTY RefinesFrames',
   ];
   for (const name of properties) cfg.push(`PROPERTY ${name}`);
   cfg.push('\\* A finished object has no next step; that is not a deadlock worth reporting.');
   cfg.push('CHECK_DEADLOCK FALSE');
-  return { module: input.module, tla: `${lines.join('\n')}\n`, cfg: `${cfg.join('\n')}\n`, placed, todo };
+  text.cfg = `${cfg.join('\n')}\n`;
+  return text;
 }
 
 function itemOf(items: readonly CompiledItem[], id: string): CompiledItem | undefined {
