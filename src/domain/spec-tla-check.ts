@@ -28,6 +28,8 @@ export interface TlaModule {
   name?: string;
   annotations: TlaAnnotation[];
   definitions: TlaDefinition[];
+  /** Modules the model instantiates, in order. */
+  instances: string[];
   /** Definition name → the other definitions its body names. */
   uses: Record<string, string[]>;
 }
@@ -66,7 +68,7 @@ interface OpenDefinition {
 }
 
 export function parseTlaModule(text: string): TlaModule {
-  const module: TlaModule = { annotations: [], definitions: [], uses: {} };
+  const module: TlaModule = { annotations: [], definitions: [], instances: [], uses: {} };
   const bodies = new Map<string, string>();
   let depth = 0;
   let open: OpenDefinition | undefined;
@@ -99,6 +101,9 @@ export function parseTlaModule(text: string): TlaModule {
       module.annotations.push(annotation);
     }
     const code = split.code;
+    for (const match of code.matchAll(/\bINSTANCE\s+([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      if (match[1] !== undefined && !module.instances.includes(match[1])) module.instances.push(match[1]);
+    }
     const blank = code.trim() === '';
     const defined = DEFINITION.exec(code);
     if (defined !== null && defined[1] !== undefined) {

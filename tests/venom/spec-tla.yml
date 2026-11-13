@@ -1,9 +1,9 @@
-name: spec tla scaffold and check
+name: spec tla export and check
 vars:
   clew: node_modules/.bin/tsx src/cli.ts
   root: .
 testcases:
-- name: scaffold writes a module that checks clean, and never replaces it unasked
+- name: export writes a frames module and a model that checks clean, and keeps the model afterwards
   steps:
   - type: exec
     script: mktemp -d
@@ -18,29 +18,32 @@ testcases:
     assertions:
     - result.code ShouldEqual 0
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla scaffold --dry-run --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla export --dry-run --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemerr ShouldBeEmpty
-    - result.systemoutjson.command ShouldEqual spec.tla.scaffold
-    - result.systemoutjson.module ShouldEqual Order
+    - result.systemoutjson.command ShouldEqual spec.tla.export
+    - result.systemoutjson.module ShouldEqual OrderFrames
     - result.systemoutjson.dryRun ShouldEqual true
-    - 'result.systemoutjson.tla ShouldContainSubstring "MODULE Order"'
+    - 'result.systemoutjson.tla ShouldContainSubstring "MODULE OrderFrames"'
     - 'result.systemoutjson.tla ShouldContainSubstring "@frame fr:s1.t1"'
-    - 'result.systemoutjson.cfg ShouldContainSubstring "SPECIFICATION Spec"'
+    - result.systemoutjson.model.module ShouldEqual Order
+    - 'result.systemoutjson.model.tla ShouldContainSubstring "Frames == INSTANCE OrderFrames WITH"'
+    - 'result.systemoutjson.model.cfg ShouldContainSubstring "PROPERTY RefinesFrames"'
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla scaffold --out '{{.dir}}/Depot.tla' --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla export --out '{{.dir}}/DepotFrames.tla' --model '{{.dir}}/Depot.tla' --json"
     assertions:
     - result.code ShouldEqual 0
-    - result.systemoutjson.module ShouldEqual Depot
-    - result.systemoutjson.written ShouldEqual "{{.dir}}/Depot.tla"
-    - result.systemoutjson.cfgWritten ShouldEqual "{{.dir}}/Depot.cfg"
+    - result.systemoutjson.module ShouldEqual DepotFrames
+    - result.systemoutjson.written ShouldEqual "{{.dir}}/DepotFrames.tla"
+    - result.systemoutjson.model.written ShouldEqual "{{.dir}}/Depot.tla"
+    - result.systemoutjson.model.cfgWritten ShouldEqual "{{.dir}}/Depot.cfg"
   - type: exec
-    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla scaffold --out '{{.dir}}/Depot.tla' --json"
+    script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla export --out '{{.dir}}/DepotFrames.tla' --model '{{.dir}}/Depot.tla' --json"
     assertions:
-    - result.code ShouldEqual 2
-    - result.systemoutjson.fault ShouldEqual exists
-    - 'result.systemerr ShouldContainSubstring "pass --force to replace it"'
+    - result.code ShouldEqual 0
+    - result.systemoutjson.written ShouldEqual "{{.dir}}/DepotFrames.tla"
+    - result.systemoutjson.model.kept ShouldEqual true
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla check '{{.dir}}/Depot.tla' --json"
     assertions:
@@ -48,6 +51,8 @@ testcases:
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.tla.check
     - result.systemoutjson.module ShouldEqual Depot
+    - result.systemoutjson.frames.module ShouldEqual DepotFrames
+    - result.systemoutjson.frames.current ShouldEqual true
     - result.systemoutjson.counts.missing ShouldEqual 0
     - result.systemoutjson.counts.changed ShouldEqual 0
     - result.systemoutjson.findings ShouldBeEmpty

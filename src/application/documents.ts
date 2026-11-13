@@ -409,25 +409,35 @@ export interface SpecImpactDocument {
   issues: OutputIssue[];
 }
 
-/** `spec tla scaffold`: a TLA+ module and TLC config drafted from the frames. */
-export interface SpecTlaScaffoldDocument {
-  command: 'spec.tla.scaffold';
+/** `spec tla export`: the frames as a TLA+ module, and a starter model that refines it. */
+export interface SpecTlaExportDocument {
+  command: 'spec.tla.export';
   ok: boolean;
   session?: string;
+  /** The frames module's name. */
   module?: string;
   dryRun?: boolean;
   forced?: boolean;
+  /** The frames module. Clew rewrites it on every export. */
   tla?: string;
-  cfg?: string;
   written?: string;
-  /** Set when the TLC config was written. An existing config is kept unless --force. */
-  cfgWritten?: string;
-  /** Frame id → the definition or variable the scaffold put it on. */
+  /** The starter model and its TLC config: with --model, and always on a dry run. */
+  model?: {
+    module: string;
+    tla: string;
+    cfg: string;
+    written?: string;
+    /** An existing config is kept unless --force. */
+    cfgWritten?: string;
+    /** True when the model file exists and was left as it is. */
+    kept?: boolean;
+  };
+  /** Frame id → the definition or variable that models it. */
   placed?: { frame: string; name: string }[];
-  /** Transition frames the scaffold left as TODO comments. */
+  /** Transition frames that do not compile; listed as comments. */
   todo?: string[];
   findings: Finding[];
-  fault?: SpecFault | 'exists';
+  fault?: SpecFault;
   issues: OutputIssue[];
 }
 
@@ -438,6 +448,8 @@ export interface SpecTlaCheckDocument {
   session?: string;
   file?: string;
   module?: string;
+  /** The frames module the model instantiates, and whether the file beside the model is what the frames export now. */
+  frames?: { module: string; file: string; current: boolean };
   alignment?: TlaAlignmentRow[];
   counts?: Record<TlaAlignmentStatus, number>;
   findings: Finding[];
@@ -743,7 +755,7 @@ export type CommandDocument =
   | DiagramViewDocument
   | SpecGraphDocument
   | SpecEmitDocument
-  | SpecTlaScaffoldDocument
+  | SpecTlaExportDocument
   | SpecTlaCheckDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';

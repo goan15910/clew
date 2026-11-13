@@ -12,11 +12,11 @@ import { tlaTextFiles } from '../../src/adapters/tla/text-files.js';
 import { yamlSpecLoader } from '../../src/adapters/yaml/spec-loader.js';
 import { specViewModel } from '../../src/adapters/yaml/spec-view-model.js';
 import { checkTla } from '../../src/application/check-tla.js';
-import type { SpecTlaCheckDocument, SpecTlaScaffoldDocument } from '../../src/application/documents.js';
+import { exportTla } from '../../src/application/export-tla.js';
+import type { SpecTlaCheckDocument, SpecTlaExportDocument } from '../../src/application/documents.js';
 import { initSpec } from '../../src/application/init-spec.js';
 import { listFrames } from '../../src/application/list-frames.js';
 import { setFrameRole } from '../../src/application/refine-frames.js';
-import { scaffoldTla } from '../../src/application/scaffold-tla.js';
 import { tagSpec } from '../../src/application/tag-spec.js';
 import { viewClauseReach } from '../../src/application/view-clause-reach.js';
 import { conjunctTexts, effectText, predicateText, withoutVar } from '../../src/domain/spec-expr.js';
@@ -76,13 +76,13 @@ describe('guard expressions', () => {
   });
 });
 
-describe('TLA+ scaffold and check', { concurrency: false }, () => {
-  test('the scaffold names one action per frame, groups them by event, and cites every frame', () => {
+describe('TLA+ export and check', { concurrency: false }, () => {
+  test('the frames module names one action per frame, groups them by event, and cites every frame', () => {
     withSession((dir) => {
-      const outcome = scaffoldTla({ dryRun: true, force: false }, jsonSpecStore, tlaTextFiles);
+      const outcome = exportTla({ dryRun: true, force: false }, jsonSpecStore, tlaTextFiles);
       assert.equal(outcome.exit, 'pass');
       const document = outcome.document;
-      assert.equal(document.module, 'Order');
+      assert.equal(document.module, 'OrderFrames');
       assert.equal(document.dryRun, true);
       assert.equal(document.written, undefined);
       assert.deepEqual(document.todo, []);
@@ -95,63 +95,98 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
         { frame: NEVER_CANCEL, name: 'NeverCancel' },
       ]);
       const tla = document.tla ?? '';
-      assert.match(tla, /^-{4,} MODULE Order -{4,}\n/);
+      assert.match(tla, /^-{4,} MODULE OrderFrames -{4,}\n\(\*\n {2}Exported by clew spec tla export\. Do not edit/);
       assert.match(tla, /\n={4,}\n$/);
       assert.match(tla, /vars == <<order_status, package_status, cond_s1_t12>>/);
       assert.match(tla, /OrderStatus == \{"submitted", "approved", "shipped"\}/);
       assert.match(tla, /Init ==\n {2}\/\\ order_status = Null\n {2}\/\\ package_status = Null\n {2}\/\\ cond_s1_t12 \\in BOOLEAN\n/);
       assert.match(tla, /\\\* @frame fr:s1\.t7 [0-9a-f]{8}\n\\\* {3}s1 "the manager approves the order"\n\\\* {3}actor manager; when "When the customer submits an order and if the total is under 500 dollars"\nApprove_s1_t7 ==\n {2}\/\\ order_status = "submitted"\n {2}\/\\ cond_s1_t12\n {2}\/\\ order_status' = "approved"\n {2}\/\\ UNCHANGED <<package_status, cond_s1_t12>>\n/);
       assert.match(tla, /Approve ==\n {2}\\\/ Approve_s1_t7\n {2}\\\/ Approve_s2_t6\n/);
-      assert.match(tla, /Next ==\n {2}\\\/ Submit\n {2}\\\/ Approve\n {2}\\\/ Ship\n\nSpec == Init \/\\ \[\]\[Next\]_vars\n/);
+      assert.match(tla, /ConditionsChange ==\n {2}\/\\ cond_s1_t12' \\in BOOLEAN\n {2}\/\\ UNCHANGED <<order_status, package_status>>\n/);
+      assert.match(tla, /Next ==\n {2}\\\/ Submit\n {2}\\\/ Approve\n {2}\\\/ Ship\n {2}\\\/ ConditionsChange\n\nSpec == Init \/\\ \[\]\[Next\]_vars\n/);
       assert.match(tla, /NeverCancel ==\n {2}\[\]\[~\(\/\\ package_status = Null\n {7}\/\\ package_status' = "cancelled"\)\]_vars\n/);
-      assert.deepEqual((document.cfg ?? '').split('\n').filter((line) => line !== '' && !line.startsWith('\\*')), [
+      assert.doesNotMatch(tla, /INSTANCE|RefinesFrames/);
+      assert.equal(existsSync(join(dir, 'OrderFrames.tla')), false);
+    });
+  });
+
+  test('the starter model copies the frames module, instantiates it with an identity mapping, and asks TLC to check refinement', () => {
+    withSession(() => {
+      const model = exportTla({ dryRun: true, force: false }, jsonSpecStore, tlaTextFiles).document.model;
+      assert.equal(model?.module, 'Order');
+      const tla = model?.tla ?? '';
+      assert.match(tla, /^-{4,} MODULE Order -{4,}\n/);
+      assert.doesNotMatch(tla, /Do not edit/);
+      assert.match(tla, /Frames == INSTANCE OrderFrames WITH\n {2}order_status <- order_status,\n {2}package_status <- package_status,\n {2}cond_s1_t12 <- cond_s1_t12\n/);
+      assert.match(tla, /\\\* @frame fr:s1\.t7 [0-9a-f]{8}\n(?:\\\*.*\n)*Approve_s1_t7 ==\n {2}\/\\ order_status = "submitted"\n/);
+      assert.match(tla, /Next ==\n {2}\\\/ Submit\n {2}\\\/ Approve\n {2}\\\/ Ship\n\nSpec == /);
+      assert.match(tla, /\\\* @frame fr:s3\.t1 [0-9a-f]{8}\n(?:\\\*.*\n)*NeverCancel == Frames!NeverCancel\n/);
+      assert.match(tla, /RefinesFrames == Frames!Spec\n/);
+      assert.deepEqual((model?.cfg ?? '').split('\n').filter((line) => line !== '' && !line.startsWith('\\*')), [
         'SPECIFICATION Spec',
         'INVARIANT TypeOK',
+        'PROPERTY RefinesFrames',
         'PROPERTY NeverCancel',
         'CHECK_DEADLOCK FALSE',
       ]);
-      assert.equal(existsSync(join(dir, 'Order.tla')), false);
     });
   });
 
-  test('--out writes the module and its config once, and never replaces a model without --force', () => {
+  test('export rewrites the frames module every time, and never replaces a model without --force', () => {
     withSession((dir) => {
-      const out = join(dir, 'Depot.tla');
-      const first = scaffoldTla({ dryRun: false, out, force: false }, jsonSpecStore, tlaTextFiles);
+      const out = join(dir, 'DepotFrames.tla');
+      const model = join(dir, 'Depot.tla');
+      const alone = exportTla({ dryRun: false, out, force: false }, jsonSpecStore, tlaTextFiles);
+      assert.equal(alone.exit, 'pass');
+      assert.equal(alone.document.written, out);
+      assert.equal(alone.document.model, undefined);
+      assert.equal(existsSync(model), false);
+
+      const first = exportTla({ dryRun: false, out, model, force: false }, jsonSpecStore, tlaTextFiles);
       assert.equal(first.exit, 'pass');
-      assert.equal(first.document.module, 'Depot');
-      assert.equal(first.document.written, out);
-      assert.equal(first.document.cfgWritten, join(dir, 'Depot.cfg'));
-      assert.match(readFileSync(out, 'utf8'), / MODULE Depot /);
-      writeFileSync(out, `${readFileSync(out, 'utf8')}\\* edited by the agent\n`);
+      assert.equal(first.document.module, 'DepotFrames');
+      assert.equal(first.document.model?.module, 'Depot');
+      assert.equal(first.document.model?.written, model);
+      assert.equal(first.document.model?.cfgWritten, join(dir, 'Depot.cfg'));
+      assert.match(readFileSync(model, 'utf8'), /Frames == INSTANCE DepotFrames WITH/);
+
+      writeFileSync(out, 'tampered\n');
+      writeFileSync(model, `${readFileSync(model, 'utf8')}\\* edited by the agent\n`);
       writeFileSync(join(dir, 'Depot.cfg'), 'SPECIFICATION Spec\n');
-      const again = scaffoldTla({ dryRun: false, out, force: false }, jsonSpecStore, tlaTextFiles);
-      assert.equal(again.exit, 'invalid');
-      assert.equal(again.document.fault, 'exists');
-      assert.match(again.document.issues[0]?.message ?? '', /exists.*clew spec tla check/);
-      assert.match(readFileSync(out, 'utf8'), /edited by the agent/);
-      const forced = scaffoldTla({ dryRun: false, out, force: true }, jsonSpecStore, tlaTextFiles);
+      const again = exportTla({ dryRun: false, out, model, force: false }, jsonSpecStore, tlaTextFiles);
+      assert.equal(again.exit, 'pass');
+      assert.equal(again.document.model?.kept, true);
+      assert.equal(again.document.model?.written, undefined);
+      assert.match(readFileSync(out, 'utf8'), / MODULE DepotFrames /);
+      assert.match(readFileSync(model, 'utf8'), /edited by the agent/);
+      assert.equal(readFileSync(join(dir, 'Depot.cfg'), 'utf8'), 'SPECIFICATION Spec\n');
+
+      const forced = exportTla({ dryRun: false, out, model, force: true }, jsonSpecStore, tlaTextFiles);
       assert.equal(forced.exit, 'pass');
       assert.equal(forced.document.forced, true);
-      assert.doesNotMatch(readFileSync(out, 'utf8'), /edited by the agent/);
-      assert.match(readFileSync(join(dir, 'Depot.cfg'), 'utf8'), /INVARIANT TypeOK/);
+      assert.doesNotMatch(readFileSync(model, 'utf8'), /edited by the agent/);
+      assert.match(readFileSync(join(dir, 'Depot.cfg'), 'utf8'), /PROPERTY RefinesFrames/);
 
-      const badName = scaffoldTla({ dryRun: false, out: join(dir, '9-lives.tla'), force: false }, jsonSpecStore, tlaTextFiles);
-      assert.equal(badName.exit, 'invalid');
-      assert.match(badName.document.issues[0]?.message ?? '', /names a module after its file/);
-      const notTla = scaffoldTla({ dryRun: false, out: join(dir, 'Depot.txt'), force: false }, jsonSpecStore, tlaTextFiles);
-      assert.equal(notTla.exit, 'invalid');
-      assert.match(notTla.document.issues[0]?.message ?? '', /ends in \.tla/);
+      const refused = (command: { out: string; model?: string }, message: RegExp): void => {
+        const outcome = exportTla({ dryRun: false, force: false, ...command }, jsonSpecStore, tlaTextFiles);
+        assert.equal(outcome.exit, 'invalid');
+        assert.match(outcome.document.issues[0]?.message ?? '', message);
+      };
+      refused({ out: join(dir, '9-lives.tla') }, /names a module after its file/);
+      refused({ out: join(dir, 'Depot.txt') }, /ends in \.tla/);
+      refused({ out, model: out }, /need different names/);
+      refused({ out, model: join(tmpdir(), 'Depot.tla') }, /write both into one directory/);
     });
   });
 
-  test('a fresh scaffold checks clean, and each row puts the frame beside its definition', () => {
+  test('a fresh model checks clean, and each row puts the frame beside its definition', () => {
     withSession((dir) => {
       const out = scaffold(dir);
       const outcome = checkTla({ file: out }, jsonSpecStore, tlaTextFiles);
       assert.equal(outcome.exit, 'pass');
       const document = outcome.document;
       assert.equal(document.module, 'Order');
+      assert.deepEqual(document.frames, { module: 'OrderFrames', file: join(dir, 'OrderFrames.tla'), current: true });
       assert.deepEqual(document.findings, []);
       assert.deepEqual(document.counts, { modelled: 6, skipped: 0, changed: 0, missing: 0 });
       const approve = rowOf(document, APPROVE);
@@ -191,6 +226,11 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
         `  total  \\* @frame ${UNDER_500} ${digest(UNDER_500)}`,
         'vars == <<order, total>>',
         '',
+        'Frames == INSTANCE OrderFrames WITH',
+        '  order_status <- IF order = "none" THEN "null" ELSE order,',
+        '  package_status <- "null",',
+        '  cond_s1_t12 <- total < 500',
+        '',
         'Init == order = "none" /\\ total \\in 0..1000',
         '',
         `\\* @frame ${SUBMIT} ${digest(SUBMIT)}`,
@@ -210,6 +250,7 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
         '',
         'Next == Submit \\/ Approve \\/ Ship',
         'Spec == Init /\\ [][Next]_vars',
+        'RefinesFrames == Frames!Spec',
         '',
         `\\* @frame ${NEVER_CANCEL} ${digest(NEVER_CANCEL)} skip: packages are out of scope for this model`,
         '====',
@@ -225,6 +266,13 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
       assert.deepEqual(rowOf(document, UNDER_500).definitions.map((definition) => [definition.name, definition.kind, definition.text]), [['total', 'variable', 'total']]);
       assert.equal(rowOf(document, NEVER_CANCEL).status, 'skipped');
       assert.equal(rowOf(document, NEVER_CANCEL).skip, 'packages are out of scope for this model');
+      assert.equal(document.frames?.current, true);
+
+      writeFileSync(out, readFileSync(out, 'utf8').replace(/Frames == INSTANCE OrderFrames WITH\n(?: {2}.*\n)+/, '').replace('RefinesFrames == Frames!Spec\n', ''));
+      const alone = checkTla({ file: out }, jsonSpecStore, tlaTextFiles);
+      assert.equal(alone.exit, 'fail');
+      assert.equal(alone.document.frames, undefined);
+      assert.deepEqual(alone.document.findings.map((finding) => [finding.code, finding.severity]), [['no-frames-instance', 'blocking'], ['frame-unstamped', 'info']]);
     });
   });
 
@@ -263,7 +311,7 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
     });
   });
 
-  test('a frame refined after the model was written is frame-changed until its digest is rewritten', () => {
+  test('a frame refined after the export makes the frames module stale and its definition frame-changed', () => {
     withSession((dir) => {
       const out = scaffold(dir);
       const before = digests(out)(APPROVE);
@@ -275,10 +323,16 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
       assert.equal(row.status, 'changed');
       assert.equal(row.expects.actor, 'warehouse');
       assert.notEqual(row.digest, before);
+      assert.equal(outcome.document.frames?.current, false);
+      assert.deepEqual(outcome.document.findings.map((finding) => finding.code), ['frames-module-stale', 'frame-changed']);
+      assert.match(outcome.document.findings[0]?.message ?? '', /OrderFrames\.tla is not what the frames export now.*run clew spec tla export --out \S+OrderFrames\.tla and run TLC again/);
       const changed = outcome.document.findings.filter((finding) => finding.code === 'frame-changed');
       assert.deepEqual(changed.map((finding) => finding.refs), [[APPROVE, 's1']]);
       assert.match(changed[0]?.message ?? '', new RegExp(`${before} then, ${row.digest} now\\): review Approve_s1_t7 against the frame, then write ${row.digest}`));
       writeFileSync(out, readFileSync(out, 'utf8').replace(`@frame ${APPROVE} ${before}`, `@frame ${APPROVE} ${row.digest}`));
+      const restamped = checkTla({ file: out }, jsonSpecStore, tlaTextFiles);
+      assert.deepEqual(restamped.document.findings.map((finding) => finding.code), ['frames-module-stale']);
+      assert.equal(exportTla({ dryRun: false, out: join(dir, 'OrderFrames.tla'), model: out, force: false }, jsonSpecStore, tlaTextFiles).document.model?.kept, true);
       assert.equal(checkTla({ file: out }, jsonSpecStore, tlaTextFiles).exit, 'pass');
     });
   });
@@ -289,7 +343,8 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
       'VARIABLE door  \\* @frame fr:s1.t1 0123abcd',
       'Open(x) == door = "closed" /\\ door\' = "open"  \\* says "Close" in a string: "Close"',
       'Close == door = "open" /\\ door\' = "closed"',
-      '\\* a note that names Open',
+      'Frames == INSTANCE SampleFrames WITH door_status <- door',
+      '\\* a note that names Open, and INSTANCE Other',
       '',
       'Next ==',
       '  \\/ Open(1)  \\* @frame fr:s1.t2',
@@ -301,12 +356,14 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
       ['door', 'variable', 2],
       ['Open', 'definition', 3],
       ['Close', 'definition', 4],
-      ['Next', 'definition', 7],
+      ['Frames', 'definition', 5],
+      ['Next', 'definition', 8],
     ]);
-    assert.deepEqual(module.uses, { Open: [], Close: [], Next: ['Open', 'Close'] });
+    assert.deepEqual(module.instances, ['SampleFrames']);
+    assert.deepEqual(module.uses, { Open: [], Close: [], Frames: [], Next: ['Open', 'Close'] });
     assert.deepEqual(module.annotations, [
       { frame: 'fr:s1.t1', line: 2, digest: '0123abcd', target: 'door' },
-      { frame: 'fr:s1.t2', line: 8, target: 'Next' },
+      { frame: 'fr:s1.t2', line: 9, target: 'Next' },
     ]);
     assert.equal(module.definitions[2]?.text, 'Close == door = "open" /\\ door\' = "closed"');
   });
@@ -314,16 +371,16 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
   test('the CLI prints the alignment, and the inspector reads each guard as an expression', () => {
     withSession((dir) => {
       const out = join(dir, 'Order.tla');
-      const wrote = clew(dir, ['spec', 'tla', 'scaffold', '--out', out, '--json']);
+      const wrote = clew(dir, ['spec', 'tla', 'export', '--out', join(dir, 'OrderFrames.tla'), '--model', out, '--json']);
       assert.equal(wrote.status, 0, wrote.stderr);
-      assert.equal((JSON.parse(wrote.stdout) as SpecTlaScaffoldDocument).written, out);
+      assert.equal((JSON.parse(wrote.stdout) as SpecTlaExportDocument).model?.written, out);
       const checked = clew(dir, ['spec', 'tla', 'check', out]);
       assert.equal(checked.status, 0, checked.stderr);
-      assert.match(checked.stdout, /models 6 of 6 frames, 0 skipped, 0 changed, 0 missing/);
+      assert.match(checked.stdout, /models 6 of 6 frames, 0 skipped, 0 changed, 0 missing\n {2}refines OrderFrames \(\S+OrderFrames\.tla\), current\n/);
       assert.match(checked.stdout, /fr:s2\.t1 {2}modelled {2}action {2}[0-9a-f]{8} {2}"The warehouse ships the order"\n {4}frame {2}SHIP by warehouse: order_status = "approved" -> order_status' = "shipped"\n {4}model {2}Ship \(line \d+\)\n {6}\| Ship ==/);
-      const usage = clew(dir, ['spec', 'tla', 'scaffold', '--json']);
+      const usage = clew(dir, ['spec', 'tla', 'export', '--model', out, '--json']);
       assert.equal(usage.status, 2);
-      assert.match(usage.stderr, /scaffold needs --dry-run or --out/);
+      assert.match(usage.stderr, /export needs --dry-run or --out/);
 
       const reach = viewClauseReach({ id: 'depot' }, jsonSpecStore);
       assert.equal(reach.compiled[APPROVE]?.when, 'order_status = "submitted" ∧ cond_s1_t12');
@@ -334,13 +391,14 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
   });
 });
 
+/** Exports OrderFrames.tla and starts Order.tla beside it. Returns the model's path. */
 function scaffold(dir: string): string {
   const out = join(dir, 'Order.tla');
-  assert.equal(scaffoldTla({ dryRun: false, out, force: false }, jsonSpecStore, tlaTextFiles).exit, 'pass');
+  assert.equal(exportTla({ dryRun: false, out: join(dir, 'OrderFrames.tla'), model: out, force: false }, jsonSpecStore, tlaTextFiles).exit, 'pass');
   return out;
 }
 
-/** The digest the scaffold stamped on each frame's `@frame` comment. */
+/** The digest the export stamped on each frame's `@frame` comment. */
 function digests(file: string): (frame: string) => string {
   const text = readFileSync(file, 'utf8');
   return (frame) => {
