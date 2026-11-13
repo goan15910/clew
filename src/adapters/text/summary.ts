@@ -176,7 +176,6 @@ export function humanSummary(document: CommandDocument): string {
     const rows = document.alignment ?? [];
     const counts = document.counts ?? { modelled: 0, skipped: 0, changed: 0, missing: 0 };
     const lines = [`session ${document.session}: ${document.file ?? ''} (module ${document.module ?? ''}) models ${counts.modelled} of ${countPhrase(rows.length, 'frame', 'frames')}, ${counts.skipped} skipped, ${counts.changed} changed, ${counts.missing} missing`];
-    for (const name of document.names ?? []) lines.push(`  name   ${name.from} -> ${name.to}`);
     for (const row of rows) lines.push(...alignmentLines(row));
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
@@ -327,11 +326,6 @@ function alignmentLines(row: TlaAlignmentRow): string[] {
     lines.push(`    frame  incomplete${expects.missing.length === 0 ? '' : `: no ${expects.missing.join(', no ')}`}`);
   }
   if (row.skip !== undefined) lines.push(`    skip   ${row.skip}`);
-  if (row.match !== undefined) {
-    const absent = row.absent === undefined ? '' : `: no ${row.absent.join(', no ')}`;
-    const accepted = row.accepted === undefined || row.accepted === '' ? '' : ` (accepted: ${row.accepted})`;
-    lines.push(`    match  ${row.match}${absent}${accepted}`);
-  }
   for (const definition of row.definitions) {
     lines.push(`    model  ${definition.name} (line ${definition.line})`);
     for (const line of definition.text.split('\n')) lines.push(`      | ${line}`);

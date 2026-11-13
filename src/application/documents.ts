@@ -3,7 +3,7 @@ import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { ClauseStatus } from '../domain/spec-kernel.js';
 import type { ImpactEntry } from '../domain/spec-refine.js';
-import type { TlaAlignmentRow, TlaAlignmentStatus, TlaName } from '../domain/spec-tla-check.js';
+import type { TlaAlignmentRow, TlaAlignmentStatus } from '../domain/spec-tla-check.js';
 import type { Finding, FlowOrigin, Frame, Grouping, Revision, SentenceState, SentenceText } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
@@ -438,8 +438,6 @@ export interface SpecTlaCheckDocument {
   session?: string;
   file?: string;
   module?: string;
-  /** The module's `@name` comments: frame-side name → what the model calls it. */
-  names?: TlaName[];
   alignment?: TlaAlignmentRow[];
   counts?: Record<TlaAlignmentStatus, number>;
   findings: Finding[];

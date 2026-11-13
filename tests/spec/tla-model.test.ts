@@ -176,15 +176,6 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
       assert.deepEqual(condition.definitions.map((definition) => [definition.name, definition.kind]), [['cond_s1_t12', 'variable']]);
       assert.equal(rowOf(document, NEVER_CANCEL).kind, 'forbidden');
       assert.equal(rowOf(document, NEVER_CANCEL).definitions[0]?.name, 'NeverCancel');
-      assert.deepEqual((document.alignment ?? []).map((row) => [row.frame, row.match]), [
-        [SUBMIT, 'exact'],
-        [APPROVE, 'exact'],
-        [UNDER_500, undefined],
-        [SHIP, 'exact'],
-        [APPROVE_AGAIN, 'exact'],
-        [NEVER_CANCEL, 'exact'],
-      ]);
-      assert.deepEqual(document.names, []);
     });
   });
 
@@ -200,10 +191,6 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
         `  total  \\* @frame ${UNDER_500} ${digest(UNDER_500)}`,
         'vars == <<order, total>>',
         '',
-        '\\* @name order_status -> order',
-        '\\* @name Null -> "none"',
-        '\\* @name cond_s1_t12 -> total < 500',
-        '',
         'Init == order = "none" /\\ total \\in 0..1000',
         '',
         `\\* @frame ${SUBMIT} ${digest(SUBMIT)}`,
@@ -211,7 +198,7 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
         '',
         '(* One approval, whichever sentence asks for it.',
         `   @frame ${APPROVE} ${digest(APPROVE)}`,
-        `   @frame ${APPROVE_AGAIN} differs: the same approval as ${APPROVE} *)`,
+        `   @frame ${APPROVE_AGAIN} *)`,
         'Approve ==',
         '  /\\ order = "submitted"',
         '  /\\ total < 500',
@@ -238,88 +225,6 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
       assert.deepEqual(rowOf(document, UNDER_500).definitions.map((definition) => [definition.name, definition.kind, definition.text]), [['total', 'variable', 'total']]);
       assert.equal(rowOf(document, NEVER_CANCEL).status, 'skipped');
       assert.equal(rowOf(document, NEVER_CANCEL).skip, 'packages are out of scope for this model');
-      assert.deepEqual(document.names?.map((name) => [name.from, name.to]), [['order_status', 'order'], ['Null', '"none"'], ['cond_s1_t12', 'total < 500']]);
-      assert.equal(rowOf(document, SUBMIT).match, 'exact');
-      assert.equal(rowOf(document, APPROVE).match, 'exact');
-      assert.equal(rowOf(document, SHIP).match, 'exact');
-      assert.equal(rowOf(document, APPROVE_AGAIN).match, 'differs');
-      assert.deepEqual(rowOf(document, APPROVE_AGAIN).absent, ['order = "none"']);
-      assert.equal(rowOf(document, APPROVE_AGAIN).accepted, `the same approval as ${APPROVE}`);
-    });
-  });
-
-  test('a definition must state the guard and effect its frame compiles to, through the declared names', () => {
-    withSession((dir) => {
-      const out = scaffold(dir);
-      const digest = digests(out);
-      const model = (names: string[], ship: string[]): string => [
-        '---- MODULE Order ----',
-        'VARIABLES order, package_status, cond_s1_t12, clock',
-        ...names,
-        `\\* @frame ${UNDER_500} ${digest(UNDER_500)}`,
-        'Small == cond_s1_t12',
-        `\\* @frame ${SUBMIT} ${digest(SUBMIT)}`,
-        'Submit == order = Null /\\ order\' = "submitted"',
-        'Waiting ==',
-        '  /\\ order = "submitted"',
-        '  /\\ Small',
-        `\\* @frame ${APPROVE} ${digest(APPROVE)}`,
-        `\\* @frame ${APPROVE_AGAIN} ${digest(APPROVE_AGAIN)}`,
-        'Approve ==',
-        '  \\/ /\\ Waiting',
-        '     /\\ order\' = "approved"',
-        '     /\\ clock\' = clock + 1',
-        '  \\/ /\\ order = Null',
-        '     /\\ order\' = "approved"',
-        '     /\\ UNCHANGED <<clock, package_status>>',
-        `\\* @frame ${SHIP} ${digest(SHIP)}`,
-        'Ship ==',
-        ...ship,
-        `\\* @frame ${NEVER_CANCEL} ${digest(NEVER_CANCEL)}`,
-        'NeverCancel == [][~(package_status = Null /\\ package_status\' = "cancelled")]_package_status',
-        'Next == Submit \\/ Approve \\/ Ship',
-        '====',
-        '',
-      ].join('\n');
-      const good = ['  /\\ order = "approved"', '  /\\ order\' = "shipped"'];
-
-      writeFileSync(out, model(['\\* @name order_status -> order'], good));
-      const aligned = checkTla({ file: out }, jsonSpecStore, tlaTextFiles);
-      assert.equal(aligned.exit, 'pass', JSON.stringify(aligned.document.findings));
-      assert.deepEqual((aligned.document.alignment ?? []).map((row) => [row.frame, row.match]), [
-        [SUBMIT, 'exact'],
-        [APPROVE, 'extended'],
-        [UNDER_500, undefined],
-        [SHIP, 'exact'],
-        [APPROVE_AGAIN, 'exact'],
-        [NEVER_CANCEL, 'exact'],
-      ]);
-
-      writeFileSync(out, model([], good));
-      const unnamed = checkTla({ file: out }, jsonSpecStore, tlaTextFiles);
-      assert.equal(unnamed.exit, 'fail');
-      assert.deepEqual(unnamed.document.findings.map((finding) => [finding.code, finding.refs[0]]), [
-        ['frame-differs', SUBMIT],
-        ['frame-differs', APPROVE],
-        ['frame-differs', SHIP],
-        ['frame-differs', APPROVE_AGAIN],
-      ]);
-      assert.deepEqual(rowOf(unnamed.document, SUBMIT).absent, ['order_status = Null', 'order_status\' = "submitted"']);
-
-      writeFileSync(out, model(['\\* @name order_status -> order', '\\* @name parcel -> box'], ['  /\\ order = "submitted"', '  /\\ order\' = "shipped"']));
-      const wrong = checkTla({ file: out }, jsonSpecStore, tlaTextFiles);
-      assert.equal(wrong.exit, 'fail');
-      assert.deepEqual(wrong.document.findings.map((finding) => [finding.code, finding.severity, finding.refs[0]]), [
-        ['unknown-name', 'blocking', 'parcel'],
-        ['frame-differs', 'blocking', SHIP],
-      ]);
-      assert.equal(rowOf(wrong.document, SHIP).match, 'differs');
-      assert.deepEqual(rowOf(wrong.document, SHIP).absent, ['order = "approved"']);
-      assert.match(wrong.document.findings[1]?.message ?? '', /fr:s2\.t1 expects order = "approved", which Ship does not state/);
-
-      writeFileSync(out, model(['\\* @name order_status -> order'], good).replace(`@frame ${SHIP} ${digest(SHIP)}`, `@frame ${SHIP} ${digest(SHIP)} differs:`));
-      const bare = checkTla({ file: out }, jsonSpecStore, tlaTextFiles);
-      assert.deepEqual(bare.document.findings.map((finding) => finding.code), ['differs-without-reason']);
     });
   });
 
@@ -415,7 +320,7 @@ describe('TLA+ scaffold and check', { concurrency: false }, () => {
       const checked = clew(dir, ['spec', 'tla', 'check', out]);
       assert.equal(checked.status, 0, checked.stderr);
       assert.match(checked.stdout, /models 6 of 6 frames, 0 skipped, 0 changed, 0 missing/);
-      assert.match(checked.stdout, /fr:s2\.t1 {2}modelled {2}action {2}[0-9a-f]{8} {2}"The warehouse ships the order"\n {4}frame {2}SHIP by warehouse: order_status = "approved" -> order_status' = "shipped"\n {4}match {2}exact\n {4}model {2}Ship \(line \d+\)\n {6}\| Ship ==/);
+      assert.match(checked.stdout, /fr:s2\.t1 {2}modelled {2}action {2}[0-9a-f]{8} {2}"The warehouse ships the order"\n {4}frame {2}SHIP by warehouse: order_status = "approved" -> order_status' = "shipped"\n {4}model {2}Ship \(line \d+\)\n {6}\| Ship ==/);
       const usage = clew(dir, ['spec', 'tla', 'scaffold', '--json']);
       assert.equal(usage.status, 2);
       assert.match(usage.stderr, /scaffold needs --dry-run or --out/);

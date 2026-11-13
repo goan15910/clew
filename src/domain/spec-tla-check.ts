@@ -1,10 +1,7 @@
 // Reads a TLA+ module's `@frame` comments and lines the model up against the frames.
-// The link is the comment, and the digest on it says which version of the frame the definition
-// was written against. The match is textual: the frame's guard and effect, rewritten through the
-// module's `@name` comments, must appear among the conjuncts of a definition that cites the frame.
-import type { CompiledItem } from './spec-actions.js';
+// Clew does not parse TLA+ semantics: the link is the comment, and the digest on it says
+// which version of the frame the definition was written against.
 import type { FrameCompilation } from './spec-compile.js';
-import { conjunctTexts, effectTexts } from './spec-expr.js';
 import type { Finding, Frame } from './spec.js';
 import { frameObligation, type TlaExpectation, type TlaObligationKind } from './spec-tla.js';
 
@@ -15,15 +12,6 @@ export interface TlaDefinition {
   kind: 'definition' | 'variable';
   /** The definition as written, comments included. */
   text: string;
-  /** The same lines without comments, columns kept. */
-  code: string;
-}
-
-/** `\* @name order_status -> order`: what a frame-side name is called in this model. */
-export interface TlaName {
-  from: string;
-  to: string;
-  line: number;
 }
 
 export interface TlaAnnotation {
@@ -32,8 +20,6 @@ export interface TlaAnnotation {
   digest?: string;
   /** Set when the model leaves the frame out on purpose. */
   skip?: string;
-  /** Set when the definition is meant to say something else than the frame compiles to. */
-  differs?: string;
   /** Name of the definition or variable the comment sits on. */
   target?: string;
 }
@@ -41,19 +27,12 @@ export interface TlaAnnotation {
 export interface TlaModule {
   name?: string;
   annotations: TlaAnnotation[];
-  names: TlaName[];
   definitions: TlaDefinition[];
   /** Definition name → the other definitions its body names. */
   uses: Record<string, string[]>;
 }
 
 export type TlaAlignmentStatus = 'modelled' | 'skipped' | 'changed' | 'missing';
-
-/**
- * `exact`: a cited definition says what the frame compiles to and leaves the rest unchanged.
- * `extended`: it says that and more. `differs`: part of the guard or effect is not there.
- */
-export type TlaMatch = 'exact' | 'extended' | 'differs';
 
 export interface TlaAlignmentRow {
   frame: string;
@@ -66,12 +45,6 @@ export interface TlaAlignmentRow {
   expects: TlaExpectation;
   definitions: TlaDefinition[];
   skip?: string;
-  /** Set for action and forbidden frames that a definition cites. */
-  match?: TlaMatch;
-  /** The frame's conjuncts, in the model's names, that no cited definition states. */
-  absent?: string[];
-  /** The reason after `differs:`, when the model departs from the frame on purpose. */
-  accepted?: string;
 }
 
 export interface TlaAlignment {
@@ -79,10 +52,7 @@ export interface TlaAlignment {
   findings: Finding[];
 }
 
-const ANNOTATION = /@frame\s+(fr:[^\s,;)]+)(?:\s+([0-9a-f]{8})(?![0-9A-Za-z]))?(?:\s+(skip|differs):\s*(.*))?/g;
-const NAME = /@name\s+(\S+)\s*->\s*(.+)/;
-const STRING = /"(?:[^"\\]|\\.)*"/g;
-const TOKEN = /"(?:[^"\\]|\\.)*"|[A-Za-z_][A-Za-z0-9_]*/g;
+const ANNOTATION = /@frame\s+(fr:[^\s,;)]+)(?:\s+([0-9a-f]{8})(?![0-9A-Za-z]))?(?:\s+skip:\s*(.*))?/g;
 const DEFINITION = /^\s*(?:LOCAL\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*==/;
 const DECLARATION = /^\s*(?:VARIABLES?|CONSTANTS?)\b/;
 const UNIT_START = /^\s*(?:VARIABLES?|CONSTANTS?|ASSUME|ASSUMPTION|AXIOM|THEOREM|LEMMA|EXTENDS|INSTANCE|RECURSIVE)\b/;
@@ -96,7 +66,7 @@ interface OpenDefinition {
 }
 
 export function parseTlaModule(text: string): TlaModule {
-  const module: TlaModule = { annotations: [], names: [], definitions: [], uses: {} };
+  const module: TlaModule = { annotations: [], definitions: [], uses: {} };
   const bodies = new Map<string, string>();
   let depth = 0;
   let open: OpenDefinition | undefined;
@@ -107,7 +77,6 @@ export function parseTlaModule(text: string): TlaModule {
     const kept = open.lines.slice();
     while (kept.length > 1 && open.code[kept.length - 1]?.trim() === '') kept.pop();
     open.definition.text = kept.join('\n');
-    open.definition.code = open.code.slice(0, kept.length).join('\n');
     bodies.set(open.definition.name, `${bodies.get(open.definition.name) ?? ''} ${open.code.join(' ')}`);
     open = undefined;
   };
@@ -125,15 +94,9 @@ export function parseTlaModule(text: string): TlaModule {
     for (const match of split.comment.matchAll(ANNOTATION)) {
       const annotation: TlaAnnotation = { frame: match[1] ?? '', line: index + 1 };
       if (match[2] !== undefined) annotation.digest = match[2];
-      const reason = match[4]?.replace(/\*\)\s*$/, '').trim();
-      if (match[3] === 'skip') annotation.skip = reason ?? '';
-      if (match[3] === 'differs') annotation.differs = reason ?? '';
+      if (match[3] !== undefined) annotation.skip = match[3].replace(/\*\)\s*$/, '').trim();
       found.push(annotation);
       module.annotations.push(annotation);
-    }
-    const named = NAME.exec(split.comment);
-    if (named !== null && named[1] !== undefined && named[2] !== undefined) {
-      module.names.push({ from: named[1], to: named[2].replace(/\*\)\s*$/, '').trim(), line: index + 1 });
     }
     const code = split.code;
     const blank = code.trim() === '';
@@ -141,7 +104,7 @@ export function parseTlaModule(text: string): TlaModule {
     if (defined !== null && defined[1] !== undefined) {
       close();
       declaring = false;
-      open = { definition: { name: defined[1], line: index + 1, kind: 'definition', text: '', code: '' }, lines: [raw.trimEnd()], code: [code] };
+      open = { definition: { name: defined[1], line: index + 1, kind: 'definition', text: '' }, lines: [raw.trimEnd()], code: [code] };
       module.definitions.push(open.definition);
       for (const annotation of [...pending, ...found]) {
         if (annotation.skip === undefined) annotation.target = open.definition.name;
@@ -160,7 +123,7 @@ export function parseTlaModule(text: string): TlaModule {
       const name = declaredName(code);
       const waiting = [...pending, ...found].filter((annotation) => annotation.skip === undefined);
       if (name !== undefined && waiting.length > 0) {
-        const variable: TlaDefinition = { name, line: index + 1, kind: 'variable', text: code.trim().replace(/,$/, ''), code: code.trim().replace(/,$/, '') };
+        const variable: TlaDefinition = { name, line: index + 1, kind: 'variable', text: code.trim().replace(/,$/, '') };
         module.definitions.push(variable);
         for (const annotation of waiting) annotation.target = name;
         pending = [];
@@ -188,7 +151,7 @@ export function parseTlaModule(text: string): TlaModule {
   }
   for (const [name, body] of bodies) {
     const uses: string[] = [];
-    for (const match of body.replace(STRING, ' ').matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+    for (const match of body.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
       const word = match[0];
       if (word !== name && names.has(word) && !uses.includes(word)) uses.push(word);
     }
@@ -211,24 +174,6 @@ export function tlaAlignment(frames: readonly Frame[], compilation: FrameCompila
     if (!definitions.has(definition.name)) definitions.set(definition.name, definition);
   }
   const live = reachable(module, 'Next');
-  const items = compilation.compiled.items;
-  const renames = new Map<string, string>();
-  const vocabulary = frameVocabulary(compilation);
-  for (const name of module.names) {
-    if (vocabulary.has(name.from)) {
-      renames.set(name.from, name.to);
-      continue;
-    }
-    findings.push({
-      id: `unknown-name:${name.from}`,
-      kind: 'vocabulary',
-      code: 'unknown-name',
-      severity: 'blocking',
-      message: `line ${name.line} renames ${name.from}, which no frame compiles to; the frames use ${[...vocabulary].join(', ')}`,
-      refs: [name.from],
-    });
-  }
-  const branches = new Map<string, string[][]>();
   const rows: TlaAlignmentRow[] = [];
   const known = new Set<string>();
   for (const frame of frames) {
@@ -320,34 +265,6 @@ export function tlaAlignment(frames: readonly Frame[], compilation: FrameCompila
       }
     }
     const steps = row.definitions.filter((definition) => definition.kind === 'definition');
-    const item = items.find((entry) => entry.id === (obligation.expects.restates ?? frame.id));
-    const expected = item === undefined ? [] : expectedConjuncts(item, renames);
-    if (expected.length > 0 && steps.length > 0) {
-      const found = matchConjuncts(expected, steps, definitions, branches);
-      row.match = found.match;
-      if (found.absent.length > 0) row.absent = found.absent;
-      const reason = annotations.find((annotation) => annotation.differs !== undefined)?.differs;
-      if (reason !== undefined) row.accepted = reason;
-      if (reason === '') {
-        findings.push({
-          id: `differs-without-reason:${frame.id}`,
-          kind: 'conflict',
-          code: 'differs-without-reason',
-          severity: 'blocking',
-          message: `${frame.id} is marked "differs:" with no reason after it`,
-          refs,
-        });
-      } else if (found.match === 'differs' && reason === undefined) {
-        findings.push({
-          id: `frame-differs:${frame.id}`,
-          kind: 'conflict',
-          code: 'frame-differs',
-          severity: 'blocking',
-          message: `${frame.id} expects ${found.absent.join(' and ')}, which ${names(steps)} does not state; fix the definition, add an @name comment for a renamed variable or value, or mark the @frame comment "differs: <reason>"`,
-          refs,
-        });
-      }
-    }
     if (live !== undefined && (obligation.kind === 'action' || obligation.kind === 'restatement') && steps.length > 0 && !steps.some((definition) => live.has(definition.name))) {
       if (compilation.compiled.items.some((item) => item.id === (obligation.expects.restates ?? frame.id) && item.kind === 'action')) {
         findings.push({
@@ -395,160 +312,6 @@ function names(definitions: readonly TlaDefinition[]): string {
   return definitions.map((definition) => definition.name).join(', ');
 }
 
-/** Every variable and value the frames compile to: what an `@name` comment may rename. */
-function frameVocabulary(compilation: FrameCompilation): Set<string> {
-  const words = new Set<string>(['Null']);
-  for (const decl of compilation.compiled.draft.vars) words.add(decl.id);
-  for (const item of compilation.compiled.items) {
-    for (const text of expectedConjuncts(item, new Map())) {
-      for (const token of text.matchAll(TOKEN)) words.add(token[0]);
-    }
-  }
-  return words;
-}
-
-/** The frame's guard and effect conjuncts in TLA+ ASCII, rewritten into the model's names. */
-function expectedConjuncts(item: CompiledItem, names: ReadonlyMap<string, string>): string[] {
-  if (item.kind !== 'action' && item.kind !== 'forbidden') return [];
-  if (item.when === undefined || item.assign === undefined) return [];
-  const texts = [...conjunctTexts(item.when, 'tla'), ...effectTexts(item.assign, 'tla')];
-  return texts.map((text) => text.replace(TOKEN, (token) => {
-    const to = names.get(token);
-    if (to === undefined) return token;
-    return /^(?:[A-Za-z_][A-Za-z0-9_]*|"[^"]*"|[0-9]+)$/.test(to) ? to : `(${to})`;
-  }));
-}
-
-function matchConjuncts(
-  expected: readonly string[],
-  steps: readonly TlaDefinition[],
-  definitions: ReadonlyMap<string, TlaDefinition>,
-  cache: Map<string, string[][]>,
-): { match: TlaMatch; absent: string[] } {
-  let best: { match: TlaMatch; absent: string[] } | undefined;
-  for (const step of steps) {
-    for (const branch of branchesOf(step.name, definitions, cache, 0)) {
-      const stated = new Set<string>();
-      for (const conjunct of branch) stated.add(squeeze(conjunct));
-      const absent = expected.filter((text) => !stated.has(squeeze(text)));
-      const wanted = new Set<string>();
-      for (const text of expected) wanted.add(squeeze(text));
-      const extra = branch.some((conjunct) => !wanted.has(squeeze(conjunct)) && !/^UNCHANGED\b/.test(conjunct.trim()));
-      const match: TlaMatch = absent.length > 0 ? 'differs' : extra ? 'extended' : 'exact';
-      if (best === undefined || absent.length < best.absent.length || (absent.length === 0 && match === 'exact')) best = { match, absent };
-    }
-  }
-  return best ?? { match: 'differs', absent: expected.slice() };
-}
-
-/** A definition as disjuncts of conjuncts. A conjunct that is only another definition's name is opened up. */
-function branchesOf(name: string, definitions: ReadonlyMap<string, TlaDefinition>, cache: Map<string, string[][]>, depth: number): string[][] {
-  const cached = cache.get(name);
-  if (cached !== undefined) return cached;
-  const definition = definitions.get(name);
-  if (definition === undefined || definition.kind !== 'definition') return [];
-  const body = bodyLines(definition.code);
-  const result: string[][] = [];
-  for (const branch of parseList(body)) {
-    const only = branch.length === 1 ? definitions.get(squeeze(branch[0] ?? '')) : undefined;
-    if (only !== undefined && only.kind === 'definition' && only.name !== name && depth < 6) {
-      for (const inner of branchesOf(only.name, definitions, cache, depth + 1)) result.push(inner);
-      continue;
-    }
-    const conjuncts: string[] = [];
-    for (const conjunct of branch) {
-      const named = definitions.get(squeeze(conjunct));
-      const inner = named !== undefined && named.kind === 'definition' && named.name !== name && depth < 6 ? branchesOf(named.name, definitions, cache, depth + 1) : [];
-      const single = inner.length === 1 ? inner[0] : undefined;
-      if (single === undefined) conjuncts.push(conjunct);
-      else for (const part of single) conjuncts.push(part);
-    }
-    result.push(conjuncts);
-  }
-  if (depth === 0) cache.set(name, result);
-  return result;
-}
-
-/** The lines after `==`, columns kept, with a `[][~( ... )]_vars` wrapper blanked out. */
-function bodyLines(code: string): string[] {
-  const at = code.indexOf('==');
-  let body = at < 0 ? code : `${' '.repeat(at + 2)}${code.slice(at + 2)}`;
-  const wrapper = /^(\s*)(\[\]\[\s*~\s*\()/.exec(body);
-  const end = body.lastIndexOf(')]_');
-  if (wrapper !== null && wrapper[2] !== undefined && end > 0) {
-    body = `${wrapper[1] ?? ''}${' '.repeat(wrapper[2].length)}${body.slice(wrapper[0].length, end)}`;
-  }
-  return body.split('\n');
-}
-
-/** Reads a bulleted or inline junction list. Bullets at the first bullet's column are the list's items. */
-function parseList(lines: readonly string[]): string[][] {
-  const first = lines.find((line) => line.trim() !== '');
-  if (first === undefined) return [];
-  const column = first.length - first.trimStart().length;
-  const bullet = first.slice(column, column + 2);
-  if (bullet !== '/\\' && bullet !== '\\/') {
-    const joined = lines.join(' ');
-    const disjuncts = splitTop(joined, '\\/');
-    return disjuncts.map((disjunct) => splitTop(disjunct, '/\\'));
-  }
-  const items: string[][] = [];
-  for (const line of lines) {
-    if (line.trim() === '') continue;
-    if (line.slice(0, column).trim() === '' && line.slice(column, column + 2) === bullet) {
-      items.push([`${line.slice(0, column)}  ${line.slice(column + 2)}`]);
-    } else {
-      items[items.length - 1]?.push(line);
-    }
-  }
-  if (bullet === '\\/') {
-    const branches: string[][] = [];
-    for (const item of items) {
-      for (const branch of parseList(item)) branches.push(branch);
-    }
-    return branches;
-  }
-  const conjuncts: string[] = [];
-  for (const item of items) {
-    const inner = parseList(item);
-    const single = inner.length === 1 ? inner[0] : undefined;
-    if (single === undefined) conjuncts.push(item.join(' ').trim());
-    else for (const part of single) conjuncts.push(part);
-  }
-  return [conjuncts];
-}
-
-/** Splits at `operator` outside brackets and strings. */
-function splitTop(text: string, operator: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  let inString = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text.charAt(index);
-    if (inString) {
-      if (char === '\\') index += 1;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') inString = true;
-    else if (char === '(' || char === '[' || char === '{') depth += 1;
-    else if (char === ')' || char === ']' || char === '}') depth -= 1;
-    else if (depth === 0 && text.startsWith(operator, index)) {
-      parts.push(text.slice(start, index).trim());
-      start = index + operator.length;
-      index += operator.length - 1;
-    }
-  }
-  parts.push(text.slice(start).trim());
-  return parts.filter((part) => part !== '');
-}
-
-/** Whitespace and grouping parentheses do not change what a conjunct says. */
-function squeeze(text: string): string {
-  return text.replace(/\s+/g, '').replace(/[()]/g, '');
-}
-
 function declaredName(code: string): string | undefined {
   for (const match of code.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
     if (!KEYWORDS.has(match[0])) return match[0];
@@ -579,18 +342,13 @@ function splitLine(line: string, depth: number): { code: string; comment: string
     }
     const char = line.charAt(index);
     if (inString) {
-      code += char;
-      if (char === '\\') {
-        code += line.charAt(index + 1);
-        index += 1;
-      } else if (char === '"') {
-        inString = false;
-      }
+      if (char === '\\') index += 1;
+      else if (char === '"') inString = false;
       continue;
     }
     if (char === '"') {
       inString = true;
-      code += char;
+      code += ' ';
       continue;
     }
     if (two === '\\*') {
