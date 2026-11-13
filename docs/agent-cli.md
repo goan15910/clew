@@ -266,7 +266,7 @@ Emit refuses while a blocking finding remains on the graph layer. `--force` writ
 
 The link between a model and the frames is a comment. `\* @frame fr:s1.t7 4c1e5e8a` above a definition, or on a variable's line, says that definition models that frame as it stood at that digest. The digest is eight hex digits over the frame's roles and what it compiles to. The mapping is not strict: the agent may rename, merge, split, and strengthen. Several `@frame` comments may sit on one definition, one frame may be cited by several definitions, and a comment inside a definition's body cites that definition. `\* @frame fr:s3.t7 e0f785e8 skip: <reason>` leaves a frame out on purpose. The digest is optional; without it a later change to the frame goes unnoticed, which is an info `frame-unstamped`.
 
-`spec tla check <file.tla>` reads the comments back. `alignment` has one row per frame the model must account for: every transition frame, every restating frame, every forbidden frame, and every condition frame a guard reads. Other not-a-transition frames get a row only when the model cites them. A row has `frame`, `sentence`, `clause`, `kind` (`action`, `forbidden`, `restatement`, `condition`, `incomplete`, or `note`), `status` (`modelled`, `skipped`, `changed`, or `missing`), the frame's current `digest`, `expects`, and `definitions`. `expects` is what the frame compiles to in TLA+ ASCII: `event`, `actor`, `when`, and `effect`, or `variable` for a condition, `restates` for a restatement, and `missing` roles for an incomplete frame. Each definition has `name`, `line`, `kind` (`definition` or `variable`), and its `text` as written. The text summary prints the `frame` line and the definition text under each other, so a reader checks one against the other. Clew does not parse TLA+ semantics and does not prove the two agree. It proves that every frame is accounted for, that no definition was written against an older frame, and that every cited frame exists. `counts` totals the rows by status. Check writes neither the session nor the file. A file with no `MODULE` line is exit 2.
+`spec tla check <file.tla>` reads the comments back. `alignment` has one row per frame the model must account for: every transition frame, every restating frame, every forbidden frame, and every condition frame a guard reads. Other not-a-transition frames get a row only when the model cites them. A row has `frame`, `sentence`, `clause`, `kind` (`action`, `forbidden`, `restatement`, `condition`, `incomplete`, or `note`), `status` (`modelled`, `skipped`, `changed`, or `missing`), the frame's current `digest`, `expects`, and `definitions`. `expects` is what the frame compiles to in TLA+ ASCII: `event`, `actor`, `when`, and `effect`, or `variable` for a condition, `restates` for a restatement, and `missing` roles for an incomplete frame. Each definition has `name`, `line`, `kind` (`definition` or `variable`), and its `text` as written. The text summary prints the `frame` line and the definition text under each other, so a reader checks one against the other. Check also compares the two as text. For an action or forbidden frame, the conjuncts of its guard and effect must be among the conjuncts of a definition that cites it. `match` is `exact` when a cited definition states them and otherwise only `UNCHANGED`, `extended` when it states them and more, and `differs` when some are not there; `absent` then lists them. A definition that is a disjunction matches when one disjunct does, a conjunct that is only another definition's name is opened up, and a `[][~(...)]_vars` wrapper is looked through. Whitespace and grouping parentheses are ignored. `\* @name order_status -> order` says what the model calls a variable or value the frames compile to, and `\* @name cond_s1_t12 -> total < 500` replaces a condition with the data behind it; the frame's conjuncts are rewritten through these before the comparison, and `names` lists them. `\* @frame fr:s2.t6 be561785 differs: <reason>` accepts a definition that says something else on purpose; the reason is the row's `accepted`. The comparison is textual, not semantic: `total >= 500` does not match `~(total < 500)`, and it needs `differs:`. Clew does not run TLC and does not prove refinement. It proves that every frame is accounted for, that no definition was written against an older frame, that every cited frame exists, and that each definition states what its frame compiles to or says why not. `counts` totals the rows by status. Check writes neither the session nor the file. A file with no `MODULE` line is exit 2.
 
 `spec tla check` findings:
 
@@ -277,6 +277,9 @@ The link between a model and the frames is a comment. `\* @frame fr:s1.t7 4c1e5e
 | `unknown-frame` | blocking | an `@frame` comment cites an id that is not a frame of the session |
 | `annotation-without-definition` | blocking | an `@frame` comment is followed by no definition |
 | `skip-without-reason` | blocking | `skip:` has no reason after it |
+| `frame-differs` | blocking | no cited definition states every conjunct of the frame's guard and effect, and the `@frame` comment has no `differs:`; kind `conflict`, the message lists the absent conjuncts |
+| `differs-without-reason` | blocking | `differs:` has no reason after it |
+| `unknown-name` | blocking | an `@name` comment renames something no frame compiles to; kind `vocabulary` |
 | `action-not-in-next` | warning | every definition that models an action frame is unreachable from `Next` |
 | `frame-unstamped` | info | an `@frame` comment has no digest |
 
@@ -796,6 +799,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
   "session": "order-sentence",
   "file": "Order.tla",
   "module": "Order",
+  "names": [],
   "alignment": [
     {
       "frame": "fr:s1.t7",
@@ -804,6 +808,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
       "kind": "action",
       "status": "modelled",
       "digest": "4c1e5e8a",
+      "match": "exact",
       "expects": { "event": "APPROVE", "actor": "manager", "when": "order_status = \"submitted\" /\\ cond_s1_t12", "effect": "order_status' = \"approved\"" },
       "definitions": [
         { "name": "Approve", "line": 41, "kind": "definition", "text": "Approve ==\n  /\\ order_status = \"submitted\"\n  /\\ cond_s1_t12\n  /\\ order_status' = \"approved\"\n  /\\ UNCHANGED cond_s1_t12" }

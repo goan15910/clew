@@ -1195,7 +1195,8 @@ setManual(tla
   notes: [
     'A comment `\\* @frame fr:s1.t7 5d1c0f3a` above a definition says the definition models that frame as it was at that digest. Several comments may sit on one definition, and one frame may be cited by several definitions.',
     '`\\* @frame fr:s3.t7 5d1c0f3a skip: <reason>` leaves a frame out on purpose.',
-    'Each row puts what the frame compiles to beside the text of the definitions that cite it. Clew does not prove they agree; it reports frames with no definition, frames that changed since, and comments that cite no frame.',
+    '`\\* @name order_status -> order` says what the model calls a variable or value the frames compile to. `differs: <reason>` on an @frame comment accepts a definition that says something else on purpose.',
+    'Each row puts what the frame compiles to beside the text of the definitions that cite it. The frame\'s guard and effect, rewritten through the @name comments, must be among the definition\'s conjuncts. The comparison is textual; Clew does not run TLC.',
     'check reads the session and the file. It writes neither.',
     jsonNote,
     sessionNote,
