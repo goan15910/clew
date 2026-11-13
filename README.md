@@ -92,7 +92,7 @@ clew spec tag
 clew spec view <session-id> --open
 ```
 
-Export the frames as a TLA+ module, start a model that refines it, and check that the model still accounts for every frame:
+Export the frames as a TLA+ module, with a model that maps onto it and the files that let TLC check the two against each other:
 
 ```bash
 clew spec frames list
@@ -100,7 +100,7 @@ clew spec tla export --out OrderFrames.tla --model Order.tla
 clew spec tla check Order.tla
 ```
 
-`OrderFrames.tla` is what the frames say, and Clew rewrites it on every export. `Order.tla` is yours: it instantiates `OrderFrames` with a name mapping, and `Order.cfg` asks TLC to check that it refines the frames. Clew does not ship or run TLC; run the [TLA+ tools](https://github.com/tlaplus/tlaplus) on `Order.tla` yourself. See [docs/agent-cli.md](docs/agent-cli.md).
+`OrderFrames.tla` is what the frames say. `Order.tla` is yours: it maps its variables onto `OrderFrames` and is never overwritten. `OrderCheck.tla` and its two configs tell TLC to check that `Order` refines the frames and to count which frame actions it takes. Clew rewrites everything but the model on each export, and does not ship or run TLC: run the [TLA+ tools](https://github.com/tlaplus/tlaplus) yourself with the two commands `check` prints. See [docs/agent-cli.md](docs/agent-cli.md).
 
 View a chart or workflow set without a session (`--workflows` / `--chart` for a combined page):
 

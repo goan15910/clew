@@ -25,7 +25,7 @@
 // clew spec graph group --id W1 --id W2 [--title text] [--session id] [--json]
 // clew spec emit (--dry-run | --out file) [--chart file] [--force] [--session id] [--json]
 // clew spec tla export (--dry-run | --out frames.tla [--model model.tla] [--force]) [--session id] [--json]
-// clew spec tla check <file.tla> [--session id] [--json]
+// clew spec tla check <model.tla> [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show sentences|tagged|tokens|spans|concepts|frames [--session id] [--json]
@@ -1151,11 +1151,11 @@ const tla = spec.command('tla').description('Export the frames as a TLA+ module,
 
 setManual(tla
   .command('export')
-  .description('Write the frames as a TLA+ module, and optionally start a model that refines it.')
+  .description('Write the frames as a TLA+ module, and with --model the files that check a model against it.')
   .option('--dry-run', 'print the modules in the document without writing a file')
   .option('--out <file>', 'write the frames module to this .tla file, replacing it')
-  .option('--model <file>', 'start a model beside it, with its TLC config, unless the file exists')
-  .option('--force', 'replace an existing model and config')
+  .option('--model <file>', 'start this model if it does not exist, and rewrite its check module and TLC configs')
+  .option('--force', 'replace an existing model with a fresh starter')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
@@ -1167,16 +1167,15 @@ setManual(tla
   examples: [
     'clew spec tla export --dry-run --json',
     'clew spec tla export --out OrderFrames.tla --model Order.tla --json',
-    'clew spec tla export --out OrderFrames.tla --json',
   ],
   exitCodes: [
     { code: 0, meaning: 'the modules were drafted, and written when --out was given' },
-    { code: 2, meaning: 'a name is not a TLA+ module name, the two files are in different directories, no frame compiles, or there is no spec session' },
+    { code: 2, meaning: 'a name is not a TLA+ module name, the files are in different directories, no frame compiles, or there is no spec session' },
   ],
   notes: [
-    'The frames module is what the frames say and nothing more. Clew rewrites it on every export; do not edit it.',
-    'The model is the agent\'s. It starts as a copy that instantiates the frames module with an identity name mapping, and its config asks TLC to check RefinesFrames. An existing model is kept unless --force, and so is an existing .cfg.',
-    'Clew does not run TLC and does not ship it. Run the TLA+ tools on the model yourself; after the frames change, export again and rerun them.',
+    'Clew owns the frames module, <Model>Check.tla, <Model>Check.cfg, and <Model>Coverage.cfg, and rewrites them on every export. Do not edit them.',
+    'The model is yours. It starts as a copy that maps onto the frames module with an identity mapping (Frames == INSTANCE ... WITH ...), and an existing model is kept unless --force. It must keep defining Frames, Init, Next, Spec, and vars.',
+    'Clew does not run TLC and does not ship it. Run the TLA+ tools on <Model>Check.tla yourself: once with <Model>Check.cfg for refinement, once with -coverage 1 and <Model>Coverage.cfg for coverage.',
     jsonNote,
     sessionNote,
   ],
@@ -1184,7 +1183,7 @@ setManual(tla
 
 setManual(tla
   .command('check')
-  .description('Check that a model cites every frame and refines the current frames module.')
+  .description('Check that the files TLC reads beside a model are what the frames export now.')
   .argument('<model>', 'TLA+ model file')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
@@ -1197,11 +1196,9 @@ setManual(tla
   examples: ['clew spec tla check Order.tla --json'],
   exitCodes: specExits,
   notes: [
-    'A comment `\\* @frame fr:s1.t7 5d1c0f3a` above a definition says the definition models that frame as it was at that digest. Several comments may sit on one definition, and one frame may be cited by several definitions.',
-    '`\\* @frame fr:s3.t7 5d1c0f3a skip: <reason>` leaves a frame out on purpose.',
-    'The model must instantiate a frames module that sits beside it, and that file must be what the frames export now; otherwise a TLC run proves nothing about the frames.',
-    'Each row puts what the frame compiles to beside the text of the definitions that cite it. Whether the model refines the frames is for TLC to prove; Clew does not run it.',
-    'check reads the session and the file. It writes neither.',
+    'The model must contain Frames == INSTANCE <frames module>. That module, the check module, and the two configs beside the model must be exactly what the frames export now; otherwise a TLC run proves nothing about the frames.',
+    'The document names the two TLC runs and maps each Cover_ line of the coverage run back to its frames. Clew does not run TLC or read its output.',
+    'check reads the session and the files. It writes none of them.',
     jsonNote,
     sessionNote,
   ],

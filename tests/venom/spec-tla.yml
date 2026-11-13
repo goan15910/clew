@@ -26,23 +26,29 @@ testcases:
     - result.systemoutjson.module ShouldEqual OrderFrames
     - result.systemoutjson.dryRun ShouldEqual true
     - 'result.systemoutjson.tla ShouldContainSubstring "MODULE OrderFrames"'
-    - 'result.systemoutjson.tla ShouldContainSubstring "@frame fr:s1.t1"'
+    - 'result.systemoutjson.tla ShouldContainSubstring "fr:s1.t1"'
+    - result.systemoutjson.actions.actions0.action ShouldEqual Pack
+    - result.systemoutjson.actions.actions0.restatedBy.restatedBy0 ShouldEqual fr:s2.t1
     - result.systemoutjson.model.module ShouldEqual Order
     - 'result.systemoutjson.model.tla ShouldContainSubstring "Frames == INSTANCE OrderFrames WITH"'
-    - 'result.systemoutjson.model.cfg ShouldContainSubstring "PROPERTY RefinesFrames"'
+    - result.systemoutjson.check.module ShouldEqual OrderCheck
+    - 'result.systemoutjson.check.tla ShouldContainSubstring "Cover_Pack == Next"'
+    - 'result.systemoutjson.check.cfg ShouldContainSubstring "PROPERTY RefinesFrames"'
+    - 'result.systemoutjson.check.coverageCfg ShouldContainSubstring "SPECIFICATION CoverSpec"'
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla export --out '{{.dir}}/DepotFrames.tla' --model '{{.dir}}/Depot.tla' --json"
     assertions:
     - result.code ShouldEqual 0
     - result.systemoutjson.module ShouldEqual DepotFrames
-    - result.systemoutjson.written ShouldEqual "{{.dir}}/DepotFrames.tla"
+    - result.systemoutjson.written ShouldHaveLength 4
+    - result.systemoutjson.written.written0 ShouldEqual "{{.dir}}/DepotFrames.tla"
+    - result.systemoutjson.written.written1 ShouldEqual "{{.dir}}/DepotCheck.tla"
     - result.systemoutjson.model.written ShouldEqual "{{.dir}}/Depot.tla"
-    - result.systemoutjson.model.cfgWritten ShouldEqual "{{.dir}}/Depot.cfg"
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla export --out '{{.dir}}/DepotFrames.tla' --model '{{.dir}}/Depot.tla' --json"
     assertions:
     - result.code ShouldEqual 0
-    - result.systemoutjson.written ShouldEqual "{{.dir}}/DepotFrames.tla"
+    - result.systemoutjson.written ShouldHaveLength 4
     - result.systemoutjson.model.kept ShouldEqual true
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla check '{{.dir}}/Depot.tla' --json"
@@ -51,22 +57,20 @@ testcases:
     - result.systemerr ShouldBeEmpty
     - result.systemoutjson.command ShouldEqual spec.tla.check
     - result.systemoutjson.module ShouldEqual Depot
-    - result.systemoutjson.frames.module ShouldEqual DepotFrames
-    - result.systemoutjson.frames.current ShouldEqual true
-    - result.systemoutjson.counts.missing ShouldEqual 0
-    - result.systemoutjson.counts.changed ShouldEqual 0
+    - result.systemoutjson.framesModule ShouldEqual DepotFrames
     - result.systemoutjson.findings ShouldBeEmpty
-    - result.systemoutjson.alignment.alignment0.frame ShouldEqual fr:s1.t1
-    - result.systemoutjson.alignment.alignment0.status ShouldEqual modelled
-    - result.systemoutjson.alignment.alignment0.expects.event ShouldEqual PACK
+    - result.systemoutjson.files ShouldHaveLength 4
+    - result.systemoutjson.files.files0.state ShouldEqual current
+    - result.systemoutjson.actions.actions0.cover ShouldEqual Cover_Pack
+    - 'result.systemoutjson.run.coverage ShouldContainSubstring "-coverage 1 -config DepotCoverage.cfg DepotCheck.tla"'
   - type: exec
     script: |
-      grep -v '@frame fr:s1.t1 ' '{{.dir}}/Depot.tla' > '{{.dir}}/Loose.tla'
-      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla check '{{.dir}}/Loose.tla'
+      echo '\* edited' >> '{{.dir}}/DepotCheck.cfg'
+      cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec tla check '{{.dir}}/Depot.tla'
     assertions:
     - result.code ShouldEqual 1
     - result.systemerr ShouldBeEmpty
-    - 'result.systemout ShouldContainSubstring "blocking frame-not-modelled: fr:s1.t1"'
+    - 'result.systemout ShouldContainSubstring "blocking check-files-stale"'
   - type: exec
     script: "cd '{{.root}}' && CLEW_DATA_DIR='{{.dir}}' {{.clew}} spec frames list"
     assertions:

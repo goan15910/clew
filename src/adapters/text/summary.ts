@@ -2,7 +2,6 @@
 import type { CommandDocument, ConceptView, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import { formatIssues } from '../../application/documents.js';
 import { ROLE_NAMES } from '../../domain/spec-frames.js';
-import type { TlaAlignmentRow } from '../../domain/spec-tla-check.js';
 import { CLEW_AUTHOR } from '../../domain/spec.js';
 
 function list(ids: readonly string[]): string {
@@ -160,29 +159,38 @@ export function humanSummary(document: CommandDocument): string {
   if (document.command === 'spec.tla.export') {
     if (document.fault !== undefined || document.session === undefined) return '';
     const todo = document.todo ?? [];
-    const head = document.written !== undefined
-      ? `session ${document.session}: wrote ${document.written} (frames module ${document.module ?? ''})`
+    const written = document.written ?? [];
+    const head = written.length > 0
+      ? `session ${document.session}: wrote ${written[0] ?? ''} (frames module ${document.module ?? ''})`
       : `session ${document.session}: dry run, frames module ${document.module ?? ''} not written`;
-    const lines = [head, `  ${countPhrase(document.placed?.length ?? 0, 'frame', 'frames')} placed, ${todo.length} do not compile${list(todo)}`];
+    const lines = [head, `  ${countPhrase(document.actions?.length ?? 0, 'frame action', 'frame actions')}, ${countPhrase(todo.length, 'frame does', 'frames do')} not compile${list(todo)}`];
+    for (const file of written.slice(1)) lines.push(`  wrote ${file}`);
     const model = document.model;
-    if (model?.written !== undefined) lines.push(`  wrote ${model.written} (model ${model.module})`);
+    if (model?.written !== undefined) lines.push(`  wrote ${model.written} (model ${model.module}, yours to edit)`);
     if (model?.kept === true) lines.push(`  kept the existing model ${model.module}`);
-    if (model?.cfgWritten !== undefined) lines.push(`  wrote ${model.cfgWritten}`);
-    else if (model?.written !== undefined) lines.push('  kept the existing TLC config');
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
-    if (document.written === undefined && document.tla !== undefined) {
+    if (written.length === 0 && document.tla !== undefined) {
       lines.push('', document.tla.trimEnd());
       if (model !== undefined) lines.push('', model.tla.trimEnd());
+      if (document.check !== undefined) lines.push('', document.check.tla.trimEnd());
     }
     return lines.join('\n');
   }
   if (document.command === 'spec.tla.check') {
     if (document.fault !== undefined || document.session === undefined) return '';
-    const rows = document.alignment ?? [];
-    const counts = document.counts ?? { modelled: 0, skipped: 0, changed: 0, missing: 0 };
-    const lines = [`session ${document.session}: ${document.file ?? ''} (module ${document.module ?? ''}) models ${counts.modelled} of ${countPhrase(rows.length, 'frame', 'frames')}, ${counts.skipped} skipped, ${counts.changed} changed, ${counts.missing} missing`];
-    if (document.frames !== undefined) lines.push(`  refines ${document.frames.module} (${document.frames.file}), ${document.frames.current ? 'current' : 'out of date'}`);
-    for (const row of rows) lines.push(...alignmentLines(row));
+    const stale = (document.files ?? []).filter((entry) => entry.state !== 'current').length;
+    const head = document.framesModule === undefined
+      ? `session ${document.session}: ${document.file ?? ''} (module ${document.module ?? ''}) is not tied to the frames`
+      : `session ${document.session}: ${document.file ?? ''} (module ${document.module ?? ''}) maps onto ${document.framesModule}, ${stale === 0 ? 'export is current' : `${countPhrase(stale, 'file', 'files')} out of date`}`;
+    const lines = [head];
+    for (const entry of document.files ?? []) lines.push(`  ${entry.state.padEnd(7)}  ${entry.role.padEnd(15)}  ${entry.file}`);
+    if (document.run !== undefined) {
+      lines.push('  run TLC yourself:', `    ${document.run.refinement}`, `    ${document.run.coverage}`);
+      lines.push('  TLC prints each line below as new states : steps taken; one that ends in :0 is a frame action the model never takes:');
+    }
+    for (const action of document.actions ?? []) {
+      lines.push(`    ${action.cover ?? action.action}  ${[action.frame, ...action.restatedBy].join(', ')}  "${action.clause}"`);
+    }
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
@@ -314,27 +322,6 @@ function conceptLines(concepts: readonly ConceptView[]): string[] {
   for (const concept of concepts) {
     const members = concept.members.map((member) => `${member.span} ${member.surface}`).join(', ');
     lines.push(`  ${concept.id}  ${concept.canonical}  <- ${members}`);
-  }
-  return lines;
-}
-
-/** One frame, what it expects, and the definitions that cite it, so the two can be read against each other. */
-function alignmentLines(row: TlaAlignmentRow): string[] {
-  const lines = [`  ${row.frame}  ${row.status}  ${row.kind}  ${row.digest}  "${row.clause}"`];
-  const expects = row.expects;
-  if (expects.event !== undefined) {
-    const actor = expects.actor === undefined ? '' : ` by ${expects.actor}`;
-    const restates = expects.restates === undefined ? '' : ` (restates ${expects.restates})`;
-    lines.push(`    frame  ${expects.event}${actor}: ${expects.when ?? 'TRUE'} -> ${expects.effect ?? ''}${restates}`);
-  } else if (expects.variable !== undefined) {
-    lines.push(`    frame  condition ${expects.variable}`);
-  } else if (expects.missing !== undefined) {
-    lines.push(`    frame  incomplete${expects.missing.length === 0 ? '' : `: no ${expects.missing.join(', no ')}`}`);
-  }
-  if (row.skip !== undefined) lines.push(`    skip   ${row.skip}`);
-  for (const definition of row.definitions) {
-    lines.push(`    model  ${definition.name} (line ${definition.line})`);
-    for (const line of definition.text.split('\n')) lines.push(`      | ${line}`);
   }
   return lines;
 }

@@ -1,8 +1,9 @@
-// Use case: export the frames as a TLA+ module, and optionally start the agent's model beside it.
-// The frames module is Clew's and is rewritten on every export. The model is the agent's and is kept.
-import { basename, dirname, resolve } from 'node:path';
+// Use case: export the frames as a TLA+ module, and with --model the files that check a model
+// against it. Clew owns the frames module, the check module, and the two configs, and rewrites
+// them on every export. The model is the agent's: it is started once and then kept.
+import { basename, dirname, join, resolve } from 'node:path';
 import { compileFrames } from '../domain/spec-compile.js';
-import { pascalName, tlaFramesModule, tlaModelStarter, TLA_MODULE_NAME_MESSAGE, TLA_MODULE_NAME_PATTERN, type TlaModuleInput } from '../domain/spec-tla.js';
+import { pascalName, tlaCheckModule, tlaFramesModule, tlaModelStarter, TLA_MODULE_NAME_MESSAGE, TLA_MODULE_NAME_PATTERN, type TlaModuleInput } from '../domain/spec-tla.js';
 import type { Outcome, SpecTlaExportDocument } from './documents.js';
 import { specInput } from './documents.js';
 import type { SpecStore, TextFiles } from './ports.js';
@@ -13,9 +14,9 @@ export interface ExportTlaCommand {
   dryRun: boolean;
   /** The frames module file. */
   out?: string;
-  /** The model file to start beside it, when it does not exist yet. */
+  /** The model file. Started when it does not exist; its check module and configs are always rewritten. */
   model?: string;
-  /** Replace an existing model and config. */
+  /** Replace an existing model with a fresh starter. */
   force: boolean;
 }
 
@@ -42,10 +43,13 @@ export function exportTla(command: ExportTlaCommand, store: SpecStore, files: Te
     const named = moduleName(command.model);
     if (!named.ok) return invalid('unreadable', named.message);
     modelName = named.name;
-    if (modelName === framesName) return invalid('unreadable', `${command.model}: the model and the frames module need different names`);
     if (command.out !== undefined && dirname(resolve(command.model)) !== dirname(resolve(command.out))) {
       return invalid('unreadable', `${command.model}: TLC looks for ${framesName}.tla beside the model, so write both into one directory`);
     }
+  }
+  const checkName = `${modelName}Check`;
+  if (new Set([framesName, modelName, checkName]).size < 3) {
+    return invalid('unreadable', `the frames module (${framesName}), the model (${modelName}), and its check module (${checkName}) need three different names`);
   }
   const input = (module: string): TlaModuleInput => ({ module, session: result.snapshot.id, frames, compilation });
   const exported = tlaFramesModule(input(framesName));
@@ -55,14 +59,15 @@ export function exportTla(command: ExportTlaCommand, store: SpecStore, files: Te
     session: result.snapshot.id,
     module: framesName,
     tla: exported.tla,
-    placed: exported.placed,
+    actions: exported.actions,
     todo: exported.todo,
     findings: compilation.findings,
     issues: [],
   };
   if (command.dryRun || command.model !== undefined) {
-    const starter = tlaModelStarter(input(modelName), framesName);
-    document.model = { module: modelName, tla: starter.tla, cfg: starter.cfg ?? '' };
+    const check = tlaCheckModule({ module: checkName, model: modelName, frames: exported });
+    document.model = { module: modelName, tla: tlaModelStarter(input(modelName), framesName) };
+    document.check = { module: checkName, tla: check.tla, cfg: check.cfg, coverageCfg: check.coverageCfg };
   }
   if (command.dryRun || command.out === undefined) {
     document.dryRun = true;
@@ -70,9 +75,19 @@ export function exportTla(command: ExportTlaCommand, store: SpecStore, files: Te
   }
   const wrote = files.write(command.out, exported.tla);
   if (!wrote.ok) return invalid('unreadable', wrote.message);
-  document.written = command.out;
-  if (command.model === undefined || document.model === undefined) return { exit: 'pass', document };
-  if (command.force) document.forced = true;
+  document.written = [command.out];
+  if (command.model === undefined || document.model === undefined || document.check === undefined) return { exit: 'pass', document };
+  const directory = dirname(command.model);
+  const owned: [string, string][] = [
+    [join(directory, `${checkName}.tla`), document.check.tla],
+    [join(directory, `${checkName}.cfg`), document.check.cfg],
+    [join(directory, `${modelName}Coverage.cfg`), document.check.coverageCfg],
+  ];
+  for (const [file, text] of owned) {
+    const wroteOwned = files.write(file, text);
+    if (!wroteOwned.ok) return invalid('unreadable', wroteOwned.message);
+    document.written.push(file);
+  }
   if (files.exists(command.model) && !command.force) {
     document.model.kept = true;
     return { exit: 'pass', document };
@@ -80,12 +95,7 @@ export function exportTla(command: ExportTlaCommand, store: SpecStore, files: Te
   const wroteModel = files.write(command.model, document.model.tla);
   if (!wroteModel.ok) return invalid('unreadable', wroteModel.message);
   document.model.written = command.model;
-  const cfgFile = `${command.model.slice(0, -'.tla'.length)}.cfg`;
-  if (command.force || !files.exists(cfgFile)) {
-    const wroteCfg = files.write(cfgFile, document.model.cfg);
-    if (!wroteCfg.ok) return invalid('unreadable', wroteCfg.message);
-    document.model.cfgWritten = cfgFile;
-  }
+  if (command.force) document.forced = true;
   return { exit: 'pass', document };
 }
 
