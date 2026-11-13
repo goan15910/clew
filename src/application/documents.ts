@@ -3,7 +3,6 @@ import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { ClauseStatus } from '../domain/spec-kernel.js';
 import type { ImpactEntry } from '../domain/spec-refine.js';
-import type { TlaAlignmentRow, TlaAlignmentStatus } from '../domain/spec-tla-check.js';
 import type { Finding, FlowOrigin, Frame, Grouping, Revision, SentenceState, SentenceText } from '../domain/spec.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
@@ -409,7 +408,27 @@ export interface SpecImpactDocument {
   issues: OutputIssue[];
 }
 
-/** `spec tla export`: the frames as a TLA+ module, and a starter model that refines it. */
+/** One action of the frames module, the frames it stands for, and its line in a coverage run. */
+export interface TlaFrameActionView {
+  frame: string;
+  restatedBy: string[];
+  sentence: string;
+  clause: string;
+  event: string;
+  /** The action's name in the frames module. */
+  action: string;
+  /** The `Cover_` line TLC prints for it in a coverage run. Set by `spec tla check`. */
+  cover?: string;
+}
+
+/** A file Clew owns beside a model, and whether it is what the frames export now. */
+export interface TlaOwnedFileView {
+  role: 'frames' | 'check' | 'check-config' | 'coverage-config';
+  file: string;
+  state: 'current' | 'stale' | 'missing';
+}
+
+/** `spec tla export`: the frames as a TLA+ module, and the files that check a model against it. */
 export interface SpecTlaExportDocument {
   command: 'spec.tla.export';
   ok: boolean;
@@ -420,38 +439,41 @@ export interface SpecTlaExportDocument {
   forced?: boolean;
   /** The frames module. Clew rewrites it on every export. */
   tla?: string;
-  written?: string;
-  /** The starter model and its TLC config: with --model, and always on a dry run. */
+  /** Files written, the frames module first. The model is not among them. */
+  written?: string[];
+  /** The starter model: with --model, and always on a dry run. */
   model?: {
     module: string;
     tla: string;
-    cfg: string;
     written?: string;
-    /** An existing config is kept unless --force. */
-    cfgWritten?: string;
     /** True when the model file exists and was left as it is. */
     kept?: boolean;
   };
-  /** Frame id → the definition or variable that models it. */
-  placed?: { frame: string; name: string }[];
-  /** Transition frames that do not compile; listed as comments. */
+  /** The check module and its two TLC configs, which Clew owns: with --model, and always on a dry run. */
+  check?: { module: string; tla: string; cfg: string; coverageCfg: string };
+  actions?: TlaFrameActionView[];
+  /** Transition frames that do not compile; they are not in the frames module. */
   todo?: string[];
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
 }
 
-/** `spec tla check`: each frame beside the definitions that cite it. */
+/** `spec tla check`: whether the files TLC reads beside a model are current, and what to run. */
 export interface SpecTlaCheckDocument {
   command: 'spec.tla.check';
   ok: boolean;
   session?: string;
   file?: string;
   module?: string;
-  /** The frames module the model instantiates, and whether the file beside the model is what the frames export now. */
-  frames?: { module: string; file: string; current: boolean };
-  alignment?: TlaAlignmentRow[];
-  counts?: Record<TlaAlignmentStatus, number>;
+  /** The module the model instantiates as `Frames`. */
+  framesModule?: string;
+  files?: TlaOwnedFileView[];
+  actions?: TlaFrameActionView[];
+  /** The forbidden-step properties the refinement run checks. */
+  properties?: { frame: string; name: string }[];
+  /** The two TLC runs. Clew does not run them. */
+  run?: { refinement: string; coverage: string };
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];

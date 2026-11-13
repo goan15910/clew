@@ -81,7 +81,7 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 
 ### Spec
 
-`spec init` and `spec tag` split a plain-English spec and tag it. `spec concepts list` groups the spans into concepts, and `spec frames list` reads one clause frame per clause and compiles it. `spec concepts group`, `spec frames set`, and `spec frames not-transition` refine those layers, and `spec impact` lists what an edit of one sentence would drop. `spec graph build` assembles a draft graph from the compiled frames and proposes one path per transition, plus one rejected path per forbidden frame. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec tla export` writes the frames as a TLA+ module and starts a model that refines it, and `spec tla check` lines a model up against the frames. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
+`spec init` and `spec tag` split a plain-English spec and tag it. `spec concepts list` groups the spans into concepts, and `spec frames list` reads one clause frame per clause and compiles it. `spec concepts group`, `spec frames set`, and `spec frames not-transition` refine those layers, and `spec impact` lists what an edit of one sentence would drop. `spec graph build` assembles a draft graph from the compiled frames and proposes one path per transition, plus one rejected path per forbidden frame. `spec graph split` and `spec graph group` are how the agent edits those paths. `spec emit` writes the chosen paths as a workflow set. `spec tla export` writes the frames as a TLA+ module, with the files that let TLC check a model against it, and `spec tla check` makes sure those files are current. `spec show` prints one stored layer. `spec view` installs a human HTML inspector for one session. `spec trace` and `spec status` read the result back. `spec session list` and `spec session remove` show and delete sessions. Clew does not call a language model. The tagger and the proposal rules are a starting point; the calling agent is the guard.
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
@@ -262,29 +262,48 @@ Emit refuses while a blocking finding remains on the graph layer. `--force` writ
 | `no-workflows` | blocking | there is nothing to emit |
 | `workflow-check` | blocking | the rendered set fails `workflows check` |
 
-`spec tla export` writes two TLA+ modules, with two owners. There is no direct route from a prose spec to a good TLA+ model, so Clew does not write the model. It exports what the frames say as a frames module, and the agent writes a model that refines it. TLC proves the refinement. Clew does not ship TLC and never runs it: the TLA+ tools are a second dependency of whoever checks the model, and the exported files are for them.
+`spec tla export` writes the frames for the TLA+ tools. There is no direct route from a prose spec to a good TLA+ model, so Clew does not write the model. It exports what the frames say, the agent writes a model that maps onto it, and TLC proves the model refines the frames. Clew does not ship TLC and never runs it or reads its output: the TLA+ tools are a second dependency of whoever checks the model.
 
-The frames module (`--out OrderFrames.tla`, named after the file) is the frames and nothing more. It declares one variable per object (`order_status`) and one boolean per condition frame, a value set per object, `TypeOK`, `Init`, one action per transition frame, one high-level action per event, `Next` as the disjunction of the high-level actions, and `Spec`. An event that one clause enables is its own high-level action (`Submit`). An event that several clauses enable gets one clause action each (`Approve_s1_t7`, `Approve_s2_t6`) and a high-level action that is their disjunction (`Approve`). A negated frame becomes a safety property (`NeverCancel == [][~(...)]_vars`). A condition no action assigns starts as `\in BOOLEAN` and may change in a `ConditionsChange` step, because the frames do not say what sets it. A transition frame that does not compile is listed as a comment at the end. Clew rewrites this file on every export, and its header says not to edit it.
+`--out OrderFrames.tla --model Order.tla` writes five files into one directory. Clew owns four and rewrites them on every export; their headers say not to edit them.
 
-The model (`--model Order.tla`) is the agent's. It is written only when the file does not exist; an existing model is left as it is and the document says `model.kept`. `--force` replaces the model and its config, and without it an existing `.cfg` is kept. The starter is a copy of the frames module's actions plus `Frames == INSTANCE OrderFrames WITH order_status <- order_status, ...`, the name mapping, which starts as the identity. `RefinesFrames == Frames!Spec` and one `NeverCancel == Frames!NeverCancel` per forbidden frame are what `Order.cfg` asks TLC to check (`SPECIFICATION Spec`, `INVARIANT TypeOK`, `PROPERTY RefinesFrames`, one `PROPERTY` per forbidden frame, `CHECK_DEADLOCK FALSE`). From there the agent renames, merges, splits, and adds data, and keeps the mapping in step: each variable of the frames module as an expression over the model's variables, such as `order_status <- IF order = "none" THEN "null" ELSE order` and `cond_s1_t12 <- total < 500`. A model that weakens a guard, changes a result, or adds a step the frames do not have fails `RefinesFrames` in TLC with a trace. The model and the frames module must sit in one directory, since TLC finds the instantiated module beside the model. `--dry-run` puts the frames module in `tla` and the starter in `model`, named `<Object>Frames` and `<Object>` after the first object. Export does not write the session.
+| File | Owner | What it is |
+|---|---|---|
+| `OrderFrames.tla` | Clew | the frames module: what the frames say, and nothing more |
+| `Order.tla` | the agent | the model; started once, then kept (`model.kept`) unless `--force` |
+| `OrderCheck.tla` | Clew | the check module: extends the model with what TLC checks |
+| `OrderCheck.cfg` | Clew | the refinement run |
+| `OrderCoverage.cfg` | Clew | the coverage run |
 
-Refinement says the model does nothing the frames forbid. It does not say every frame's step can happen in the model, and a mapping that sends a variable to a constant passes it by doing nothing. The `@frame` comments cover that side. `\* @frame fr:s1.t7 4c1e5e8a` above a definition, or on a variable's line, says that definition models that frame as it stood at that digest. The digest is eight hex digits over the frame's roles and what it compiles to. Several `@frame` comments may sit on one definition, one frame may be cited by several definitions, and a comment inside a definition's body cites that definition. `\* @frame fr:s3.t7 e0f785e8 skip: <reason>` leaves a frame out on purpose. The digest is optional; without it a later change to the frame goes unnoticed, which is an info `frame-unstamped`.
+The frames module declares one variable per object (`order_status`) and one boolean per condition frame, a value set per object, `TypeOK`, `Init`, one action per transition frame, one high-level action per event, `Next` as the disjunction of the high-level actions, and `Spec`. An event that one clause enables is its own high-level action (`Submit`). An event that several clauses enable gets one clause action each (`Approve_s1_t7`, `Approve_s2_t6`) and a high-level action that is their disjunction (`Approve`). A frame that restates an earlier one shares its action. A negated frame becomes a safety property (`NeverCancel == [][~(...)]_vars`). A condition no action assigns starts as `\in BOOLEAN` and may change in a `ConditionsChange` step, because the frames do not say what sets it. A transition frame that does not compile is listed as a comment at the end and in `todo`; it is in no module.
 
-`spec tla check <model.tla>` checks what Clew can see without TLC. The model must instantiate a module that sits beside it and carries the export header, and that file must be byte for byte what the frames export now; `frames` reports `{ module, file, current }`. A stale file is blocking, because a TLC run against it proves nothing about the current frames: export again, then run TLC again. `alignment` has one row per frame the model must account for: every transition frame, every restating frame, every forbidden frame, and every condition frame a guard reads. Other not-a-transition frames get a row only when the model cites them. A row has `frame`, `sentence`, `clause`, `kind` (`action`, `forbidden`, `restatement`, `condition`, `incomplete`, or `note`), `status` (`modelled`, `skipped`, `changed`, or `missing`), the frame's current `digest`, `expects`, and `definitions`. `expects` is what the frame compiles to in TLA+ ASCII: `event`, `actor`, `when`, and `effect`, or `variable` for a condition, `restates` for a restatement, and `missing` roles for an incomplete frame. Each definition has `name`, `line`, `kind` (`definition` or `variable`), and its `text` as written. The text summary prints the `frame` line and the definition text under each other. `counts` totals the rows by status. Check writes neither the session nor the files. A file with no `MODULE` line is exit 2.
+The model starts as a copy of the frames module's actions plus the name mapping, `Frames == INSTANCE OrderFrames WITH order_status <- order_status, ...`, which starts as the identity. From there the agent renames, merges, splits, and adds data, and keeps the mapping in step: each variable of the frames module as an expression over the model's variables, such as `order_status <- IF order = "none" THEN "null" ELSE order` and `cond_s1_t12 <- total < 500`. The model's actions never mention the frames; the mapping is a view that turns each model state into a frames state. The model must keep defining `Frames`, `Init`, `Next`, `Spec`, and `vars`, because the check module reads them. Nothing else in it is fixed.
+
+The check module is `EXTENDS Order` plus:
+
+- `RefinesFrames == Frames!Spec`, and one `Frames_NeverCancel == Frames!NeverCancel` per forbidden frame. `OrderCheck.cfg` lists them as `PROPERTY` under `SPECIFICATION Spec`. TLC then checks that every step of the model, seen through the mapping, is a step the frames allow or leaves the mapped variables alone. A model that weakens a guard, changes a result, or adds a step the frames do not have fails with a trace.
+- One `Cover_<Action> == Next /\ Frames!<Action>` per frame action, `Cover_ConditionsChange`, `Cover_NoFrame == Next /\ ~Frames!Next`, and `CoverSpec`, whose next-state relation is their disjunction. `OrderCoverage.cfg` runs `SPECIFICATION CoverSpec`. With `-coverage 1`, TLC prints one line per `Cover_` action as `new states : steps taken`. A line that ends in `:0` is a frame action the model never takes: a merged or dropped frame, or a mapping that hides it. Refinement alone would not show that, since a model that does nothing refines everything. The coverage run does not fail; someone reads the counts.
+
+The two runs, from the directory that holds the files:
+
+```bash
+java -cp tla2tools.jar tlc2.TLC -config OrderCheck.cfg OrderCheck.tla
+java -cp tla2tools.jar tlc2.TLC -coverage 1 -config OrderCoverage.cfg OrderCheck.tla
+```
+
+Because Clew owns the properties and the configs, an agent cannot drop a check by editing its model. Renaming `Frames`, `Next`, or `Init` is a parse error in TLC, not a silent pass, and TLC's parser rejects a mapping that leaves a frames variable out.
+
+`--out` alone writes only the frames module. `--model` needs the same directory as `--out`, and the three module names must differ. `--dry-run` puts the frames module in `tla`, the starter in `model.tla`, and the check module and configs in `check` (`tla`, `cfg`, `coverageCfg`), named `<Object>Frames`, `<Object>`, and `<Object>Check` after the first object. `actions` lists each frame action with `frame`, `restatedBy`, `sentence`, `clause`, `event`, and `action`. `written` lists the Clew-owned files written. Export does not write the session.
+
+`spec tla check <model.tla>` checks the one thing TLC cannot: that the files it will read are current. It scans the model for its module name and for `Frames == INSTANCE <module>`, then regenerates the frames module, the check module, and the two configs from the session and compares each with the file beside the model, byte for byte. `files` lists each with `role` (`frames`, `check`, `check-config`, `coverage-config`), `file`, and `state` (`current`, `stale`, or `missing`). Anything but `current` is blocking, because a TLC run with it proves nothing about the frames as they are now: export again, then run TLC again. `run` holds the two commands, `actions` adds each action's `cover` line so a `:0` can be traced to its frames and sentence, and `properties` lists the forbidden-step properties. The scan is a pattern match over the text with comments and strings removed, not a TLA+ parser. Check writes nothing. A file with no `MODULE` line is exit 2.
 
 `spec tla check` findings:
 
 | Code | Severity | When |
 |---|---|---|
-| `no-frames-instance` | blocking | the model instantiates no module that sits beside it and carries the export header |
-| `frames-module-stale` | blocking | the frames module beside the model is not what the frames export now |
-| `frame-not-modelled` | blocking | a frame the model must account for has no `@frame` comment; kind `coverage`, refs `[frame, sentence]` |
-| `frame-changed` | blocking | an `@frame` comment carries a digest that is not the frame's current one; the message names the definitions to review and the digest to write |
-| `unknown-frame` | blocking | an `@frame` comment cites an id that is not a frame of the session |
-| `annotation-without-definition` | blocking | an `@frame` comment is followed by no definition |
-| `skip-without-reason` | blocking | `skip:` has no reason after it |
-| `action-not-in-next` | warning | every definition that models an action frame is unreachable from `Next` |
-| `frame-unstamped` | info | an `@frame` comment has no digest |
+| `no-frames-instance` | blocking | the model has no `Frames == INSTANCE <module>` |
+| `frames-module-stale` | blocking | the frames module beside the model is missing or is not what the frames export now |
+| `check-files-stale` | blocking | the check module or a config beside the model is missing or is not what the frames export now |
+| `model-names-missing` | warning | the scan finds no definition of `Frames`, `Init`, `Next`, `Spec`, or `vars` in the model file |
 
 Input failures use `issues` with `{ kind, file, path, message }` and `kind: "input"`. Model problems stay in `findings`. A blocking finding is exit 1 with an empty stderr. A bad id, a missing layer, or a bad patch is exit 2.
 
@@ -793,7 +812,7 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
 }
 ```
 
-`spec.tla.check Order.tla`, one row. `text` is the definition as written in the module.
+`spec.tla.check Order.tla`, with one action shown.
 
 ```json
 {
@@ -802,22 +821,21 @@ An unknown id is exit 2 with `fault: "session"` and `issues` of `kind: "input"`.
   "session": "order-sentence",
   "file": "Order.tla",
   "module": "Order",
-  "frames": { "module": "OrderFrames", "file": "OrderFrames.tla", "current": true },
-  "alignment": [
-    {
-      "frame": "fr:s1.t7",
-      "sentence": "s1",
-      "clause": "the manager approves the order",
-      "kind": "action",
-      "status": "modelled",
-      "digest": "4c1e5e8a",
-      "expects": { "event": "APPROVE", "actor": "manager", "when": "order_status = \"submitted\" /\\ cond_s1_t12", "effect": "order_status' = \"approved\"" },
-      "definitions": [
-        { "name": "Approve", "line": 41, "kind": "definition", "text": "Approve ==\n  /\\ order_status = \"submitted\"\n  /\\ cond_s1_t12\n  /\\ order_status' = \"approved\"\n  /\\ UNCHANGED cond_s1_t12" }
-      ]
-    }
+  "framesModule": "OrderFrames",
+  "files": [
+    { "role": "frames", "file": "OrderFrames.tla", "state": "current" },
+    { "role": "check", "file": "OrderCheck.tla", "state": "current" },
+    { "role": "check-config", "file": "OrderCheck.cfg", "state": "current" },
+    { "role": "coverage-config", "file": "OrderCoverage.cfg", "state": "current" }
   ],
-  "counts": { "modelled": 3, "skipped": 0, "changed": 0, "missing": 0 },
+  "actions": [
+    { "frame": "fr:s1.t7", "restatedBy": [], "sentence": "s1", "clause": "the manager approves the order", "event": "APPROVE", "action": "Approve", "cover": "Cover_Approve" }
+  ],
+  "properties": [],
+  "run": {
+    "refinement": "java -cp tla2tools.jar tlc2.TLC -config OrderCheck.cfg OrderCheck.tla",
+    "coverage": "java -cp tla2tools.jar tlc2.TLC -coverage 1 -config OrderCoverage.cfg OrderCheck.tla"
+  },
   "findings": [],
   "issues": []
 }
