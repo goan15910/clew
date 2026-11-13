@@ -189,12 +189,8 @@ export function tlaScaffold(input: { module: string; session: string; frames: re
   lines.push('  definition keeps one line per frame, and a frame the model leaves out on');
   lines.push('  purpose gets its "@frame" line with "skip:" and a reason.');
   lines.push('');
-  lines.push(`  clew spec tla check ${input.module}.tla lines each frame up against its definition:`);
-  lines.push('  the guard and effect the frame compiles to must be among its conjuncts.');
-  lines.push('  When you rename a variable or a value, or replace a condition with the');
-  lines.push('  data behind it, say so once in a comment: "@name" then the old name, "->",');
-  lines.push('  and the new text. When a definition is meant to say something else than');
-  lines.push('  the frame, end its "@frame" line with "differs:" and a reason.');
+  lines.push(`  clew spec tla check ${input.module}.tla lines each frame up against its definition,`);
+  lines.push('  and reports frames with no definition and frames that changed since.');
   lines.push('*)');
   lines.push('');
 

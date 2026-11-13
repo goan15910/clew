@@ -34,7 +34,6 @@ export function checkTla(command: CheckTlaCommand, store: SpecStore, files: Text
       session: result.snapshot.id,
       file: command.file,
       module: module.name,
-      names: module.names,
       alignment: alignment.rows,
       counts,
       findings: alignment.findings,
