@@ -2,9 +2,10 @@
 // `when` refs become guards: the object's own prior result, another object's result, or a
 // boolean condition var for a clause with no verb. Missing roles are warnings, never blocking.
 import type { Action, SpecDraft } from './spec-model.js';
-import { DEFAULT_INITIAL_ATOM, type ActionOverlay, type CompiledAction, type CompiledForbidden, type CompiledItem, type CompiledSpec } from './spec-actions.js';
+import { DEFAULT_INITIAL_ATOM, type ActionOverlay, type CompiledAction, type CompiledForbidden, type CompiledItem, type CompiledSpec, type GuardRead, type InstanceSet } from './spec-actions.js';
 import { UNSPECIFIED_ACTOR_NAME, type Concept, type Finding, type Frame, type Role, type SpecSnapshot } from './spec.js';
 import { findConcept } from './spec-concepts.js';
+import { ownerChain } from './spec-instances.js';
 import { normalizeWord } from './spec-words.js';
 import { eventName, type Patch, type Predicate, type Value, type VarDecl, type VarId } from './valuation.js';
 
@@ -30,6 +31,7 @@ interface Target {
 
 interface Guard {
   when: Predicate;
+  reads: GuardRead[];
   from: string;
   guard?: string;
   guardText?: string;
@@ -81,6 +83,7 @@ export function compileFrames(frames: readonly Frame[], concepts: readonly Conce
         attempted: target.result,
         actor: target.actor,
         when: guard.when,
+        reads: guard.reads,
         assign,
       };
       items.push(forbidden);
@@ -95,6 +98,7 @@ export function compileFrames(frames: readonly Frame[], concepts: readonly Conce
       sources,
       event: target.event,
       when: guard.when,
+      reads: guard.reads,
       assign,
       overlay,
       evidence: { event: target.evidence.event.slice(), object: target.evidence.object.slice() },
@@ -108,7 +112,8 @@ export function compileFrames(frames: readonly Frame[], concepts: readonly Conce
   const first = ordered[0];
   const draft: SpecDraft = { id: first === undefined ? 'spec' : camelId(first.object), vars, initial, actions, labels: [] };
   for (const finding of neverAssigned(items, conditions)) findings.push(finding);
-  return { compiled: { draft, items }, findings, restated };
+  const instances = instanceSets(items, ordered, findings);
+  return { compiled: { draft, items, instances }, findings, restated };
 }
 
 /** `fr:s1.t13` → `cond_s1_t13`. */
@@ -142,32 +147,134 @@ function targetOf(frame: Frame, concepts: readonly Concept[], findings: Finding[
 
 function guardOf(target: Target, targets: ReadonlyMap<string, Target>, frames: ReadonlyMap<string, Frame>, conditions: string[]): Guard {
   let own: string | undefined;
-  const extra: Predicate[] = [];
+  const reads: GuardRead[] = [];
   let guard: string | undefined;
   let guardText: string | undefined;
   const when = known(target.frame.roles.when.latest.value);
   for (const ref of when?.refs ?? []) {
     const other = targets.get(ref);
     if (other !== undefined) {
-      if (other.objectVar === target.objectVar) own ??= other.result;
-      else extra.push(eq(other.objectVar, { t: 'atom', v: other.result }));
+      if (other.objectVar === target.objectVar) {
+        own ??= other.result;
+        continue;
+      }
+      // Refs to one object are alternatives: the object is in any of the cited states.
+      const quant = when?.quant?.[ref];
+      const value: Value = { t: 'atom', v: other.result };
+      const same = reads.find((read) => read.kind === 'object' && read.var === other.objectVar && read.quant === quant);
+      if (same === undefined) {
+        const read: GuardRead = { kind: 'object', var: other.objectVar, values: [value] };
+        if (quant !== undefined) read.quant = quant;
+        reads.push(read);
+      } else if (!same.values.some((item) => item.t === 'atom' && item.v === other.result)) {
+        same.values.push(value);
+      }
       continue;
     }
     const condition = frames.get(ref);
     if (condition?.notTransition === undefined) continue;
     const name = conditionVar(ref);
     if (!conditions.includes(name)) conditions.push(name);
-    extra.push(eq(name, { t: 'bool', v: condition.marker !== 'unless' }));
+    reads.push({ kind: 'condition', var: name, values: [{ t: 'bool', v: condition.marker !== 'unless' }] });
     if (guard === undefined) {
       guard = `condition:${name}`;
       guardText = conditionText(condition);
     }
   }
-  const parts: Predicate[] = [eq(target.objectVar, own === undefined ? { t: 'null' } : { t: 'atom', v: own }), ...extra];
-  const result: Guard = { when: parts.length === 1 && parts[0] !== undefined ? parts[0] : { op: 'and', of: parts }, from: own ?? DEFAULT_INITIAL_ATOM };
+  reads.unshift({ kind: 'own', var: target.objectVar, values: [own === undefined ? { t: 'null' } : { t: 'atom', v: own }] });
+  const parts: Predicate[] = [];
+  for (const read of reads) parts.push(oneInstance(read));
+  const result: Guard = { when: parts.length === 1 && parts[0] !== undefined ? parts[0] : { op: 'and', of: parts }, reads, from: own ?? DEFAULT_INITIAL_ATOM };
   if (guard !== undefined) result.guard = guard;
   if (guardText !== undefined) result.guardText = guardText;
   return result;
+}
+
+/**
+ * A read when its object has one instance. `some` is the plain test and `none` is its negation.
+ * `every` also holds while the instance does not exist yet, as it does for no instances at all.
+ */
+function oneInstance(read: GuardRead): Predicate {
+  const tests: Predicate[] = [];
+  for (const value of read.values) tests.push(read.quant === 'none' ? { op: 'neq', var: read.var as VarId, value } : eq(read.var, value));
+  if (read.quant === 'every') tests.push(eq(read.var, { t: 'null' }));
+  const only = tests[0];
+  if (tests.length === 1 && only !== undefined) return only;
+  return { op: read.quant === 'none' ? 'and' : 'or', of: tests };
+}
+
+/**
+ * The objects some guard counts, and which counted object each one belongs to. A frame about
+ * object P that reads `every C` says C belongs to P. When several counting objects claim C, the
+ * owner is the innermost: the one every other claimant also counts, directly or through others.
+ */
+function instanceSets(items: readonly CompiledItem[], targets: readonly Target[], findings: Finding[]): InstanceSet[] {
+  const objects = new Map<string, string>();
+  for (const target of targets) objects.set(target.objectVar, target.object);
+  const claims = new Map<string, string[]>();
+  const order: string[] = [];
+  for (const item of items) {
+    if (item.kind !== 'action' && item.kind !== 'forbidden') continue;
+    const reader = (item.reads ?? []).find((read) => read.kind === 'own')?.var;
+    for (const read of item.reads ?? []) {
+      if (read.kind !== 'object' || read.quant === undefined) continue;
+      let list = claims.get(read.var);
+      if (list === undefined) {
+        list = [];
+        claims.set(read.var, list);
+        order.push(read.var);
+      }
+      if (reader !== undefined && !list.includes(reader)) list.push(reader);
+    }
+  }
+  const counts = (from: string, to: string, seen: Set<string>): boolean => {
+    if (seen.has(to)) return false;
+    seen.add(to);
+    for (const claimant of claims.get(to) ?? []) {
+      if (claimant === from || counts(from, claimant, seen)) return true;
+    }
+    return false;
+  };
+  const sets: InstanceSet[] = [];
+  for (const objectVar of order) {
+    const set: InstanceSet = { object: objects.get(objectVar) ?? objectVar, objectVar };
+    if (counts(objectVar, objectVar, new Set())) {
+      findings.push(instanceFinding('instance-cycle', objectVar, `${set.object} is counted by an object it counts itself, so neither owns the other`));
+    } else {
+      const claimants = (claims.get(objectVar) ?? []).filter((claimant) => claims.has(claimant));
+      const innermost = claimants.filter((claimant) => claimants.every((other) => other === claimant || counts(other, claimant, new Set())));
+      const owner = innermost[0];
+      if (owner !== undefined && innermost.length === 1) set.owner = owner;
+      else if (claimants.length > 0) {
+        const names = claimants.map((claimant) => objects.get(claimant) ?? claimant).join(', ');
+        findings.push(instanceFinding('instance-owner-ambiguous', objectVar, `${set.object} is counted from ${names}, and none of them is inside the others`));
+      }
+    }
+    sets.push(set);
+  }
+  for (const item of items) {
+    if (item.kind !== 'action' && item.kind !== 'forbidden') continue;
+    const reader = (item.reads ?? []).find((read) => read.kind === 'own')?.var;
+    for (const read of item.reads ?? []) {
+      if (read.kind !== 'object' || read.quant !== undefined) continue;
+      if (!sets.some((set) => set.objectVar === read.var)) continue;
+      if (reader !== undefined && ownerChain(sets, reader).includes(read.var)) continue;
+      const object = objects.get(read.var) ?? read.var;
+      findings.push({
+        id: `instance-read-unquantified:${item.id}:${read.var}`,
+        kind: 'gap',
+        code: 'instance-read-unquantified',
+        severity: 'warning',
+        message: `${item.id} reads ${object} without every, some, or none, but another frame counts ${object}; it is read as some`,
+        refs: [item.id, read.var],
+      });
+    }
+  }
+  return sets;
+}
+
+function instanceFinding(code: string, objectVar: string, message: string): Finding {
+  return { id: `${code}:${objectVar}`, kind: 'gap', code, severity: 'warning', message, refs: [objectVar] };
 }
 
 function neverAssigned(items: readonly CompiledItem[], conditions: readonly string[]): Finding[] {
@@ -209,7 +316,7 @@ function neverAssigned(items: readonly CompiledItem[], conditions: readonly stri
 
 function equalities(predicate: Predicate): { var: VarId; value: Value }[] {
   if (predicate.op === 'eq') return [{ var: predicate.var, value: predicate.value }];
-  if (predicate.op !== 'and') return [];
+  if (predicate.op !== 'and' && predicate.op !== 'or') return [];
   const found: { var: VarId; value: Value }[] = [];
   for (const child of predicate.of) {
     for (const check of equalities(child)) found.push(check);

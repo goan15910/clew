@@ -5,9 +5,12 @@
 // Clew owns the frames module, the check module, and the two configs; it rewrites them on export.
 import { conditionVar, type FrameCompilation } from './spec-compile.js';
 import type { CompiledAction, CompiledForbidden, CompiledItem } from './spec-actions.js';
+import { boundName, instanceEffectTexts, instanceGuardTexts, instanceUniverse, INSTANCES_PER_OWNER, ownInstanceSet, pascalName, SELF, touchesInstances, type InstanceNames } from './spec-instances.js';
 import { conjunctTexts, effectTexts, valueText } from './spec-expr.js';
 import type { Frame } from './spec.js';
 import type { Predicate, VarDecl } from './valuation.js';
+
+export { pascalName } from './spec-instances.js';
 
 export const TLA_MODULE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 export const TLA_MODULE_NAME_MESSAGE = 'a TLA+ module name starts with a letter and then uses letters, digits, or underscores';
@@ -145,17 +148,6 @@ export function tlaCheckModule(input: { module: string; model: string; frames: T
   return { module: input.module, tla: `${lines.join('\n')}\n`, cfg: `${cfg.join('\n')}\n`, coverageCfg: `${coverageCfg.join('\n')}\n`, cover };
 }
 
-/** `order` → `Order`, `SIGN_UP` → `SignUp`, `order_status` → `OrderStatus`. */
-export function pascalName(raw: string): string {
-  let name = '';
-  for (const part of raw.split(/[^A-Za-z0-9]+/)) {
-    if (part === '') continue;
-    name += part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-  }
-  if (name === '') return 'Model';
-  return /^[A-Za-z]/.test(name) ? name : `M${name}`;
-}
-
 /** `refines` is the frames module a starter model instantiates; undefined writes the frames module itself. */
 function build(input: TlaModuleInput, refines: string | undefined): TlaFramesModule {
   const draft = input.compilation.compiled.draft;
@@ -238,6 +230,33 @@ function build(input: TlaModuleInput, refines: string | undefined): TlaFramesMod
   lines.push('\\* An object that is in no state yet.');
   lines.push('Null == "null"');
   lines.push('');
+  const sets = input.compilation.compiled.instances ?? [];
+  const setNames = new Map<string, string>();
+  for (const entry of instanceUniverse(sets)) setNames.set(entry.objectVar, claim(pascalName(sets.find((set) => set.objectVar === entry.objectVar)?.object ?? entry.objectVar)));
+  const names: InstanceNames = {
+    set: (objectVar) => setNames.get(objectVar) ?? pascalName(objectVar),
+    owner: (objectVar) => `${setNames.get(objectVar) ?? pascalName(objectVar)}Owner`,
+  };
+  if (sets.length > 0) {
+    lines.push(`\\* Objects a guard counts with every, some, or none. Each has ${INSTANCES_PER_OWNER} instances${sets.some((set) => set.owner !== undefined) ? ' per owner' : ''},`);
+    lines.push('\\* which is what TLC checks; its variable below is a function over them.');
+    for (const entry of instanceUniverse(sets)) {
+      const name = names.set(entry.objectVar);
+      lines.push(`${name} == {${entry.ids.map((id) => JSON.stringify(id)).join(', ')}}`);
+      if (entry.owners === undefined) continue;
+      used.add(names.owner(entry.objectVar));
+      const bound = boundName(sets, entry.objectVar);
+      const cases: string[] = [];
+      for (const owner of entry.owners) {
+        if (cases.some((text) => text.endsWith(` -> ${JSON.stringify(owner)}`))) continue;
+        const mine = entry.ids.filter((_, index) => entry.owners?.[index] === owner);
+        cases.push(`${bound} \\in {${mine.map((id) => JSON.stringify(id)).join(', ')}} -> ${JSON.stringify(owner)}`);
+      }
+      lines.push(`${names.owner(entry.objectVar)} == [${bound} \\in ${name} |-> CASE ${cases.join(' [] ')}]`);
+    }
+    lines.push('');
+  }
+  const counted = (id: string): boolean => setNames.has(id);
   if (draft.vars.length > 0) {
     lines.push('VARIABLES');
     draft.vars.forEach((decl, index) => {
@@ -267,27 +286,31 @@ function build(input: TlaModuleInput, refines: string | undefined): TlaFramesMod
     }
   }
 
-  const sets = new Map<string, string>();
+  const valueSets = new Map<string, string>();
   for (const decl of draft.vars) {
     if (decl.type === 'boolean') continue;
     const name = claim(pascalName(decl.id));
-    sets.set(decl.id, name);
+    valueSets.set(decl.id, name);
     lines.push(`${name} == {${valuesOf(decl, items).map((value) => JSON.stringify(value)).join(', ')}}`);
   }
-  if (sets.size > 0) lines.push('');
+  if (valueSets.size > 0) lines.push('');
 
   lines.push('TypeOK ==');
   if (draft.vars.length === 0) lines.push('  TRUE');
   for (const decl of draft.vars) {
-    const set = sets.get(decl.id);
-    lines.push(set === undefined ? `  /\\ ${decl.id} \\in BOOLEAN` : `  /\\ ${decl.id} \\in ${set} \\cup {Null}`);
+    const set = valueSets.get(decl.id);
+    if (set === undefined) lines.push(`  /\\ ${decl.id} \\in BOOLEAN`);
+    else if (counted(decl.id)) lines.push(`  /\\ ${decl.id} \\in [${names.set(decl.id)} -> ${set} \\cup {Null}]`);
+    else lines.push(`  /\\ ${decl.id} \\in ${set} \\cup {Null}`);
   }
   lines.push('');
   lines.push('Init ==');
   if (draft.vars.length === 0) lines.push('  TRUE');
   for (const decl of draft.vars) {
     const initial = draft.initial[decl.id];
+    const start = decl.type === 'boolean' ? 'FALSE' : initial === undefined || initial.t === 'null' ? 'Null' : valueText(initial, 'tla');
     if (decl.type === 'boolean' && !assigned.has(decl.id)) lines.push(`  /\\ ${decl.id} \\in BOOLEAN`);
+    else if (counted(decl.id)) lines.push(`  /\\ ${decl.id} = [${boundName(sets, decl.id)} \\in ${names.set(decl.id)} |-> ${start}]`);
     else if (initial === undefined || initial.t === 'null') lines.push(`  /\\ ${decl.id} = ${decl.type === 'boolean' ? 'FALSE' : 'Null'}`);
     else lines.push(`  /\\ ${decl.id} = ${valueText(initial, 'tla')}`);
   }
@@ -333,10 +356,22 @@ function build(input: TlaModuleInput, refines: string | undefined): TlaFramesMod
         action: own,
       });
       citeAll(lines, action.id);
+      const rest = unchanged(draft.vars, action.assign);
+      if (action.reads !== undefined && touchesInstances(action.reads, sets)) {
+        // The object, or one it reads, has instances: the guard counts them and the effect updates one.
+        const self = ownInstanceSet(action.reads, sets);
+        const at = self === undefined ? own : claim(`${own}_at`);
+        lines.push(self === undefined ? `${at} ==` : `${at}(${SELF}) ==`);
+        for (const part of instanceGuardTexts(action.reads, sets, names, 'tla')) lines.push(`  /\\ ${part}`);
+        for (const part of instanceEffectTexts(action.assign, self, 'tla')) lines.push(`  /\\ ${part}`);
+        if (rest !== undefined) lines.push(`  /\\ ${rest}`);
+        if (self !== undefined) lines.push(`${own} == \\E ${SELF} \\in ${names.set(self)} : ${at}(${SELF})`);
+        lines.push('');
+        continue;
+      }
       lines.push(`${own} ==`);
       for (const part of conjunctTexts(action.when, 'tla')) lines.push(`  /\\ ${part}`);
       for (const part of effectTexts(action.assign, 'tla')) lines.push(`  /\\ ${part}`);
-      const rest = unchanged(draft.vars, action.assign);
       if (rest !== undefined) lines.push(`  /\\ ${rest}`);
       lines.push('');
     }
@@ -387,6 +422,15 @@ function build(input: TlaModuleInput, refines: string | undefined): TlaFramesMod
       for (const id of restaters.get(item.id) ?? []) placed.add(id);
       if (refines !== undefined) continue;
       citeAll(lines, item.id);
+      const tail = `]_${draft.vars.length === 0 ? '<<>>' : 'vars'}`;
+      if (item.reads !== undefined && touchesInstances(item.reads, sets)) {
+        const self = ownInstanceSet(item.reads, sets);
+        const step = [...instanceGuardTexts(item.reads, sets, names, 'tla'), ...instanceEffectTexts(item.assign ?? {}, self, 'tla')].map((part) => `(${part})`).join(' /\\ ');
+        lines.push(`${name} ==`);
+        lines.push(self === undefined ? `  [][~(${step})${tail}` : `  [][~(\\E ${SELF} \\in ${names.set(self)} : ${step})${tail}`);
+        lines.push('');
+        continue;
+      }
       const parts = [...conjunctTexts(item.when ?? { op: 'true' }, 'tla'), ...effectTexts(item.assign ?? {}, 'tla')];
       lines.push(`${name} ==`);
       parts.forEach((part, index) => {

@@ -1,6 +1,6 @@
 // Spans + concepts → clause frames. Roles are read by position, because concepts carry no kind.
 // One frame per clause segment: actor, event, object, result, and the conditions it waits on.
-import type { ClauseBound, Concept, Field, FieldVersion, Frame, FrameVersion, LiveSentence, LiveSpan, NotTransition, Revision, Role, RoleName } from './spec.js';
+import type { ClauseBound, Concept, Field, FieldVersion, Frame, FrameVersion, LiveSentence, LiveSpan, NotTransition, Quantifier, Revision, Role, RoleName } from './spec.js';
 import { CONDITION_MARKERS, segmentClauses, startsWithConjunction, wordOf, type ClauseSegment } from './spec-clauses.js';
 import { findConcept } from './spec-concepts.js';
 import { sentenceIdOfToken } from './spec-spans.js';
@@ -326,7 +326,19 @@ export function copyVersion(version: FieldVersion): FieldVersion {
 }
 
 export function copyRole(role: Role): Role {
-  return role === 'unknown' ? 'unknown' : { text: role.text, refs: role.refs.slice() };
+  if (role === 'unknown') return 'unknown';
+  const copy: Role = { text: role.text, refs: role.refs.slice() };
+  if (role.quant !== undefined) copy.quant = copyQuant(role.quant);
+  return copy;
+}
+
+export function copyQuant(quant: Readonly<Record<string, Quantifier>>): Record<string, Quantifier> {
+  const copy: Record<string, Quantifier> = {};
+  for (const ref of Object.keys(quant)) {
+    const value = quant[ref];
+    if (value !== undefined) copy[ref] = value;
+  }
+  return copy;
 }
 
 function copyClause(clause: ClauseBound): ClauseBound {
@@ -366,7 +378,11 @@ export function sameVersion(left: FieldVersion, right: FieldVersion): boolean {
 
 function sameRole(left: Role, right: Role): boolean {
   if (left === 'unknown' || right === 'unknown') return left === right;
-  return left.text === right.text && sameList(left.refs, right.refs);
+  if (left.text !== right.text || !sameList(left.refs, right.refs)) return false;
+  for (const ref of left.refs) {
+    if (left.quant?.[ref] !== right.quant?.[ref]) return false;
+  }
+  return true;
 }
 
 export function sameList(left: readonly string[], right: readonly string[]): boolean {

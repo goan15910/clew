@@ -114,7 +114,7 @@ function refine(
     ? []
     : relevant([...compilation.findings, ...refinementFindings(all, result.snapshot.groups ?? [])], '', [frame.id]);
   const document: SpecFrameRefineDocument = { command: name, ok: true, session: result.snapshot.id, findings, issues: [] };
-  const view = frame === undefined ? undefined : frameViews([frame], compilation.compiled.items, compilation.restated)[0];
+  const view = frame === undefined ? undefined : frameViews([frame], compilation.compiled.items, compilation.restated, [], compilation.compiled.instances)[0];
   if (view !== undefined) document.frame = view;
   return { exit: 'pass', document };
 }
