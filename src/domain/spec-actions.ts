@@ -1,7 +1,8 @@
 // The compiled spec the graph, emit, and status read. A producer compiles its own records
 // (frames, through spec-compile) into this shape, so the graph layer never sees how the spec was extracted.
 import { assembleSpec, type Spec, type SpecDraft } from './spec-model.js';
-import type { Patch, Predicate } from './valuation.js';
+import type { Quantifier } from './spec.js';
+import type { Patch, Predicate, Value } from './valuation.js';
 
 /** Overlay location for the default atom initial (`{ t: 'null' }`). */
 export const DEFAULT_INITIAL_ATOM = 'null';
@@ -11,6 +12,29 @@ export interface CompiledSpec {
   draft: SpecDraft;
   /** Live items in id order. */
   items: CompiledItem[];
+  /** Objects that have several instances, because some guard counts them. Absent or empty for most specs. */
+  instances?: InstanceSet[];
+}
+
+/**
+ * An object some guard reads with `every`, `some`, or `none`. `draft` keeps one variable for it,
+ * which is the one-instance reading; an exporter that can state instances reads this instead.
+ */
+export interface InstanceSet {
+  object: string;
+  objectVar: string;
+  /** The instance set each instance belongs to, when its owner has instances too. */
+  owner?: string;
+}
+
+/** One conjunct of a guard, as the frames state it. `when` is the same guard for one instance of everything. */
+export interface GuardRead {
+  /** `own`: the action's object. `object`: another object. `condition`: a boolean condition var. */
+  kind: 'own' | 'object' | 'condition';
+  var: string;
+  /** The values that satisfy the read. A condition has one boolean. */
+  values: Value[];
+  quant?: Quantifier;
 }
 
 export type CompiledItem = CompiledAction | CompiledMark | CompiledForbidden;
@@ -37,6 +61,8 @@ export interface CompiledAction extends CompiledBase {
   kind: 'action';
   event: string;
   when: Predicate;
+  /** `when`, one conjunct at a time, before it was narrowed to one instance. */
+  reads?: GuardRead[];
   assign: Patch;
   overlay?: ActionOverlay;
   /** Span ids that name the event and the object, for workflow edge text. */
@@ -59,6 +85,7 @@ export interface CompiledForbidden extends CompiledBase {
   attempted?: string;
   actor?: string;
   when?: Predicate;
+  reads?: GuardRead[];
   assign?: Patch;
 }
 

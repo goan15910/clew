@@ -71,7 +71,7 @@ export function listFrames(command: ListFramesCommand, store: SpecStore): Outcom
       command: 'spec.frames.list',
       ok: true,
       session: result.snapshot.id,
-      frames: frameViews(frames, compilation.compiled.items, compilation.restated, clauseReach(compilation.compiled)),
+      frames: frameViews(frames, compilation.compiled.items, compilation.restated, clauseReach(compilation.compiled), compilation.compiled.instances),
       findings,
       issues: [],
     },

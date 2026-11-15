@@ -34,6 +34,7 @@ import {
 } from '../../domain/spec.js';
 import { attachOverlay } from '../../domain/spec-graph.js';
 import { compileFrames } from '../../domain/spec-compile.js';
+import { copyQuant } from '../../domain/spec-frames.js';
 import { WORKFLOW_ID_PATTERN, WORKFLOW_WORD_PATTERN } from '../../domain/workflow.js';
 import { locatedErrors } from '../yaml/issue-lines.js';
 import { specSessionDir, specRoot } from './data-dir.js';
@@ -145,7 +146,11 @@ const ConceptSchema = z.strictObject({
 
 const RoleSchema = z.union([
   z.literal('unknown'),
-  z.strictObject({ text: z.string().min(1), refs: z.array(z.string().min(1)) }),
+  z.strictObject({
+    text: z.string().min(1),
+    refs: z.array(z.string().min(1)),
+    quant: z.record(z.string().min(1), z.enum(['every', 'some', 'none'])).optional(),
+  }),
 ]);
 
 const FieldVersionSchema = z.strictObject({
@@ -564,7 +569,10 @@ function toFieldVersion(raw: z.infer<typeof FieldVersionSchema>): FieldVersion {
 }
 
 function toRole(raw: z.infer<typeof RoleSchema>): Role {
-  return raw === 'unknown' ? 'unknown' : { text: raw.text, refs: raw.refs.slice() };
+  if (raw === 'unknown') return 'unknown';
+  const role: Role = { text: raw.text, refs: raw.refs.slice() };
+  if (raw.quant !== undefined) role.quant = copyQuant(raw.quant);
+  return role;
 }
 
 function readOverlay(
@@ -837,7 +845,10 @@ function historyRecords<T, R>(history: readonly Revision<T>[], value: (item: T) 
 }
 
 function fieldVersionRecord(version: FieldVersion): z.infer<typeof FieldVersionSchema> {
-  return { value: version.value === 'unknown' ? 'unknown' : { text: version.value.text, refs: version.value.refs.slice() }, dependsOn: version.dependsOn.slice() };
+  if (version.value === 'unknown') return { value: 'unknown', dependsOn: version.dependsOn.slice() };
+  const value: Exclude<z.infer<typeof RoleSchema>, 'unknown'> = { text: version.value.text, refs: version.value.refs.slice() };
+  if (version.value.quant !== undefined) value.quant = copyQuant(version.value.quant);
+  return { value, dependsOn: version.dependsOn.slice() };
 }
 
 function historyRecord(entry: SpecHistoryEntry): { at: string; command: string; args: SpecHistoryEntry['args']; before: string[]; after: string[] } {

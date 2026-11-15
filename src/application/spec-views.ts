@@ -1,7 +1,9 @@
 // Plain document views. Built field by field from domain objects.
 import type { UniqueToken } from '../domain/spec-query.js';
-import type { CompiledItem } from '../domain/spec-actions.js';
+import type { CompiledItem, GuardRead, InstanceSet } from '../domain/spec-actions.js';
 import { effectText, predicateText } from '../domain/spec-expr.js';
+import { instanceEffectTexts, instanceGuardTexts, ownInstanceSet, plainInstanceNames, touchesInstances } from '../domain/spec-instances.js';
+import type { Patch, Predicate } from '../domain/valuation.js';
 import type { ClauseReach } from '../domain/spec-kernel.js';
 import { sentenceState, type Concept, type DraftGraph, type Frame, type Grouping, type LiveSentence, type LiveSpan, type Sentence, type SpecFlow, type TaggedSentence, type Token } from '../domain/spec.js';
 import { copyFrame } from '../domain/spec-frames.js';
@@ -146,7 +148,18 @@ export function frameViews(
   items: readonly CompiledItem[],
   restated: Readonly<Record<string, string>>,
   reach: readonly ClauseReach[] = [],
+  instances: readonly InstanceSet[] = [],
 ): FrameView[] {
+  const names = plainInstanceNames(instances);
+  // A guard that counts instances reads as the frames state it, not as its one-instance narrowing.
+  const whenText = (item: { when?: Predicate; reads?: GuardRead[] }): string =>
+    item.reads !== undefined && touchesInstances(item.reads, instances)
+      ? instanceGuardTexts(item.reads, instances, names, 'math').join(' ∧ ')
+      : predicateText(item.when ?? { op: 'true' }, 'math');
+  const effectOf = (item: { assign?: Patch; reads?: GuardRead[] }): string =>
+    item.reads !== undefined && touchesInstances(item.reads, instances)
+      ? instanceEffectTexts(item.assign ?? {}, ownInstanceSet(item.reads, instances), 'math').join(' ∧ ')
+      : effectText(item.assign ?? {}, 'math');
   const reached = new Map<string, FrameReachView>();
   for (const entry of reach) reached.set(entry.frame, reachView(entry));
   const compiled = new Map<string, FrameCompiledView>();
@@ -158,8 +171,8 @@ export function frameViews(
         to: item.overlay.to,
         actor: item.overlay.actor ?? '',
         kind: 'action',
-        when: predicateText(item.when, 'math'),
-        effect: effectText(item.assign, 'math'),
+        when: whenText(item),
+        effect: effectOf(item),
       };
       if (item.overlay.from !== undefined) view.from = item.overlay.from;
       compiled.set(item.id, view);
@@ -170,8 +183,8 @@ export function frameViews(
         to: item.attempted,
         actor: item.actor ?? '',
         kind: 'forbidden',
-        when: predicateText(item.when ?? { op: 'true' }, 'math'),
-        effect: effectText(item.assign ?? {}, 'math'),
+        when: whenText(item),
+        effect: effectOf(item),
       });
     }
   }

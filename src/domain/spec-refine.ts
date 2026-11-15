@@ -3,6 +3,7 @@
 // `latest`, unless its `dependsOn` cites a changed sentence: then it falls back, and clew records the drop.
 import {
   CLEW_AUTHOR,
+  QUANTIFIERS,
   type Concept,
   type Field,
   type FieldVersion,
@@ -13,6 +14,7 @@ import {
   type GroupingVersion,
   type LiveSentence,
   type LiveSpan,
+  type Quantifier,
   type Revision,
   type Role,
   type RoleName,
@@ -269,16 +271,28 @@ export function roleVersion(
   } else if (role === 'when') {
     if (refs.length === 0) return { ok: false, message: '--role when takes one or more frame ids' };
     const texts: string[] = [];
+    const ids: string[] = [];
+    const quant: Record<string, Quantifier> = {};
     evidence = [];
-    for (const ref of refs) {
+    for (const raw of refs) {
+      const parsed = quantifiedRef(raw);
+      const ref = parsed.ref;
       if (ref === frame.id) return { ok: false, message: `${frame.id} cannot wait on itself` };
+      if (ids.includes(ref)) return { ok: false, message: `${ref} is listed twice` };
       const cited = scope.frames.find((item) => item.id === ref);
       if (cited === undefined) return { ok: false, message: `unknown frame "${ref}"` };
-      texts.push(cited.clause.text);
+      if (parsed.quant !== undefined) {
+        if (cited.notTransition !== undefined) return { ok: false, message: `${ref} is not a transition, so ${parsed.quant} has no object to count` };
+        if (sameObject(cited, frame)) return { ok: false, message: `${ref} is about this frame's own object, which ${parsed.quant} cannot count` };
+        quant[ref] = parsed.quant;
+      }
+      ids.push(ref);
+      texts.push(parsed.quant === undefined ? cited.clause.text : `${parsed.quant}: ${cited.clause.text}`);
       const lead = frameEvidence(scope, cited);
       if (lead !== undefined && !evidence.includes(lead)) evidence.push(lead);
     }
-    value = { text: texts.join(' and '), refs: refs.slice() };
+    value = { text: texts.join(' and '), refs: ids };
+    if (Object.keys(quant).length > 0) value.quant = quant;
   } else {
     const only = refs[0];
     if (refs.length !== 1 || only === undefined) return { ok: false, message: `--role ${role} takes exactly one concept id` };
@@ -289,6 +303,21 @@ export function roleVersion(
     evidence = local.length > 0 ? local : concept.members.slice();
   }
   return { ok: true, value: { value, dependsOn: dependsOn === undefined ? evidence : dependsOn.slice() } };
+}
+
+/** `every:fr:s3.t1` → the frame id and its quantifier. A bare frame id has none. */
+export function quantifiedRef(raw: string): { ref: string; quant?: Quantifier } {
+  for (const quant of QUANTIFIERS) {
+    if (raw.startsWith(`${quant}:`)) return { ref: raw.slice(quant.length + 1), quant };
+  }
+  return { ref: raw };
+}
+
+function sameObject(left: Frame, right: Frame): boolean {
+  const a = left.roles.object.latest.value;
+  const b = right.roles.object.latest.value;
+  if (a === 'unknown' || b === 'unknown') return false;
+  return a.refs[0] !== undefined && a.refs[0] === b.refs[0];
 }
 
 /** The concept a `concepts group` writes, checked against the live spans and concepts. */

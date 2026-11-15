@@ -16,7 +16,7 @@ export function viewClauseReach(command: ViewClauseReachCommand, store: SpecStor
   const compilation = compileFrames(frames, result.snapshot.concepts ?? []);
   const reach: ClauseReachDocument['frames'] = {};
   const compiled: ClauseReachDocument['compiled'] = {};
-  for (const view of frameViews(frames, compilation.compiled.items, compilation.restated, clauseReach(compilation.compiled))) {
+  for (const view of frameViews(frames, compilation.compiled.items, compilation.restated, clauseReach(compilation.compiled), compilation.compiled.instances)) {
     if (view.reach !== undefined) reach[view.id] = view.reach;
     if (view.compiled !== undefined) compiled[view.id] = view.compiled;
   }

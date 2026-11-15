@@ -149,10 +149,20 @@ export interface Concept {
 
 export type RoleName = 'actor' | 'event' | 'object' | 'result' | 'when';
 
+/**
+ * How a `when` ref reads an object that has several instances: every instance is in the cited
+ * state, some instance is, or none is. A ref without one reads the object itself.
+ */
+export type Quantifier = 'every' | 'some' | 'none';
+
+export const QUANTIFIERS: readonly Quantifier[] = ['every', 'some', 'none'];
+
 /** `refs` are concept ids (actor, object, result), a span id (event), or frame ids (when). */
 export interface RoleValue {
   text: string;
   refs: string[];
+  /** `when` only: the quantified refs, by frame id. */
+  quant?: Record<string, Quantifier>;
 }
 
 export type Role = RoleValue | 'unknown';

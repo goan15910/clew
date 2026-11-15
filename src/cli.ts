@@ -981,7 +981,7 @@ setManual(frames
   .description('Set one role of one frame from live concepts, spans, or frames.')
   .option('--frame <id>', 'frame to refine, for example fr:s1.t7')
   .option('--role <role>', 'actor, event, object, result, or when')
-  .option('--value <ref>', 'concept id (actor, object, result), content-verb span id (event), or frame id (when, repeatable)', collectFlow, [] as string[])
+  .option('--value <ref>', 'concept id (actor, object, result), content-verb span id (event), or frame id (when, repeatable; every:, some:, or none: before it counts the instances of that frame\'s object)', collectFlow, [] as string[])
   .option('--unknown', 'set the role to unknown')
   .option('--depends-on <span>', 'live span that evidences the value (repeatable; may be in another sentence)', collectFlow, [] as string[])
   .option('--reason <text>', 'why the role changes')
@@ -1006,6 +1006,7 @@ setManual(frames
   examples: [
     'clew spec frames set --frame fr:s1.t7 --role actor --value concept:clerk --reason "the clerk approves" --json',
     'clew spec frames set --frame fr:s2.t1 --role when --value fr:s1.t1 --depends-on sp:s1.t4..s1.t4 --reason "waits on the submit" --json',
+    'clew spec frames set --frame fr:s6.t1 --role when --value fr:s1.t1 --value every:fr:s5.t1 --reason "every crate is closed" --json',
   ],
   exitCodes: specExits,
   notes: [
