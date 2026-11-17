@@ -50,6 +50,7 @@
 // clew spec projection check <view.tla> --against <model.tla> [--map "v <- expr"]... [--cover] [--name projection] [--jar ...] [--json]
 // clew spec projection dump <module.tla> --out graph.dot [--config file.cfg] [--jar ...] [--json]
 // clew spec projection render <graph.dot|module.tla> [--keep v]... [--out file.svg|.png|.dot] [--to v=value]... [--title text] [--json]
+// clew spec projection explore <graph.dot|module.tla> --out page.html [--keep v]... [--to v=value]... [--model module.tla] [--title text] [--json]
 // clew spec projection propose --name Module --keep v... --reason text [--candidate c1] [--by] [--session id] [--json]
 // clew spec projection finalize --name Module --reason text [--drop] [--by] [--session id] [--json]
 // clew spec projection list [--session id] [--json]
@@ -115,8 +116,9 @@ import { acceptCanonDraft, checkCanon, exportCanon, mergeCanon, runCanonTlc, set
 import { acceptWorkflowDraft, addWorkflows, checkWorkflowSet, editWorkflowSentence, exportWorkflows, parseWorkflowSet, setWorkflow, verifyWorkflows, type WorkflowPorts } from './application/canon-workflows.js';
 import { workflowFileStore } from './adapters/canon/workflow-files.js';
 import { graphvizImageWriter, projectionFileStore, projectionFiles } from './adapters/projection/projection-files.js';
-import { analyzeProjectionCase, checkProjection, draftProjection, dumpStateGraph, finalizeProjection, keepList, listProjections, proposeProjection, renderProjection, type ProjectionPorts } from './application/projection.js';
+import { analyzeProjectionCase, checkProjection, draftProjection, dumpStateGraph, exploreProjection, finalizeProjection, keepList, listProjections, proposeProjection, renderProjection, type ProjectionPorts } from './application/projection.js';
 import { PROJECTION_MODULE_PATTERN } from './domain/projection.js';
+import { explorerPageWriter } from './adapters/diagram/interactive/explorer-page.js';
 import { CANON_WORKFLOW_ID_PATTERN, CANON_WORKFLOW_SENTENCE_ID_PATTERN } from './domain/canon-workflow.js';
 import { exportSpec } from './application/export-spec.js';
 import { isVersionRef, MILESTONE_ID_MESSAGE, MILESTONE_ID_PATTERN, VERSION_REF_MESSAGE } from './domain/spec-versions.js';
@@ -167,7 +169,7 @@ const comparePorts: ComparePorts = {
 const milestoneStore = jsonMilestoneStore();
 const canonPorts: CanonPorts = { store: jsonSpecStore, canon: canonFileStore(), parser: chevrotainCanonParser, milestones: milestoneStore };
 const milestonePorts: MilestonePorts = { store: jsonSpecStore, canon: canonPorts.canon, parser: chevrotainCanonParser, milestones: milestoneStore };
-const projectionPorts: ProjectionPorts = { files: projectionFiles, tlc: javaTlcRunner(), images: graphvizImageWriter, store: jsonSpecStore, projections: projectionFileStore(), now: () => new Date().toISOString() };
+const projectionPorts: ProjectionPorts = { files: projectionFiles, tlc: javaTlcRunner(), images: graphvizImageWriter, explorer: explorerPageWriter(() => { const version = packageVersion(); return version.ok ? version.version : ''; }), store: jsonSpecStore, projections: projectionFileStore(), now: () => new Date().toISOString() };
 const workflowPorts: WorkflowPorts = { store: jsonSpecStore, canon: canonPorts.canon, workflows: workflowFileStore(), parser: chevrotainCanonParser };
 const upgradePorts: UpgradePorts = {
   install: { locate: locateInstall },
@@ -396,6 +398,7 @@ const SpecProjectionDraftFlags = z.object({ json: z.boolean().optional(), name: 
 const SpecProjectionCheckFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, against: z.string({ error: '--against is required' }).min(1), map: z.array(z.string().min(1)).default([]), cover: z.boolean().optional(), name: ModuleNameOption.optional(), session: SessionOption, by: z.string().min(1).optional(), spec: z.string().min(1).optional(), next: z.string().min(1).optional() });
 const SpecProjectionDumpFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, out: z.string({ error: '--out is required' }).regex(/\.dot$/i, '--out must end in .dot'), config: z.string().min(1).optional() });
 const SpecProjectionRenderFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, keep: KeepOption, out: z.string().min(1).optional(), title: z.string().min(1).optional(), to: z.array(z.string().min(1)).default([]), maxStates: z.coerce.number().int().min(1).max(100000).default(150), direction: z.enum(['LR', 'TB']).default('LR'), config: z.string().min(1).optional() });
+const SpecProjectionExploreFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, keep: KeepOption, out: z.string({ error: '--out is required' }).regex(/\.html?$/i, '--out must end in .html'), title: z.string().min(1).optional(), to: z.array(z.string().min(1)).default([]), model: z.string().min(1).optional(), maxStates: z.coerce.number().int().min(1).max(5000).default(400), config: z.string().min(1).optional() });
 const SpecProjectionProposeFlags = z.object({ ...RevisionFlags, name: ModuleNameOption, keep: KeepOption.refine((keep) => keep.length > 0, '--keep is required'), candidate: z.string().min(1).optional() });
 const SpecProjectionFinalizeFlags = z.object({ ...RevisionFlags, name: ModuleNameOption, drop: z.boolean().optional() });
 const CanonWorkflowIdOption = z.string().regex(CANON_WORKFLOW_ID_PATTERN, 'workflow ids look like w1');
@@ -1878,6 +1881,32 @@ setManual(projection
   examples: ['clew spec projection render tla/OrderLifecycle.tla --out order-lifecycle.svg --jar tla2tools.jar', 'clew spec projection render tla/order.dot --keep order_status --to order_status=shipped --out order.png --json'],
   exitCodes: [{ code: 0, meaning: 'the view was computed, and drawn when --out was given' }, { code: 2, meaning: 'the graph is unreadable, a kept variable is unknown, no state matches --to, the view is too large for a picture, or Graphviz is missing' }],
   notes: ['A solid arrow is a step every state behind its source can take. A dashed arrow is possible from some of them only: it waits on a hidden variable. A double border marks a state no step leaves. The dot on the left marks where the model starts.', 'The numbers say how many states and steps the view has, how many of the full graph they stand for, and which steps are only possible.', 'Pictures need Graphviz (dot) on PATH; .dot output does not.', tlcNote, jsonNote],
+});
+
+setManual(projection
+  .command('explore')
+  .description('Write an interactive page of a state graph: click a state to see its next actions, and walk or highlight paths.')
+  .argument('<graph>', 'a TLC dump (.dot), or a module (.tla) for TLC to dump')
+  .option('--out <file.html>', 'the page: one self-contained HTML file')
+  .option('--keep <variables>', 'project onto these variables; repeat it or separate with commas', collectFlow, [])
+  .option('--to <variable=value>', 'open on a shortest path to a state with this value; repeat it', collectFlow, [])
+  .option('--model <module.tla>', 'read what each action says from this module, when the graph is a dump')
+  .option('--title <text>', 'the page title')
+  .option('--max-states <n>', 'refuse a view with more states than this (default 400)')
+  .option('--config <file>', 'TLC config for a module')
+  .option('--jar <file>', 'tla2tools.jar; defaults to $TLA2TOOLS_JAR')
+  .option('--timeout <seconds>', 'stop TLC after this many seconds (default 300)')
+  .option('--workers <n>', 'TLC worker threads (default 1)')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((graph, opts) => {
+    const parsed = SpecProjectionExploreFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.explore', opts, parsed.error);
+    const flags = parsed.data;
+    emit(exploreProjection({ file: graph, out: flags.out, keep: keepList(flags.keep), to: flags.to, model: flags.model, title: flags.title, maxStates: flags.maxStates, config: flags.config, jar: flags.jar, workers: flags.workers, timeoutSeconds: flags.timeout }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection explore tla/OrderLifecycle.tla --out order.html --jar tla2tools.jar', 'clew spec projection explore tla/order.dot --keep order_status,payment_status --model tla/Order.tla --to order_status=closed --out order.html --json'],
+  exitCodes: [{ code: 0, meaning: 'the page was written' }, { code: 2, meaning: 'the graph is unreadable, a kept variable is unknown, no state matches --to, the view is too large, or --out does not end in .html' }],
+  notes: ['The page shows the current state, its next actions with the sentence each came from, the walk so far, and the steps that lead to the current state. Clicking a next action takes the step; clicking any other state jumps to it by a shortest path from the start.', 'A dashed arrow, and an action marked possible, waits on a hidden variable: the page says from how many of the states behind the current one it can happen.', 'The page needs no server and no network: Cytoscape, the layout, and the graph are inside the file.', tlcNote, jsonNote],
 });
 
 setManual(projection
