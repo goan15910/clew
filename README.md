@@ -62,9 +62,11 @@ clew spec milestone list                    # milestones, with a digest of each
 clew spec diff original m1                  # every changed sentence, with the reasons recorded on it
 clew spec workflow add --file examples/canon/workflows.md --reason "intent"   # workflows in English, on the spec's concepts
 clew spec workflow verify --dir /tmp/order --name Order --jar tla2tools.jar     # a witness, or the path that should not exist
+clew spec projection analyze examples/projection/Fulfil.tla                     # which variables belong together, and the views worth drawing
+clew spec projection render examples/projection/Fulfil.tla --keep order_status --out order.svg --jar tla2tools.jar
 ```
 
-See [docs/canon.md](docs/canon.md), [docs/versioning.md](docs/versioning.md), and [docs/workflows.md](docs/workflows.md).
+See [docs/canon.md](docs/canon.md), [docs/versioning.md](docs/versioning.md), [docs/workflows.md](docs/workflows.md), and [docs/projection.md](docs/projection.md).
 
 ## Help
 

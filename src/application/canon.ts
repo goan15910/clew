@@ -26,6 +26,8 @@ export interface TlcRequest {
   workers: number;
   timeoutSeconds: number;
   coverage: boolean;
+  /** Write the reachable state graph to this file (`-dump dot,actionlabels`). */
+  dump?: string;
 }
 
 export interface TlcRun {

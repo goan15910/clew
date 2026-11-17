@@ -15,8 +15,7 @@ import { acquireLock, readSnapshot } from './json-file-store.js';
  * The session files a milestone freezes. Everything a version is read from: the sentence layers, the frames path's
  * layers, and the canonical lexicon. Not history.jsonl (ranges point into it), the viewer, or the milestones.
  */
-export const SNAPSHOT_FILES = ['session.json', 'sentences.json', 'tokens.json', 'spans.json', 'concepts.json', 'frames.json', 'flows.json', 'canon.json'] as const;
-
+export const SNAPSHOT_FILES = ['session.json', 'sentences.json', 'tokens.json', 'spans.json', 'concepts.json', 'frames.json', 'flows.json', 'canon.json', 'projections.json'] as const;
 const INDEX_FILE = 'milestones.json';
 const SNAPSHOT_DIR = 'milestones';
 
