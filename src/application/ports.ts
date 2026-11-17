@@ -1,4 +1,5 @@
 // Ports the use cases need. Adapters implement these; the use cases do not import adapters.
+import type { CanonLexicon, ParseOutput } from '../domain/canon-ast.js';
 import type { Model } from '../domain/model.js';
 import type { Spec, SpecDraft } from '../domain/spec-model.js';
 import type { BuildInfo } from '../domain/upgrade.js';
@@ -202,4 +203,15 @@ export interface UpgradePorts {
     installedVersion(prefix: string): Fetched<string>;
   };
   provenance: { verify(tarball: string): Promise<Fetched<void>> };
+}
+
+/** Reads one sentence against the canonical grammar. Rules above the grammar are the domain's. */
+export interface CanonParser {
+  parse(text: string): ParseOutput;
+}
+
+/** Builds a parser for one lexicon: declared actors, terms, states, and verbs are tokens of their own. */
+export interface CanonParserFactory {
+  readonly name: string;
+  forLexicon(lexicon: CanonLexicon): CanonParser;
 }

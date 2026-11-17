@@ -37,6 +37,7 @@
   "dependencies": {
     "@commander-js/extra-typings": "^15.0.0",
     "@xstate/graph": "^3.0.4",
+    "chevrotain": "^13.2.0",
     "commander": "^15.0.0",
     "compromise": "14.19.0",
     "xstate": "^5.33.3",
@@ -46,6 +47,7 @@
   "bundleDependencies": [
     "@commander-js/extra-typings",
     "@xstate/graph",
+    "chevrotain",
     "commander",
     "compromise",
     "xstate",

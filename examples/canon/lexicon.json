@@ -1,0 +1,7 @@
+{
+  "actors": ["customer", "manager", "warehouse"],
+  "terms": [],
+  "states": [],
+  "verbs": [],
+  "fixed": ["total"]
+}

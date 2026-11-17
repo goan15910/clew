@@ -1,4 +1,7 @@
 // Machine-readable command documents. The CLI prints these; it does not invent a second shape.
+import type { CanonLexicon, Diagnostic, Span } from '../domain/canon-ast.js';
+import type { CanonFinding, CanonModel } from '../domain/canon-compile.js';
+import type { DraftRewrite } from '../domain/canon-gate.js';
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { ClauseStatus } from '../domain/spec-kernel.js';
@@ -563,6 +566,8 @@ export interface SpecStatusDocument {
   layers?: { tokens: boolean; concepts: boolean; frames: boolean; graph: boolean };
   findingsByLayer?: { sentences: Finding[]; tokens: Finding[]; concepts: Finding[]; frames: Finding[]; graph: Finding[] };
   clauses?: ClauseReachView[];
+  /** The canonical gate, when the session has a canonical lexicon: sentences that pass, and the dangling ones with drafts. */
+  canon?: { accepted: string[]; dangling: DanglingView[] };
   findings: Finding[];
   fault?: SpecFault;
   issues: OutputIssue[];
@@ -752,6 +757,60 @@ export interface UpgradeDocument {
   issues: OutputIssue[];
 }
 
+// The canonical pipeline (clew spec canon ...).
+export interface DanglingView {
+  id: string;
+  text: string;
+  diagnostics: Diagnostic[];
+  draft?: DraftRewrite;
+}
+
+export interface CanonActionView {
+  name: string;
+  sentence: string;
+  branch: number;
+  actor: string;
+  event: string;
+  object: string;
+  guards: { tla: string; from: string; words: string; span: Span }[];
+  effects: { tla: string; from: string; words: string; span: Span }[];
+}
+
+export interface TlcResultView {
+  status: 'pass' | 'violation' | 'error' | 'timeout';
+  command: string;
+  violation?: { kind: 'invariant' | 'property' | 'deadlock' | 'assumption' | 'other'; name?: string; sentence?: string; message: string };
+  trace?: { step: number; action?: string; sentence?: string; state: string[] }[];
+  coverage?: { action: string; sentence?: string; distinct: number; total: number }[];
+  states?: { generated: number; distinct: number; depth?: number };
+  errors?: string[];
+  output?: string;
+}
+
+export interface SpecCanonDocument {
+  command: 'spec.canon.lexicon' | 'spec.canon.check' | 'spec.canon.accept' | 'spec.canon.merge' | 'spec.canon.export' | 'spec.canon.tlc';
+  ok: boolean;
+  session?: string;
+  parser?: string;
+  lexicon?: CanonLexicon;
+  accepted?: string[];
+  dangling?: DanglingView[];
+  knownStates?: string[];
+  actions?: CanonActionView[];
+  model?: { nouns: CanonModel['nouns']; links: CanonModel['links']; conditions: CanonModel['conditions']; refusals: string[]; invariants: string[] };
+  canonFindings?: CanonFinding[];
+  sentence?: { id: string; from: string; to: string; notes: string[]; dropped: string[] };
+  merged?: { into: string; from: string[] };
+  files?: { path: string; module: string; written: boolean; kept?: boolean }[];
+  tla?: { blocks: string; cfg: string; model: string; check: string; checkCfg: string; coverageCfg: string };
+  run?: { blocks: string; refinement: string; coverage: string };
+  tlc?: TlcResultView;
+  findings: [];
+  fault?: 'unreadable' | 'locked' | 'schema' | 'session' | 'lexicon' | 'gate';
+  issues: OutputIssue[];
+}
+
+
 export type CommandDocument =
   | UpgradeDocument
   | ChartCheckDocument
@@ -778,7 +837,8 @@ export type CommandDocument =
   | SpecGraphDocument
   | SpecEmitDocument
   | SpecTlaExportDocument
-  | SpecTlaCheckDocument;
+  | SpecTlaCheckDocument
+  | SpecCanonDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 

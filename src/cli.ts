@@ -26,6 +26,12 @@
 // clew spec emit (--dry-run | --out file) [--chart file] [--force] [--session id] [--json]
 // clew spec tla export (--dry-run | --out frames.tla [--model model.tla] [--force]) [--session id] [--json]
 // clew spec tla check <model.tla> [--session id] [--json]
+// clew spec canon lexicon --file lexicon.json --reason text [--by] [--session id] [--json]
+// clew spec canon check [--sentence s1] [--session id] [--json]
+// clew spec canon accept --id s1 --reason text [--descriptive text] [--by] [--session id] [--json]
+// clew spec canon merge --id s1 --id s2 --text block --reason text [--by] [--session id] [--json]
+// clew spec canon export (--dry-run | --dir D) --name Module [--force] [--session id] [--json]
+// clew spec canon tlc <file.tla> [--config file.cfg] [--jar tla2tools.jar] [--timeout s] [--workers n] [--coverage] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show sentences|tagged|tokens|spans|concepts|frames [--session id] [--json]
@@ -82,6 +88,9 @@ import { checkTla } from './application/check-tla.js';
 import { emitSpec } from './application/emit-spec.js';
 import { exportTla } from './application/export-tla.js';
 import { tlaTextFiles } from './adapters/tla/text-files.js';
+import { canonFileStore, canonLexiconFile, canonTextFiles, javaTlcRunner } from './adapters/canon/canon-files.js';
+import { chevrotainCanonParser } from './adapters/canon/chevrotain-parser.js';
+import { acceptCanonDraft, checkCanon, exportCanon, mergeCanon, runCanonTlc, setCanonLexicon, type CanonPorts } from './application/canon.js';
 import { exportSpec } from './application/export-spec.js';
 import { initSpec } from './application/init-spec.js';
 import { listConcepts } from './application/list-concepts.js';
@@ -125,6 +134,7 @@ const comparePorts: ComparePorts = {
   reports: fileReportWriter,
 };
 
+const canonPorts: CanonPorts = { store: jsonSpecStore, canon: canonFileStore(), parser: chevrotainCanonParser };
 const upgradePorts: UpgradePorts = {
   install: { locate: locateInstall },
   releases: githubReleases,
@@ -303,6 +313,37 @@ const SpecTlaExportFlags = z.object({
   if (value.model === '-') context.addIssue({ code: 'custom', message: 'export writes a file; Clew never writes the model to stdout', path: ['model'] });
   if (value.dryRun === true && (value.out !== undefined || value.model !== undefined)) context.addIssue({ code: 'custom', message: 'pass --dry-run or --out, not both', path: ['out'] });
   if (value.dryRun !== true && value.out === undefined) context.addIssue({ code: 'custom', message: 'export needs --dry-run or --out', path: ['out'] });
+});
+const SpecCanonLexiconFlags = z.object({
+  ...RevisionFlags,
+  file: z.string({ error: '--file is required' }).min(1).refine((value) => value !== '-', 'Clew never reads stdin; pass a .json file'),
+});
+const SpecCanonCheckFlags = z.object({
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+  sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
+});
+const SpecCanonAcceptFlags = z.object({ ...RevisionFlags, id: SentenceIdOption, descriptive: z.string().trim().min(1, '--descriptive needs a reason').optional() });
+const SpecCanonMergeFlags = z.object({
+  ...RevisionFlags,
+  id: z.array(SentenceIdOption).min(2, 'merge takes at least two --id'),
+  text: z.string({ error: '--text is required' }).trim().min(1),
+});
+const SpecCanonExportFlags = z.object({
+  json: z.boolean().optional(),
+  session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
+  name: z.string({ error: '--name is required' }).min(1),
+  dir: z.string().min(1).optional(),
+  dryRun: z.boolean().optional(),
+  force: z.boolean().optional(),
+}).refine((flags) => (flags.dir !== undefined) !== (flags.dryRun === true), { message: 'pass exactly one of --dir and --dry-run', path: ['dir'] });
+const SpecCanonTlcFlags = z.object({
+  json: z.boolean().optional(),
+  config: z.string().min(1).optional(),
+  jar: z.string().min(1).optional(),
+  timeout: z.coerce.number().int().min(1).max(86400).default(300),
+  workers: z.coerce.number().int().min(1).max(64).default(1),
+  coverage: z.boolean().optional(),
 });
 const SpecSessionFlags = z.object({
   json: z.boolean().optional(),
@@ -1205,6 +1246,134 @@ setManual(tla
   ],
 });
 
+const canon = spec.command('canon').description('Gate the sentences against the canonical grammar, compile them to TLA+, and run TLC.').helpCommand(false);
+const canonNote = 'A sentence passes the gate when it parses in the canonical grammar and breaks no rule above it. A sentence that does not pass is dangling: it never reaches the model, and check prints a draft rewrite for it. See docs/canon.md.';
+const canonExits = [
+  { code: 0 as const, meaning: 'every live sentence passes the gate and nothing blocks the model' },
+  { code: 1 as const, meaning: 'a sentence is dangling, or the model has a blocking finding' },
+  { code: 2 as const, meaning: 'the input is unreadable, the arguments are wrong, there is no spec session, or no lexicon' },
+];
+
+setManual(canon
+  .command('lexicon')
+  .description('Set the canonical lexicon of the session: actors and multi-word nouns, states, and verbs.')
+  .option('--file <lexicon.json>', '{"actors":[],"terms":[],"states":[],"verbs":[],"instances":{}}')
+  .option('--reason <text>', 'why the lexicon changes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecCanonLexiconFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.canon.lexicon', opts, parsed.error);
+    emit(setCanonLexicon({ sessionId: parsed.data.session, file: parsed.data.file, reason: parsed.data.reason, by: parsed.data.by }, canonPorts, canonLexiconFile), parsed.data.json === true);
+  }), {
+  examples: ['clew spec canon lexicon --file lexicon.json --reason "first lexicon" --json'],
+  exitCodes: [{ code: 0, meaning: 'the lexicon was written' }, { code: 2, meaning: 'the lexicon file is unreadable or invalid, or there is no spec session' }],
+  notes: ['Single words need no entry: a noun, state, or verb of one word is read from its place in the sentence. List multi-word ones, and every actor.', 'instances maps a noun to how many instances the exported module gives it (1 to 8).', canonNote, jsonNote, sessionNote],
+});
+
+setManual(canon
+  .command('check')
+  .description('Run the gate over every live sentence and compile the accepted ones (read-only).')
+  .option('--sentence <id>', 'report one sentence only')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecCanonCheckFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.canon.check', opts, parsed.error);
+    emit(checkCanon({ sessionId: parsed.data.session, sentence: parsed.data.sentence }, canonPorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec canon check --json', 'clew spec canon check --sentence s4 --json'],
+  exitCodes: canonExits,
+  notes: [canonNote, 'Each diagnostic names its code, the words it found, and what the grammar expected. A draft with needsConfirm guesses; one with needsInput holds a placeholder to fill in.', jsonNote, sessionNote],
+});
+
+setManual(canon
+  .command('accept')
+  .description('Replace a dangling sentence with its draft rewrite. The sentence keeps its id and history.')
+  .option('--id <id>', 'dangling sentence')
+  .option('--descriptive <reason>', 'accept a draft that leaves words out, saying why they have no behaviour')
+  .option('--reason <text>', 'why the draft is right')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecCanonAcceptFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.canon.accept', opts, parsed.error);
+    emit(acceptCanonDraft({ sessionId: parsed.data.session, id: parsed.data.id, reason: parsed.data.reason, descriptive: parsed.data.descriptive, by: parsed.data.by }, canonPorts, compromiseTagger, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec canon accept --id s7 --reason "the draft keeps the meaning" --json'],
+  exitCodes: [{ code: 0, meaning: 'the sentence now reads as its draft' }, { code: 2, meaning: 'the sentence passes already, has no draft, its draft does not pass, or it leaves words out without --descriptive' }],
+  notes: ['A draft that does not pass the gate cannot be accepted: write the sentence yourself with clew spec sentences edit.', revisionNote, jsonNote, sessionNote],
+});
+
+setManual(canon
+  .command('merge')
+  .description('Restate several sentences as one action block, and delete the sources with a reason that names the block.')
+  .option('--id <id>', 'a sentence to merge; repeat it', collectFlow, [])
+  .option('--text <block>', 'the action block, in the canonical grammar')
+  .option('--reason <text>', 'why the sentences are one action')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecCanonMergeFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.canon.merge', opts, parsed.error);
+    emit(mergeCanon({ sessionId: parsed.data.session, ids: parsed.data.id, text: parsed.data.text, reason: parsed.data.reason, by: parsed.data.by }, canonPorts, compromiseTagger, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec canon merge --id s3 --id s4 --text "When the clerk files the form: if the form is complete, the form is filed, or else the form is returned." --reason "one decision" --json'],
+  exitCodes: [{ code: 0, meaning: 'the block was added and the sources deleted' }, { code: 2, meaning: 'the block does not pass the gate, an id is not live, or there is no spec session' }],
+  notes: ['An action block is one atomic step: one event, its branches, each with conditions and results.', revisionNote, jsonNote, sessionNote],
+});
+
+setManual(canon
+  .command('export')
+  .description('Compile the accepted sentences into a blocks module, a starter model, and the TLC configs.')
+  .option('--name <Module>', 'the model name; the blocks module is <Module>Blocks')
+  .option('--dir <dir>', 'write the files into this existing directory')
+  .option('--dry-run', 'print the modules in the document without writing a file')
+  .option('--force', 'replace an existing model with a fresh starter')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecCanonExportFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.canon.export', opts, parsed.error);
+    const flags = parsed.data;
+    emit(exportCanon({ sessionId: flags.session, dir: flags.dir, name: flags.name, dryRun: flags.dryRun === true, force: flags.force === true }, canonPorts, canonTextFiles), flags.json === true);
+  }), {
+  examples: ['clew spec canon export --dir tla --name Order --json', 'clew spec canon export --dry-run --name Order --json'],
+  exitCodes: [{ code: 0, meaning: 'the files were written (or drafted) and no sentence is dangling' }, { code: 1, meaning: 'the files were written, but dangling sentences were left out' }, { code: 2, meaning: 'no sentence states an action, the name is not a module name, or there is no session or lexicon' }],
+  notes: ['Clew owns <Module>Blocks.tla/.cfg, <Module>Check.tla/.cfg, and <Module>Coverage.cfg and rewrites them on every export. <Module>.tla is yours: it starts as a copy that instances the blocks module, and is kept unless --force.', 'Each action carries the sentence id in its name (ApproveOrder_s3), so a TLC trace maps back to sentences.', jsonNote, sessionNote],
+});
+
+setManual(canon
+  .command('tlc')
+  .description('Run TLC on a module and map the result back to sentences.')
+  .argument('<file>', 'TLA+ module; its .cfg beside it is used unless --config')
+  .option('--config <file>', 'TLC config file')
+  .option('--jar <file>', 'tla2tools.jar; defaults to $TLA2TOOLS_JAR')
+  .option('--timeout <seconds>', 'stop TLC after this many seconds (default 300)')
+  .option('--workers <n>', 'TLC worker threads (default 1)')
+  .option('--coverage', 'print action coverage (-coverage 1)')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((file, opts) => {
+    const parsed = SpecCanonTlcFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.canon.tlc', opts, parsed.error);
+    if (file.trim() === '' || file === '-') usage('spec.canon.tlc', opts, new z.ZodError([{ code: 'custom', message: 'tlc reads a .tla file; Clew never reads stdin', path: ['file'] }]));
+    const flags = parsed.data;
+    emit(runCanonTlc({ file, config: flags.config, jar: flags.jar, workers: flags.workers, timeoutSeconds: flags.timeout, coverage: flags.coverage === true }, javaTlcRunner()), flags.json === true);
+  }), {
+  examples: ['clew spec canon tlc tla/OrderBlocks.tla --jar tla2tools.jar --json', 'clew spec canon tlc tla/OrderCheck.tla --config tla/OrderCoverage.cfg --coverage --json'],
+  exitCodes: [{ code: 0, meaning: 'TLC found no error' }, { code: 1, meaning: 'TLC found a violation, or timed out' }, { code: 2, meaning: 'no jar or Java, the file is missing, or TLC could not parse the module' }],
+  notes: ['Clew does not ship TLC. Pass --jar or set TLA2TOOLS_JAR; Java must be on PATH (or set JAVA).', 'A violation names the invariant or property and its sentence; each trace step names the action and its sentence.', jsonNote],
+});
+
 setManual(spec
   .command('trace')
   .description('Follow an id back to frames, concepts, tokens, and the sentence.')
@@ -1248,7 +1417,7 @@ setManual(spec
   .action((opts) => {
     const parsed = SpecSessionFlags.safeParse(opts);
     if (!parsed.success) usage('spec.status', opts, parsed.error);
-    emit(readSpecStatus({ sessionId: parsed.data.session }, jsonSpecStore), parsed.data.json === true);
+    emit(readSpecStatus({ sessionId: parsed.data.session }, jsonSpecStore, canonPorts), parsed.data.json === true);
   }), {
   examples: ['clew spec status --json'],
   exitCodes: specExits,
