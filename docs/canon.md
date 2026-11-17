@@ -67,6 +67,8 @@ A dangling sentence gets a draft rewrite: the retired wording first (`if`/`once`
 
 `export` writes `<Name>Blocks.tla/.cfg`, `<Name>Check.tla/.cfg`, and `<Name>Coverage.cfg`, all owned by Clew and rewritten every time, and `<Name>.tla`, the model, which starts as a copy of the blocks plus `Blocks == INSTANCE <Name>Blocks` and is yours: it is kept unless `--force`. The check module asserts `Blocks!Spec`, the blocks' invariants and refusals, and one `Cover_` per action.
 
+The blocks module also defines `Get_<variable> == <variable>` for each variable, so a module that instances it can read its state (`Blocks!Get_order_status`); the workflow monitors of [workflows.md](workflows.md) use it. The condition compiler is shared with them (`conditionExpressions`), so a condition means the same in a spec sentence and in a workflow step.
+
 Compiler findings: `abstract-condition`, `unscoped-condition`, `owner-unknown`, `scope-not-compiled`, `copy-source`, `same-on-single`, `refusal-unmatched`, `many-starts`, `final-has-exit`, `state-never-set`, `no-final-states`, `same-step-two-results`, `no-states`.
 
 ## Decisions

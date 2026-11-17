@@ -46,6 +46,15 @@ clew spec milestone close --title <text> --goal <text> [--decision <text>]... [-
 clew spec milestone list [--session <id>] [--json]
 clew spec milestone show <mN> [--changes] [--session <id>] [--json]
 clew spec diff [from] [to] [--session <id>] [--json]
+clew spec workflow add --file <workflows.md> --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
+clew spec workflow check [--workflow <wN>] [--session <id>] [--json]
+clew spec workflow edit --id <wN.sM> --text <sentence> --reason <text> [--by <name>] [--session <id>] [--json]
+clew spec workflow step (--workflow <wN> | --after <wN.sM>) --text <sentence> --reason <text> [--by <name>] [--session <id>] [--json]
+clew spec workflow delete --id <wN.sM> --reason <text> [--by <name>] [--session <id>] [--json]
+clew spec workflow set --workflow <wN> [--expect possible|refused] [--mode loose|exact] [--title <text>] [--delete] --reason <text> [--session <id>] [--json]
+clew spec workflow accept --id <wN.sM> --reason <text> [--descriptive <text>] [--session <id>] [--json]
+clew spec workflow export --dir <dir> --name <Module> [--workflow <wN>] [--session <id>] [--json]
+clew spec workflow verify --dir <dir> --name <Module> [--workflow <wN>] [--jar <tla2tools.jar>] [--timeout <s>] [--workers <n>] [--session <id>] [--json]
 clew spec concepts list [--session <id>] [--json]
 clew spec concepts group --span <id> (--into <concept> | --none) [--depends-on <span>]... --reason <text> [--by <name>] [--finding <id>] [--comment <text>] [--session <id>] [--json]
 clew spec frames list [--sentence <id>] [--session <id>] [--json]
@@ -92,6 +101,8 @@ The `b-full` heatmap is [assets/coverage-heatmap.svg](assets/coverage-heatmap.sv
 `spec canon` is the prototype canonical pipeline. `spec canon lexicon` stores the session's actors and multi-word words, `spec canon check` holds every sentence to one strict grammar and prints a draft rewrite for each sentence that does not fit (a *dangling* sentence), `spec canon accept` and `spec canon merge` write the canonical text back into the sentence history, `spec canon export` compiles the accepted sentences into a TLA+ blocks module, a starter model, and TLC configs, and `spec canon tlc` runs TLC and maps the result back to sentences. See [canon.md](canon.md) for the grammar, the gate, the model, and the decisions behind them.
 
 `spec milestone close` closes a batch of work as a milestone: a title, a goal, the decisions taken (one `--decision` each, rationale included), the author, the ranges of `history.jsonl` lines and `canon.json` entries it covers, a digest against the previous milestone, and a frozen copy of the session files. `spec milestone list` lists them and the changes not yet in one; `spec milestone show <mN>` prints one digest, and `--changes` every log entry under it. `spec diff [from] [to]` compares two versions (`original`, a milestone id, or `latest`; by default the last milestone and `latest`): sentences added, deleted, and edited with the reasons recorded between them, the lexicon, the gate counts, and the compiled actions. `spec export --at`, `spec canon check --at`, and `spec canon export --at` read an earlier version. The document commands are `spec.milestone.close`, `spec.milestone.list`, `spec.milestone.show`, and `spec.diff`. See [versioning.md](versioning.md).
+
+`spec workflow` keeps workflows in English: lists of canonical sentences under a heading that ends in `(possible)` or `(refused)`, stored in `workflows.json` with ids `w1`, `w1.s1`. They share the spec's lexicon and concepts, pass the same gate (with three workflow rules), and each step cites the spec actions and sentences it matches; the spec never reads them. `spec workflow check` reports the findings (`unknown-concept`, `step-unmatched`, `needs-instances`, ...), `edit`, `step`, `delete`, `accept`, and `set` write with a reason, `export` writes a scenario monitor module that extends the agent's model, and `verify` runs TLC on each workflow and reads the result against what it expects. The document commands are `spec.workflow.add`, `spec.workflow.check`, `spec.workflow.edit`, `spec.workflow.step`, `spec.workflow.delete`, `spec.workflow.set`, `spec.workflow.accept`, `spec.workflow.export`, and `spec.workflow.verify`. See [workflows.md](workflows.md).
 
 `spec init <spec.md>` reads a Markdown or plain-text file and splits it into sentences. `-` is rejected: Clew never reads stdin. ATX headings (`#` through `######`) are section provenance on the following sentences, not sentences themselves. Fenced code blocks and HTML comments are skipped. Each sentence has an id (`s1`, `s2`, …), the exact source slice, a character span into the file, and a `sha256:` hash of that slice.
 
