@@ -1,4 +1,6 @@
 // Short stdout for humans. `--json` skips this and prints the command document.
+import type { SpecProjectionDocument } from '../../application/documents.js';
+import { projectionSummary } from './projection-summary.js';
 import type { CommandDocument, ConceptView, SpecCanonDocument, SpecWorkflowDocument, SpecDiffDocument, SpecMilestoneDocument, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import type { ActionDiff, LexiconDiff, Milestone, VersionCounts } from '../../domain/spec-versions.js';
 import { formatIssues } from '../../application/documents.js';
@@ -199,6 +201,7 @@ export function humanSummary(document: CommandDocument): string {
   }
   if (document.command.startsWith('spec.canon.')) return canonSummary(document as SpecCanonDocument);
   if (document.command.startsWith('spec.workflow.')) return workflowSummary(document as SpecWorkflowDocument);
+  if (document.command.startsWith('spec.projection.')) return projectionSummary(document as SpecProjectionDocument);
   if (document.command.startsWith('spec.milestone.')) return milestoneSummary(document as SpecMilestoneDocument);
   if (document.command === 'spec.diff') return diffSummary(document);
   if (document.command === 'spec.status') {

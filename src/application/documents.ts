@@ -4,6 +4,8 @@ import type { CanonFinding, CanonModel } from '../domain/canon-compile.js';
 import type { DraftRewrite } from '../domain/canon-gate.js';
 import type { StepCitation, WorkflowExpect, WorkflowFinding, WorkflowMode, WorkflowSentenceView } from '../domain/canon-workflow.js';
 import type { Comparison } from '../domain/comparison.js';
+import type { KeepEvaluation, ProjectionAnalysis, ViewDraft } from '../domain/projection.js';
+import type { GraphStats } from '../domain/state-graph.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { ClauseStatus } from '../domain/spec-kernel.js';
 import type { ImpactEntry } from '../domain/spec-refine.js';
@@ -906,6 +908,65 @@ export interface SpecWorkflowDocument {
   issues: OutputIssue[];
 }
 
+/** One projection as a session records it. */
+export interface ProjectionRecordView {
+  name: string;
+  keep: string[];
+  candidate?: string;
+  status: 'proposed' | 'final' | 'dropped';
+  check?: { at: string; status: 'implements' | 'violation' | 'error' | 'timeout'; view: string; model: string; viewHash: string; modelHash: string; states?: number; neverTaken?: string[] };
+  history: { at: string; who: string; reason: string; action: 'propose' | 'check' | 'finalize' | 'drop'; keep?: string[]; note?: string }[];
+}
+
+export interface SpecProjectionDocument {
+  command: 'spec.projection.analyze' | 'spec.projection.draft' | 'spec.projection.check' | 'spec.projection.dump' | 'spec.projection.render' | 'spec.projection.propose' | 'spec.projection.finalize' | 'spec.projection.list';
+  ok: boolean;
+  session?: string;
+  module?: string;
+  /** What each action reads and writes, and the views that follow from it. */
+  analysis?: ProjectionAnalysis;
+  /** What keeping the `--keep` variables does to the actions. */
+  evaluation?: KeepEvaluation;
+  /** The state graph that was read. */
+  graph?: { states: number; edges: number; variables: string[]; parts: string[] };
+  /** How the variables go together over the reachable states. */
+  stats?: GraphStats;
+  /** Each candidate projected on the state graph: its size, and how many of its edges are certain. */
+  scored?: { candidate: string; keep: string[]; states: number; edges: number; certain: number; exactness: number }[];
+  draft?: Omit<ViewDraft, 'tla' | 'cfg'>;
+  tla?: { view: string; cfg: string };
+  files?: { path: string; module?: string; written: boolean }[];
+  check?: {
+    view: string;
+    model: string;
+    mapping: { variable: string; expression: string }[];
+    /** TLC found no behaviour of the model that the view does not allow. */
+    implements: boolean;
+    steps: string[];
+    /** With --cover: steps the view allows and the model never takes. */
+    neverTaken?: string[];
+    /** With --cover: how many model steps change hidden variables only. */
+    hiddenSteps?: number;
+  };
+  view?: {
+    variables: string[];
+    states: number;
+    edges: number;
+    exactness: number;
+    fullStates: number;
+    fullEdges: number;
+    /** Edges that depend on hidden variables: possible from `sources` of the `of` states behind the source. */
+    possible: { from: string; action: string; to: string; sources: number; of: number }[];
+    terminal: string[];
+    pathLength?: number;
+  };
+  projections?: ProjectionRecordView[];
+  tlc?: TlcResultView;
+  findings: [];
+  fault?: 'unreadable' | 'session' | 'model' | 'tlc' | 'exists' | 'too-large' | 'projection' | 'unchecked' | 'stale';
+  issues: OutputIssue[];
+}
+
 export type CommandDocument =
   | UpgradeDocument
   | ChartCheckDocument
@@ -936,7 +997,8 @@ export type CommandDocument =
   | SpecCanonDocument
   | SpecMilestoneDocument
   | SpecDiffDocument
-  | SpecWorkflowDocument;
+  | SpecWorkflowDocument
+  | SpecProjectionDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 
