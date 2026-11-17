@@ -70,31 +70,35 @@ export const canonLexiconFile: CanonLexiconSource = {
   },
 };
 
+/** Read one canon.json: the live one beside a session's sentences, or a copy a milestone froze. Absent is not an error. */
+export function readCanonState(file: string): { ok: true; state: CanonState | undefined } | { ok: false; message: string } {
+  if (!existsSync(file)) return { ok: true, state: undefined };
+  try {
+    const parsed = StateSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
+    if (!parsed.success) return { ok: false, message: `${file}: ${issueText(parsed.error)}` };
+    const state: CanonState = { schemaVersion: 1, lexicon: toLexicon(parsed.data.lexicon), history: [] };
+    for (const entry of parsed.data.history) {
+      const copy: CanonState['history'][number] = { at: entry.at, who: entry.who, reason: entry.reason, action: entry.action };
+      if (entry.sentence !== undefined) copy.sentence = entry.sentence;
+      if (entry.from !== undefined) copy.from = entry.from;
+      if (entry.to !== undefined) copy.to = entry.to;
+      if (entry.notes !== undefined) copy.notes = entry.notes;
+      if (entry.dropped !== undefined) copy.dropped = entry.dropped;
+      if (entry.descriptive !== undefined) copy.descriptive = entry.descriptive;
+      if (entry.merged !== undefined) copy.merged = entry.merged;
+      state.history.push(copy);
+    }
+    return { ok: true, state };
+  } catch (error) {
+    return { ok: false, message: `${file}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
 export function canonFileStore(env: NodeJS.ProcessEnv = process.env): CanonStore {
   const fileOf = (session: string): string => join(specSessionDir(session, env), 'canon.json');
   return {
     read(session) {
-      const file = fileOf(session);
-      if (!existsSync(file)) return { ok: true, state: undefined };
-      try {
-        const parsed = StateSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
-        if (!parsed.success) return { ok: false, message: `${file}: ${issueText(parsed.error)}` };
-        const state: CanonState = { schemaVersion: 1, lexicon: toLexicon(parsed.data.lexicon), history: [] };
-        for (const entry of parsed.data.history) {
-          const copy: CanonState['history'][number] = { at: entry.at, who: entry.who, reason: entry.reason, action: entry.action };
-          if (entry.sentence !== undefined) copy.sentence = entry.sentence;
-          if (entry.from !== undefined) copy.from = entry.from;
-          if (entry.to !== undefined) copy.to = entry.to;
-          if (entry.notes !== undefined) copy.notes = entry.notes;
-          if (entry.dropped !== undefined) copy.dropped = entry.dropped;
-          if (entry.descriptive !== undefined) copy.descriptive = entry.descriptive;
-          if (entry.merged !== undefined) copy.merged = entry.merged;
-          state.history.push(copy);
-        }
-        return { ok: true, state };
-      } catch (error) {
-        return { ok: false, message: `${file}: ${error instanceof Error ? error.message : String(error)}` };
-      }
+      return readCanonState(fileOf(session));
     },
     write(session, state) {
       const file = fileOf(session);

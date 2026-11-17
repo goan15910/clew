@@ -17,7 +17,7 @@ clew spec canon tlc tla/OrderCheck.tla --jar tla2tools.jar   # your model refine
 clew spec canon tlc tla/OrderCheck.tla --config tla/OrderCoverage.cfg --coverage --jar tla2tools.jar
 ```
 
-`spec status` also lists the dangling sentences once the session has a canonical lexicon. A worked, synthetic example lives in `examples/canon/` (`order.md` and `lexicon.json`).
+`spec status` also lists the dangling sentences once the session has a canonical lexicon. Batches of this work are closed as milestones, and `spec canon check` and `spec canon export` take `--at <milestone>` to read an earlier version: see [versioning.md](versioning.md), whose decisions continue from D21. A worked, synthetic example lives in `examples/canon/` (`order.md` and `lexicon.json`).
 
 ## The lexicon
 

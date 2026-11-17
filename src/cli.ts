@@ -32,6 +32,11 @@
 // clew spec canon merge --id s1 --id s2 --text block --reason text [--by] [--session id] [--json]
 // clew spec canon export (--dry-run | --dir D) --name Module [--force] [--session id] [--json]
 // clew spec canon tlc <file.tla> [--config file.cfg] [--jar tla2tools.jar] [--timeout s] [--workers n] [--coverage] [--json]
+// clew spec canon check|export ... [--at m1]
+// clew spec milestone close --title text --goal text [--decision text]... [--by] [--session id] [--json]
+// clew spec milestone list [--session id] [--json]
+// clew spec milestone show <id> [--changes] [--session id] [--json]
+// clew spec diff [from] [to] [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show sentences|tagged|tokens|spans|concepts|frames [--session id] [--json]
@@ -92,6 +97,9 @@ import { canonFileStore, canonLexiconFile, canonTextFiles, javaTlcRunner } from 
 import { chevrotainCanonParser } from './adapters/canon/chevrotain-parser.js';
 import { acceptCanonDraft, checkCanon, exportCanon, mergeCanon, runCanonTlc, setCanonLexicon, type CanonPorts } from './application/canon.js';
 import { exportSpec } from './application/export-spec.js';
+import { isVersionRef, MILESTONE_ID_MESSAGE, MILESTONE_ID_PATTERN, VERSION_REF_MESSAGE } from './domain/spec-versions.js';
+import { closeMilestone, diffVersions, listMilestones, showMilestone, type MilestonePorts } from './application/milestones.js';
+import { jsonMilestoneStore } from './adapters/spec-store/milestone-store.js';
 import { initSpec } from './application/init-spec.js';
 import { listConcepts } from './application/list-concepts.js';
 import { groupConcept } from './application/group-concepts.js';
@@ -134,7 +142,9 @@ const comparePorts: ComparePorts = {
   reports: fileReportWriter,
 };
 
-const canonPorts: CanonPorts = { store: jsonSpecStore, canon: canonFileStore(), parser: chevrotainCanonParser };
+const milestoneStore = jsonMilestoneStore();
+const canonPorts: CanonPorts = { store: jsonSpecStore, canon: canonFileStore(), parser: chevrotainCanonParser, milestones: milestoneStore };
+const milestonePorts: MilestonePorts = { store: jsonSpecStore, canon: canonPorts.canon, parser: chevrotainCanonParser, milestones: milestoneStore };
 const upgradePorts: UpgradePorts = {
   install: { locate: locateInstall },
   releases: githubReleases,
@@ -191,13 +201,16 @@ const SpecSentenceAddFlags = z.object({
 });
 const SpecSentenceEditFlags = z.object({ ...RevisionFlags, id: SentenceIdOption, text: z.string({ error: '--text is required' }).min(1) });
 const SpecSentenceDeleteFlags = z.object({ ...RevisionFlags, id: SentenceIdOption });
+const VersionOption = z.string().refine(isVersionRef, VERSION_REF_MESSAGE);
 const SpecExportFlags = z.object({
   json: z.boolean().optional(),
   session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
-  version: z.enum(['original', 'latest']).default('latest'),
+  version: z.enum(['original', 'latest']).optional(),
+  at: VersionOption.optional(),
   out: z.string().min(1).optional(),
   dryRun: z.boolean().optional(),
-}).refine((flags) => (flags.out !== undefined) !== (flags.dryRun === true), { message: 'pass exactly one of --out and --dry-run' });
+}).refine((flags) => (flags.out !== undefined) !== (flags.dryRun === true), { message: 'pass exactly one of --out and --dry-run' })
+  .refine((flags) => flags.version === undefined || flags.at === undefined, { message: 'pass --at or --version, not both', path: ['at'] });
 const SPAN_ID = /^sp:s[1-9][0-9]*\.t[1-9][0-9]*\.\.s[1-9][0-9]*\.t[1-9][0-9]*$/;
 const SpecSpansMergeFlags = z.object({
   json: z.boolean().optional(),
@@ -320,6 +333,7 @@ const SpecCanonLexiconFlags = z.object({
 });
 const SpecCanonCheckFlags = z.object({
   json: z.boolean().optional(),
+  at: VersionOption.optional(),
   session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
   sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
 });
@@ -331,6 +345,7 @@ const SpecCanonMergeFlags = z.object({
 });
 const SpecCanonExportFlags = z.object({
   json: z.boolean().optional(),
+  at: VersionOption.optional(),
   session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
   name: z.string({ error: '--name is required' }).min(1),
   dir: z.string().min(1).optional(),
@@ -839,8 +854,9 @@ setManual(sentences
 
 setManual(spec
   .command('export')
-  .description('Write the original or the latest sentences as Markdown.')
-  .option('--version <version>', 'original or latest; defaults to latest')
+  .description('Write the sentences of one version (original, a milestone, or latest) as Markdown.')
+  .option('--at <version>', 'original, latest, or a milestone id such as m2; defaults to latest')
+  .option('--version <version>', 'original or latest; the older spelling of --at')
   .option('--out <file>', 'Markdown file to write')
   .option('--dry-run', 'print the Markdown in the JSON document and write nothing')
   .option('--session <id>', 'session to read; defaults to the only open session')
@@ -848,11 +864,11 @@ setManual(spec
   .action((opts) => {
     const parsed = SpecExportFlags.safeParse(opts);
     if (!parsed.success) usage('spec.export', opts, parsed.error);
-    emit(exportSpec({ sessionId: parsed.data.session, version: parsed.data.version, out: parsed.data.out }, jsonSpecStore, specTextSink), parsed.data.json === true);
+    emit(exportSpec({ sessionId: parsed.data.session, version: parsed.data.at ?? parsed.data.version ?? 'latest', out: parsed.data.out }, milestonePorts, specTextSink), parsed.data.json === true);
   }), {
-  examples: ['clew spec export --version latest --out spec.md --json'],
+  examples: ['clew spec export --at latest --out spec.md --json', 'clew spec export --at m2 --dry-run --json'],
   exitCodes: specExits,
-  notes: ['Each sentence is its own paragraph under its section headings, so clew spec init reads the export back as the same sentences.', jsonNote, sessionNote],
+  notes: ['Each sentence is its own paragraph under its section headings, so clew spec init reads the export back as the same sentences.', 'A milestone version is the session as clew spec milestone close froze it. See docs/versioning.md.', jsonNote, sessionNote],
 });
 
 const spans = spec.command('spans').description('Live span partition: lexicon merge and conflict check.').helpCommand(false);
@@ -1278,12 +1294,13 @@ setManual(canon
   .command('check')
   .description('Run the gate over every live sentence and compile the accepted ones (read-only).')
   .option('--sentence <id>', 'report one sentence only')
+  .option('--at <version>', 'gate an earlier version: a milestone id such as m2; defaults to latest')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
     const parsed = SpecCanonCheckFlags.safeParse(opts);
     if (!parsed.success) usage('spec.canon.check', opts, parsed.error);
-    emit(checkCanon({ sessionId: parsed.data.session, sentence: parsed.data.sentence }, canonPorts), parsed.data.json === true);
+    emit(checkCanon({ sessionId: parsed.data.session, sentence: parsed.data.sentence, at: parsed.data.at }, canonPorts), parsed.data.json === true);
   }), {
   examples: ['clew spec canon check --json', 'clew spec canon check --sentence s4 --json'],
   exitCodes: canonExits,
@@ -1339,13 +1356,14 @@ setManual(canon
   .option('--dir <dir>', 'write the files into this existing directory')
   .option('--dry-run', 'print the modules in the document without writing a file')
   .option('--force', 'replace an existing model with a fresh starter')
+  .option('--at <version>', 'compile an earlier version: a milestone id such as m2; defaults to latest')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
   .action((opts) => {
     const parsed = SpecCanonExportFlags.safeParse(opts);
     if (!parsed.success) usage('spec.canon.export', opts, parsed.error);
     const flags = parsed.data;
-    emit(exportCanon({ sessionId: flags.session, dir: flags.dir, name: flags.name, dryRun: flags.dryRun === true, force: flags.force === true }, canonPorts, canonTextFiles), flags.json === true);
+    emit(exportCanon({ sessionId: flags.session, dir: flags.dir, name: flags.name, dryRun: flags.dryRun === true, force: flags.force === true, at: flags.at }, canonPorts, canonTextFiles), flags.json === true);
   }), {
   examples: ['clew spec canon export --dir tla --name Order --json', 'clew spec canon export --dry-run --name Order --json'],
   exitCodes: [{ code: 0, meaning: 'the files were written (or drafted) and no sentence is dangling' }, { code: 1, meaning: 'the files were written, but dangling sentences were left out' }, { code: 2, meaning: 'no sentence states an action, the name is not a module name, or there is no session or lexicon' }],
@@ -1372,6 +1390,92 @@ setManual(canon
   examples: ['clew spec canon tlc tla/OrderBlocks.tla --jar tla2tools.jar --json', 'clew spec canon tlc tla/OrderCheck.tla --config tla/OrderCoverage.cfg --coverage --json'],
   exitCodes: [{ code: 0, meaning: 'TLC found no error' }, { code: 1, meaning: 'TLC found a violation, or timed out' }, { code: 2, meaning: 'no jar or Java, the file is missing, or TLC could not parse the module' }],
   notes: ['Clew does not ship TLC. Pass --jar or set TLA2TOOLS_JAR; Java must be on PATH (or set JAVA).', 'A violation names the invariant or property and its sentence; each trace step names the action and its sentence.', jsonNote],
+});
+
+const milestone = spec.command('milestone').description('Close, list, or show milestones: reviewed batches of work over the session history.').helpCommand(false);
+const milestoneNote = 'A milestone records a batch of work once it is closed: title, goal, decisions with their rationale, author, the history lines it covers, a digest, and a frozen copy of the session. It is never opened ahead of the work. See docs/versioning.md.';
+const SpecMilestoneCloseFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  title: z.string({ error: '--title is required' }).trim().min(1, '--title must not be empty'),
+  goal: z.string({ error: '--goal is required' }).trim().min(1, '--goal must not be empty'),
+  decision: z.array(z.string().trim().min(1, '--decision must not be empty')).default([]),
+  by: z.string().min(1).optional(),
+});
+const SpecMilestoneShowFlags = z.object({ json: z.boolean().optional(), session: SessionOption, changes: z.boolean().optional() });
+const MilestoneIdArgument = z.string().regex(MILESTONE_ID_PATTERN, MILESTONE_ID_MESSAGE);
+
+setManual(milestone
+  .command('close')
+  .description('Close a milestone over every change since the last one, and freeze the session as it is now.')
+  .option('--title <text>', 'what the batch was, in a few words')
+  .option('--goal <text>', 'what the batch set out to do')
+  .option('--decision <text>', 'a decision taken in the batch, with its rationale (repeatable)', collectFlow, [] as string[])
+  .option('--by <author>', 'who closes it; defaults to agent')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecMilestoneCloseFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.milestone.close', opts, parsed.error);
+    emit(closeMilestone({ sessionId: parsed.data.session, title: parsed.data.title, goal: parsed.data.goal, decisions: parsed.data.decision, by: parsed.data.by }, milestonePorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec milestone close --title "Rewrite pass" --goal "every sentence passes the gate" --decision "D1 merge s3 and s4: one decision, two outcomes" --json'],
+  exitCodes: [{ code: 0, meaning: 'the milestone was closed and the session frozen' }, { code: 2, meaning: 'nothing changed since the last milestone, the session is missing or locked, or the arguments are wrong' }],
+  notes: [milestoneNote, 'The digest compares this milestone with the one before it (or the original spec): live sentences, sentences added, deleted, and edited, the canonical gate and compiled actions, frames, the lexicon, and a count per command.', jsonNote, sessionNote],
+});
+
+setManual(milestone
+  .command('list')
+  .description('List the milestones with their digests, and the changes not yet in a milestone (read-only).')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.milestone.list', opts, parsed.error);
+    emit(listMilestones({ sessionId: parsed.data.session }, milestonePorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec milestone list --json'],
+  exitCodes: specExits,
+  notes: [milestoneNote, 'pending counts the history lines and canonical changes written since the last milestone.', jsonNote, sessionNote],
+});
+
+setManual(milestone
+  .command('show')
+  .description('Show one milestone: its goal, decisions, and digest, and with --changes every change it covers (read-only).')
+  .argument('<id>', 'milestone id, for example m1')
+  .option('--changes', 'also list each history line and canonical change the milestone covers, with its reason')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((id, opts) => {
+    const parsed = SpecMilestoneShowFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.milestone.show', opts, parsed.error);
+    const checked = MilestoneIdArgument.safeParse(id);
+    if (!checked.success) usage('spec.milestone.show', opts, checked.error);
+    emit(showMilestone({ sessionId: parsed.data.session, id: checked.data, changes: parsed.data.changes === true }, milestonePorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec milestone show m1 --json', 'clew spec milestone show m2 --changes --json'],
+  exitCodes: specExits,
+  notes: [milestoneNote, 'For the sentence texts before and after, run clew spec diff with the previous milestone and this one.', jsonNote, sessionNote],
+});
+
+setManual(spec
+  .command('diff')
+  .description('Compare two versions of the session: sentences, lexicon, gate counts, and compiled actions (read-only).')
+  .argument('[from]', 'original, latest, or a milestone id; defaults to the last milestone, or original')
+  .argument('[to]', 'original, latest, or a milestone id; defaults to latest')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((from, to, opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.diff', opts, parsed.error);
+    for (const ref of [from, to]) {
+      if (ref !== undefined && !isVersionRef(ref)) usage('spec.diff', opts, new z.ZodError([{ code: 'custom', message: VERSION_REF_MESSAGE, path: ['version'] }]));
+    }
+    emit(diffVersions({ sessionId: parsed.data.session, from, to }, milestonePorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec diff --json', 'clew spec diff m1 m2 --json', 'clew spec diff original latest --json'],
+  exitCodes: specExits,
+  notes: ['With no version named, diff shows the work not yet in a milestone. Each changed sentence lists the reasons recorded on it between the two versions.', 'Each side is gated with its own canonical lexicon; a side with none (the original spec) is gated with the other side\'s, and gatedWith says so. Actions match by name, which carries the sentence id.', jsonNote, sessionNote],
 });
 
 setManual(spec

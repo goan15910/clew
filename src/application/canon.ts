@@ -9,35 +9,11 @@ import { canonTlaFiles, CANON_MODULE_PATTERN } from '../domain/canon-tla.js';
 import { liveSentences, type SpecSnapshot } from '../domain/spec.js';
 import { specInput, type CanonActionView, type DanglingView, type Outcome, type SpecCanonDocument, type TlcResultView } from './documents.js';
 import { DEFAULT_AUTHOR, editSentence } from './edit-sentences.js';
-import type { CanonParserFactory, PosTaggerPort, SpecStore, SpecTextSource, TextFiles } from './ports.js';
+import type { CanonParserFactory, CanonHistoryEntry, CanonState, CanonStore, MilestoneStore, PosTaggerPort, SpecStore, SpecTextSource, TextFiles } from './ports.js';
 import { resolveSession } from './spec-session.js';
+import { resolveVersion } from './versions.js';
 
-/** What the canonical pipeline keeps in a session, beside the sentences. */
-export interface CanonState {
-  schemaVersion: 1;
-  lexicon: CanonLexicon;
-  /** Every lexicon write and every accepted draft, with who and why. */
-  history: CanonHistoryEntry[];
-}
-
-export interface CanonHistoryEntry {
-  at: string;
-  who: string;
-  reason: string;
-  action: 'lexicon' | 'accept' | 'merge';
-  sentence?: string;
-  from?: string;
-  to?: string;
-  notes?: string[];
-  dropped?: string[];
-  descriptive?: string;
-  merged?: string[];
-}
-
-export interface CanonStore {
-  read(session: string): { ok: true; state: CanonState | undefined } | { ok: false; message: string };
-  write(session: string, state: CanonState): { ok: true } | { ok: false; message: string };
-}
+export type { CanonHistoryEntry, CanonState, CanonStore } from './ports.js';
 
 export interface CanonLexiconSource {
   load(file: string): { ok: true; lexicon: CanonLexicon } | { ok: false; message: string };
@@ -67,6 +43,8 @@ export interface CanonPorts {
   store: SpecStore;
   canon: CanonStore;
   parser: CanonParserFactory;
+  /** Needed only to read an earlier version (--at). */
+  milestones?: MilestoneStore;
 }
 
 type Doc = SpecCanonDocument;
@@ -80,17 +58,33 @@ interface Loaded {
   state: CanonState;
 }
 
-function load(command: Doc['command'], sessionId: string | undefined, ports: CanonPorts, needLexicon: boolean): { ok: true; value: Loaded } | { ok: false; outcome: Outcome<Doc> } {
+function load(command: Doc['command'], sessionId: string | undefined, ports: CanonPorts, needLexicon: boolean, at?: string): { ok: true; value: Loaded } | { ok: false; outcome: Outcome<Doc> } {
   const resolved = resolveSession(ports.store, sessionId);
   if (!resolved.ok) return { ok: false, outcome: invalid(command, 'session', resolved.message) };
-  const result = ports.store.update(resolved.id, { create: false }, () => undefined);
-  if (!result.ok) return { ok: false, outcome: invalid(command, result.fault === 'missing' ? 'session' : result.fault, result.message) };
-  const read = ports.canon.read(resolved.id);
-  if (!read.ok) return { ok: false, outcome: invalid(command, 'unreadable', read.message) };
-  if (read.state === undefined && needLexicon) {
-    return { ok: false, outcome: invalid(command, 'lexicon', 'no canonical lexicon in this session; run clew spec canon lexicon --file lexicon.json --reason "..." first') };
+  let snapshot: SpecSnapshot;
+  let state: CanonState | undefined;
+  if (at !== undefined && at !== 'latest') {
+    // An earlier version: the sentences and lexicon a milestone froze, or the original spec (which has no lexicon).
+    if (ports.milestones === undefined) return { ok: false, outcome: invalid(command, 'version', '--at needs the milestone store') };
+    const version = resolveVersion({ store: ports.store, canon: ports.canon, milestones: ports.milestones }, resolved.id, at);
+    if (!version.ok) return { ok: false, outcome: invalid(command, version.fault, version.message) };
+    snapshot = version.version.snapshot;
+    state = version.version.canon;
+    if (state === undefined && needLexicon) {
+      return { ok: false, outcome: invalid(command, 'lexicon', at === 'original' ? 'the original spec has no canonical lexicon; name a milestone closed after clew spec canon lexicon ran' : `milestone ${at} has no canonical lexicon: it was closed before clew spec canon lexicon ran`) };
+    }
+  } else {
+    const result = ports.store.update(resolved.id, { create: false }, () => undefined);
+    if (!result.ok) return { ok: false, outcome: invalid(command, result.fault === 'missing' ? 'session' : result.fault, result.message) };
+    const read = ports.canon.read(resolved.id);
+    if (!read.ok) return { ok: false, outcome: invalid(command, 'unreadable', read.message) };
+    if (read.state === undefined && needLexicon) {
+      return { ok: false, outcome: invalid(command, 'lexicon', 'no canonical lexicon in this session; run clew spec canon lexicon --file lexicon.json --reason "..." first') };
+    }
+    snapshot = result.snapshot;
+    state = read.state;
   }
-  return { ok: true, value: { snapshot: result.snapshot, state: read.state ?? { schemaVersion: 1, lexicon: emptyLexicon(), history: [] } } };
+  return { ok: true, value: { snapshot, state: state ?? { schemaVersion: 1, lexicon: emptyLexicon(), history: [] } } };
 }
 
 /** The gate over every live sentence of the session. */
@@ -165,9 +159,9 @@ export function setCanonLexicon(
   };
 }
 
-export function checkCanon(command: { sessionId?: string; sentence?: string }, ports: CanonPorts): Outcome<Doc> {
+export function checkCanon(command: { sessionId?: string; sentence?: string; at?: string }, ports: CanonPorts): Outcome<Doc> {
   const name: Doc['command'] = 'spec.canon.check';
-  const loaded = load(name, command.sessionId, ports, true);
+  const loaded = load(name, command.sessionId, ports, true, command.at);
   if (!loaded.ok) return loaded.outcome;
   const { snapshot, state } = loaded.value;
   const gate = gateSession(snapshot, state.lexicon, ports.parser);
@@ -184,6 +178,7 @@ export function checkCanon(command: { sessionId?: string; sentence?: string }, p
       command: name,
       ok: true,
       session: snapshot.id,
+      ...(command.at === undefined ? {} : { at: command.at }),
       parser: ports.parser.name,
       accepted: gate.sentences.filter((sentence) => sentence.status === 'accepted' && only(sentence.id)).map((sentence) => sentence.id),
       dangling,
@@ -286,13 +281,13 @@ export function mergeCanon(
 }
 
 export function exportCanon(
-  command: { sessionId?: string; dir?: string; name: string; dryRun: boolean; force: boolean },
+  command: { sessionId?: string; dir?: string; name: string; dryRun: boolean; force: boolean; at?: string },
   ports: CanonPorts,
   files: TextFiles & { join(dir: string, file: string): string },
 ): Outcome<Doc> {
   const name: Doc['command'] = 'spec.canon.export';
   if (!CANON_MODULE_PATTERN.test(command.name)) return invalid(name, 'unreadable', `--name "${command.name}": a TLA+ module name starts with a letter and then uses letters, digits, or underscores`);
-  const loaded = load(name, command.sessionId, ports, true);
+  const loaded = load(name, command.sessionId, ports, true, command.at);
   if (!loaded.ok) return loaded.outcome;
   const { snapshot, state } = loaded.value;
   const gate = gateSession(snapshot, state.lexicon, ports.parser);
@@ -304,6 +299,7 @@ export function exportCanon(
     command: name,
     ok: true,
     session: snapshot.id,
+    ...(command.at === undefined ? {} : { at: command.at }),
     accepted: gate.sentences.filter((sentence) => sentence.status === 'accepted').map((sentence) => sentence.id),
     dangling,
     actions: actionViews(model),

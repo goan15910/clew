@@ -7,6 +7,7 @@ import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { ClauseStatus } from '../domain/spec-kernel.js';
 import type { ImpactEntry } from '../domain/spec-refine.js';
 import type { Finding, FlowOrigin, Frame, Grouping, Revision, SentenceState, SentenceText } from '../domain/spec.js';
+import type { ActionDiff, LexiconDiff, Milestone, SentenceDiff, VersionCounts } from '../domain/spec-versions.js';
 import type { Structure, TransitionCoverage } from '../domain/verification.js';
 
 export interface OutputIssue {
@@ -262,7 +263,8 @@ export interface SpecExportDocument {
   command: 'spec.export';
   ok: boolean;
   session?: string;
-  version?: 'original' | 'latest';
+  /** The version exported: original, latest, or a milestone id. */
+  version?: string;
   sentences?: number;
   written?: string;
   text?: string;
@@ -791,6 +793,8 @@ export interface SpecCanonDocument {
   command: 'spec.canon.lexicon' | 'spec.canon.check' | 'spec.canon.accept' | 'spec.canon.merge' | 'spec.canon.export' | 'spec.canon.tlc';
   ok: boolean;
   session?: string;
+  /** The version read with --at; absent means latest. */
+  at?: string;
   parser?: string;
   lexicon?: CanonLexicon;
   accepted?: string[];
@@ -806,10 +810,52 @@ export interface SpecCanonDocument {
   run?: { blocks: string; refinement: string; coverage: string };
   tlc?: TlcResultView;
   findings: [];
-  fault?: 'unreadable' | 'locked' | 'schema' | 'session' | 'lexicon' | 'gate';
+  fault?: 'unreadable' | 'locked' | 'schema' | 'session' | 'lexicon' | 'gate' | 'version';
   issues: OutputIssue[];
 }
 
+/** One log entry a milestone covers: a history.jsonl line or a canon.json history entry. `line` counts from 1. */
+export interface MilestoneChangeView {
+  log: 'history' | 'canon';
+  line: number;
+  at: string;
+  command: string;
+  who?: string;
+  ids: string[];
+  reason?: string;
+  text?: string;
+}
+
+export interface SpecMilestoneDocument {
+  command: 'spec.milestone.close' | 'spec.milestone.list' | 'spec.milestone.show';
+  ok: boolean;
+  session?: string;
+  milestone?: Milestone;
+  milestones?: Milestone[];
+  /** Log entries written since the last milestone (or since the session began), not yet in any milestone. */
+  pending?: { since: string; history: number; canon: number };
+  changes?: MilestoneChangeView[];
+  findings: [];
+  fault?: 'unreadable' | 'locked' | 'schema' | 'session' | 'version' | 'refused';
+  issues: OutputIssue[];
+}
+
+export interface SpecDiffDocument {
+  command: 'spec.diff';
+  ok: boolean;
+  session?: string;
+  from?: string;
+  to?: string;
+  counts?: { from: VersionCounts; to: VersionCounts };
+  /** A side with no lexicon of its own is gated with the other side's; this names the version whose lexicon was used. */
+  gatedWith?: { from?: string; to?: string };
+  sentences?: SentenceDiff;
+  lexicon?: LexiconDiff;
+  actions?: ActionDiff;
+  findings: [];
+  fault?: 'unreadable' | 'locked' | 'schema' | 'session' | 'version';
+  issues: OutputIssue[];
+}
 
 export type CommandDocument =
   | UpgradeDocument
@@ -838,7 +884,9 @@ export type CommandDocument =
   | SpecEmitDocument
   | SpecTlaExportDocument
   | SpecTlaCheckDocument
-  | SpecCanonDocument;
+  | SpecCanonDocument
+  | SpecMilestoneDocument
+  | SpecDiffDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 

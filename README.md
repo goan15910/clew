@@ -57,9 +57,12 @@ clew spec canon accept --id s7 --reason "a list of final states"
 clew spec canon accept --id s9 --reason "packing follows approval"
 mkdir -p /tmp/order && clew spec canon export --dir /tmp/order --name Order
 clew spec canon tlc /tmp/order/OrderBlocks.tla --jar tla2tools.jar
+clew spec milestone close --title "Gate pass" --goal "every sentence passes the gate" --decision "accept both drafts: they keep the meaning"
+clew spec milestone list                    # milestones, with a digest of each
+clew spec diff original m1                  # every changed sentence, with the reasons recorded on it
 ```
 
-See [docs/canon.md](docs/canon.md).
+See [docs/canon.md](docs/canon.md) and [docs/versioning.md](docs/versioning.md).
 
 ## Help
 
