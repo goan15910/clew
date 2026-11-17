@@ -919,7 +919,7 @@ export interface ProjectionRecordView {
 }
 
 export interface SpecProjectionDocument {
-  command: 'spec.projection.analyze' | 'spec.projection.draft' | 'spec.projection.check' | 'spec.projection.dump' | 'spec.projection.render' | 'spec.projection.propose' | 'spec.projection.finalize' | 'spec.projection.list';
+  command: 'spec.projection.analyze' | 'spec.projection.draft' | 'spec.projection.check' | 'spec.projection.dump' | 'spec.projection.render' | 'spec.projection.explore' | 'spec.projection.propose' | 'spec.projection.finalize' | 'spec.projection.list';
   ok: boolean;
   session?: string;
   module?: string;

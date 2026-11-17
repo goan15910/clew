@@ -12,6 +12,7 @@ clew spec projection propose --name FulfilOrder --keep order_status --candidate 
 clew spec projection draft tla/Fulfil.tla --name FulfilOrder --keep order_status   # a starter view, yours to edit
 clew spec projection check tla/FulfilOrder.tla --against tla/Fulfil.tla --cover --name FulfilOrder
 clew spec projection render tla/FulfilOrder.tla --out order.svg   # TLC dumps the graph, Graphviz draws it
+clew spec projection explore tla/FulfilOrder.tla --out order.html # one HTML file: click through next actions and paths
 clew spec projection finalize --name FulfilOrder --reason "..."   # only after a passing check
 clew spec projection list
 ```
@@ -98,6 +99,36 @@ The numbers come with it: states and steps of the view, how many of the full gra
 
 There are two ways to a picture, and they answer different questions. `render <View.tla>` draws a view the agent wrote and TLC checked; every arrow is solid, because the view is a model of its own. `render <graph.dot> --keep ...` computes a projection from a dump without writing a module; it is the quick look, and it shows which steps wait on hidden variables.
 
+## The interactive explorer
+
+```bash
+clew spec projection explore tla/core.dot --keep order_status,payment_status --model tla/Fulfil.tla --to order_status=closed --out order.html
+```
+
+`explore` writes one HTML file. It draws the same view `render` draws, and adds what a picture cannot:
+
+* **Next actions.** The panel lists every action the current state can take, where it leads, the sentence it was compiled from, and, for a possible step, from how many of the states behind the current one it can happen. Clicking one takes the step.
+* **The walk.** The steps taken from the start are listed and drawn in one colour; the next possible steps in another; everything else fades. *Back* undoes a step, a click on an earlier step cuts the walk there.
+* **Paths.** Clicking any state jumps to it by a shortest path from the start; `--to variable=value` opens the page on such a path. The panel also lists the steps that lead to the current state, to walk backwards.
+* **Find.** The search box marks the states whose label holds the text.
+
+The file needs no server and no network: Cytoscape, the dagre layout, and the graph are inside it. `--model` names the module whose comments say what each action means when the graph is a dump.
+
+### Graph formats in the TLA+ ecosystem
+
+What was surveyed before choosing the input (November 2026):
+
+| Source | Format | Whole graph? | Used |
+|---|---|---|---|
+| TLC `-dump dot[,actionlabels,colorize]` | Graphviz DOT | yes | **yes**: the one native graph export |
+| TLC `-dump` (no format) | TLA+ state formulas | states only, no steps | no |
+| TLC `-dumpTrace json\|tla\|dot\|...` | JSON, TLA+, DOT, CBOR | one error trace | no: a trace, not a graph |
+| Apalache / Quint | ITF JSON (`.itf.json`) | one trace | no: a trace, and a second model checker |
+| CommunityModules `Json`, `GraphViz`, `SVG` | whatever the spec prints | what the author writes | no: needs the jar and code in every model |
+| Graphviz `dot -Tjson`, `gxl2gv`, `gv2gml` | JSON with layout, GXL, GML | yes, from DOT | available: any tool that reads these can take a `dump` |
+
+TLA+ has no canonical state-graph format beside DOT. So DOT is the interchange format here: `dump` keeps TLC's file as it is, any Graphviz tool reads it, and Graphviz converts it to JSON, GXL, or GML for tools that want those. Existing explorers were considered and not adopted: the community state-graph explorers load a raw DOT dump, without projection, certainty marks, or sentences, and browser interpreters of TLA+ re-evaluate the specification instead of reading what TLC computed.
+
 ## The record
 
 `propose`, `check --name`, and `finalize` keep `projections.json` beside the session's sentences: each projection's name, kept variables, the candidate it came from, the last check (result, files, and their hashes), and a history of who did what and why. `finalize` refuses a view with no passing check, and a view or model edited since the check. `finalize --drop` records that a projection was given up. A milestone freezes the file with the others.
@@ -132,7 +163,7 @@ These continue the numbering of [workflows.md](workflows.md) (D38 to D56). Each 
 
 **D69. A function-valued variable can be read one instance at a time.** `l2_status[l21]` is a name `--keep` accepts for a dump, and the analysis scores each instance alone. Rationale: the lifecycle of one object is the state machine a person expects to see, and it is far smaller than the product over instances. As a checked view it is a `--map`.
 
-**D70. Pictures are refused above 150 states by default.** A larger graph is unreadable as an image; `.dot` output is not limited. Revisit when the interactive view exists.
+**D70. Pictures are refused above 150 states by default.** A larger graph is unreadable as an image; `.dot` output is not limited.
 
 **D71. The record is its own file, `projections.json`, written without the session lock,** like `canon.json` and `workflows.json` (D36, D55). `check` reads the record again after TLC returns, so two long checks do not overwrite each other's result.
 
@@ -141,3 +172,13 @@ These continue the numbering of [workflows.md](workflows.md) (D38 to D56). Each 
 **D73. Projection commands take files, not a session, except the record.** `analyze`, `draft`, `check`, `dump`, and `render` work on any TLA+ module in a directory; only `propose`, `finalize`, `list`, and `check --name` need a session. Rationale: the model is a file the agent edits, as with `clew spec canon tlc`.
 
 **D74. The TLC runner is shared with the canonical pipeline.** `TlcRequest` gained an optional dump path. The earlier rule that Clew runs TLC only when asked (D16) holds: every run here is a command the agent typed.
+
+**D75. The explorer reads TLC's DOT dump, through the same parsed graph as `render`.** DOT is the only graph format TLC writes itself, so nothing else has to be installed or added to a model. Clew turns it into a small JSON payload (states, steps, certainty, action texts) inside the page; that payload, not DOT, is what the browser reads. Revisit if TLC gains a canonical JSON state graph.
+
+**D76. The page is one self-contained file.** The vendored Cytoscape and dagre builds the chart viewer already ships are inlined with the client and the data (about 0.5 MB). Rationale: the page is something to send to a reviewer; a folder of assets or a local server would get in the way. The chart viewer keeps its separate asset files.
+
+**D77. The browser lays the graph out (dagre), not Graphviz.** The explorer then needs no Graphviz at all, and the layout library is already vendored. The static pictures keep Graphviz, whose layouts are better for print.
+
+**D78. The explorer walks one path; it is not a second model checker.** It shows what TLC found: the current state, its next actions, the walk, and shortest paths from the start. A possible step can be taken in the page even though some of the full states behind the current one cannot take it, and the page says so on the action. Revisit by walking the full graph underneath a projection, so the page can say when a walk stops being realisable.
+
+**D79. The explorer refuses more than 400 states by default.** Past that a laid-out graph stops being readable and the layout takes seconds. The way to a large model is a projection.

@@ -8,7 +8,8 @@ import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { analyzeProjection, dependencyDot, draftView, evaluateKeep, viewCheckModule } from '../../src/domain/projection.js';
-import { functionParts, graphStats, projectGraph, readTlcDot, shortestPath, viewDot } from '../../src/domain/state-graph.js';
+import { explorerPayload, functionParts, graphStats, projectGraph, readTlcDot, shortestPath, viewDot } from '../../src/domain/state-graph.js';
+import { explorerHtml } from '../../src/adapters/diagram/interactive/explorer-page.js';
 import { blankComments, mentions, scanTlaModule, splitJunction } from '../../src/domain/tla-scan.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -252,6 +253,23 @@ describe('state graphs', () => {
     assert.equal(shortestPath(whole.view, () => false), undefined);
   });
 
+  test('the explorer payload carries states, steps, what each action says, and the first path', () => {
+    const projected = projectGraph(graph, ['door']);
+    assert.ok(projected.ok);
+    const path = shortestPath(projected.view, (state) => state.values.door === '"open"') ?? [];
+    const payload = explorerPayload(projected.view, { title: 'Door', path, actions: { Open: 'The guest opens the door.', Unused: 'never drawn' } });
+    assert.deepEqual(payload.states.map((state) => [state.label.join(), state.initial, state.members]), [['closed', true, 2], ['open', false, 2]]);
+    assert.deepEqual(payload.edges.map((edge) => [edge.id, edge.certain, edge.sources, edge.of]), [['n1|Open|n2', false, 1, 2], ['n2|Close|n1', true, 2, 2]]);
+    assert.deepEqual(payload.actions, { Open: 'The guest opens the door.' });
+    assert.deepEqual(payload.path, ['n1|Open|n2']);
+    const html = explorerHtml({ ...payload, title: 'Door </script><b>' }, '0.0.0');
+    assert.match(html, /<title>Door &lt;\/script&gt;&lt;b&gt;<\/title>/);
+    assert.match(html, /window\.ClewStateExplorer = \{ mount: mount \}/);
+    assert.match(html, /cytoscape/);
+    assert.equal(html.split('</script>').length - 1, 5);
+    assert.doesNotMatch(html, /<script src=/);
+  });
+
   test('statistics give correlation, shared steps, and value pairs that never meet', () => {
     const stats = graphStats(graph, ['door', 'light[hall]']);
     assert.equal(stats.states, 4);
@@ -302,6 +320,12 @@ describe('clew spec projection', () => {
         assert.equal(big.status, 2);
         assert.match(big.stderr, /--max-states/);
       }
+
+      const explored = clew(['spec', 'projection', 'explore', join(dir, 'door.dot'), '--keep', 'door', '--to', 'door=open', '--out', join(dir, 'door.html')], env);
+      assert.equal(explored.status, 0, explored.stderr);
+      assert.match(readFileSync(join(dir, 'door.html'), 'utf8'), /"path":\["n1\|Open\|n2"\]/);
+      assert.equal(clew(['spec', 'projection', 'explore', join(dir, 'door.dot'), '--out', join(dir, 'door.svg')], env).status, 2);
+      assert.equal(clew(['spec', 'projection', 'explore', join(dir, 'door.dot'), '--max-states', '2', '--out', join(dir, 'big.html')], env).status, 2);
 
       writeFileSync(join(dir, 'spec.md'), 'The customer submits the draft order as submitted.\n');
       assert.equal(clew(['spec', 'init', join(dir, 'spec.md'), '--session', 'fulfil'], env).status, 0);

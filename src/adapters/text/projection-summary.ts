@@ -102,6 +102,7 @@ export function projectionSummary(document: SpecProjectionDocument): string {
       tlcLines(document.tlc, lines);
       break;
     }
+    case 'spec.projection.explore':
     case 'spec.projection.render': {
       const { view, graph } = document;
       if (view === undefined) return '';

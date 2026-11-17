@@ -5,7 +5,8 @@
 // The analysis recommends and the agent decides. A view is a TLA+ module the agent owns; Clew owns the check module
 // that instances it. Nothing here reads or writes the spec's sentences, lexicon, or workflows.
 import { analyzeProjection, dependencyDot, draftView, evaluateKeep, viewCheckModule, PROJECTION_MODULE_PATTERN, type ProjectionAnalysis } from '../domain/projection.js';
-import { graphStats, plainValue, projectGraph, readTlcDot, shortestPath, stateLabel, viewDot, type GraphView, type StateGraph } from '../domain/state-graph.js';
+import { explorerPayload, graphStats, plainValue, projectGraph, readTlcDot, shortestPath, stateLabel, viewDot, type ExplorerPayload, type GraphView, type StateGraph } from '../domain/state-graph.js';
+import { scanTlaModule } from '../domain/tla-scan.js';
 import { readTlcOutput, type TlcRunner } from './canon.js';
 import { specInput, type Outcome, type ProjectionRecordView, type SpecProjectionDocument, type TlcResultView } from './documents.js';
 import { DEFAULT_AUTHOR } from './edit-sentences.js';
@@ -50,6 +51,11 @@ export interface GraphImageWriter {
   write(file: string, dot: string): { ok: true } | { ok: false; message: string };
 }
 
+/** Writes the interactive explorer: one HTML file that holds the graph and everything needed to walk it. */
+export interface ExplorerPageWriter {
+  write(file: string, payload: ExplorerPayload): { ok: true } | { ok: false; message: string };
+}
+
 export interface ProjectionFiles extends TextFiles {
   join(dir: string, file: string): string;
   dirname(file: string): string;
@@ -63,6 +69,7 @@ export interface ProjectionPorts {
   files: ProjectionFiles;
   tlc: TlcRunner;
   images: GraphImageWriter;
+  explorer: ExplorerPageWriter;
   store: SpecStore;
   projections: ProjectionStore;
   now(): string;
@@ -392,19 +399,9 @@ export function renderProjection(command: RenderCommand, ports: ProjectionPorts)
   const projected = projectGraph(loaded.graph, command.keep);
   if (!projected.ok) return invalid(name, 'model', projected.message, command.file);
   const { view } = projected;
-  let path: string[] | undefined;
-  if (command.to.length > 0) {
-    const wanted: [string, string][] = [];
-    for (const entry of command.to) {
-      const at = entry.indexOf('=');
-      if (at < 1) return invalid(name, 'model', `--to "${entry}": write it as variable=value`);
-      wanted.push([entry.slice(0, at).trim(), entry.slice(at + 1).trim()]);
-    }
-    const strangers = wanted.filter(([variable]) => !view.variables.includes(variable)).map(([variable]) => variable);
-    if (strangers.length > 0) return invalid(name, 'model', `--to names ${strangers.join(', ')}, which the view does not keep; it keeps ${view.variables.join(', ')}`);
-    path = shortestPath(view, (state) => wanted.every(([variable, value]) => plainValue(state.values[variable] ?? '') === plainValue(value)));
-    if (path === undefined) return invalid(name, 'model', `no reachable state of the view has ${command.to.join(' and ')}`);
-  }
+  const found = pathTo(name, view, command.to);
+  if (!found.ok) return found.outcome;
+  const { path } = found;
   const document: Doc = { command: name, ok: true, graph: graphSummary(loaded.graph), view: viewSummary(view, path?.length), findings: [], issues: [] };
   if (loaded.tlc !== undefined) document.tlc = loaded.tlc;
   if (command.out === undefined) return { exit: 'pass', document };
@@ -417,6 +414,76 @@ export function renderProjection(command: RenderCommand, ports: ProjectionPorts)
   const wrote = ports.images.write(command.out, viewDot(view, options));
   if (!wrote.ok) return invalid(name, 'unreadable', wrote.message, command.out);
   document.files = [{ path: command.out, written: true }];
+  return { exit: 'pass', document };
+}
+
+function pathTo(command: Doc['command'], view: GraphView, to: readonly string[]): { ok: true; path: string[] | undefined } | { ok: false; outcome: Outcome<Doc> } {
+  if (to.length === 0) return { ok: true, path: undefined };
+  const wanted: [string, string][] = [];
+  for (const entry of to) {
+    const at = entry.indexOf('=');
+    if (at < 1) return { ok: false, outcome: invalid(command, 'model', `--to "${entry}": write it as variable=value`) };
+    wanted.push([entry.slice(0, at).trim(), entry.slice(at + 1).trim()]);
+  }
+  const strangers = wanted.filter(([variable]) => !view.variables.includes(variable)).map(([variable]) => variable);
+  if (strangers.length > 0) return { ok: false, outcome: invalid(command, 'model', `--to names ${strangers.join(', ')}, which the view does not keep; it keeps ${view.variables.join(', ')}`) };
+  const path = shortestPath(view, (state) => wanted.every(([variable, value]) => plainValue(state.values[variable] ?? '') === plainValue(value)));
+  if (path === undefined) return { ok: false, outcome: invalid(command, 'model', `no reachable state of the view has ${to.join(' and ')}`) };
+  return { ok: true, path };
+}
+
+export interface ExploreCommand extends TlcOptions {
+  /** A TLC dump (.dot) or a module (.tla) for TLC to dump. */
+  file: string;
+  config?: string;
+  keep: string[];
+  out: string;
+  title?: string;
+  to: string[];
+  /** A module whose comments say what each action means, when `file` is a dump. */
+  model?: string;
+  maxStates: number;
+}
+
+/** What each action says: the first comment line above its definition, without the sentence id. */
+function actionTexts(text: string): Record<string, string> {
+  const scanned = scanTlaModule(text);
+  const texts: Record<string, string> = {};
+  if (!scanned.ok) return texts;
+  for (const definition of scanned.module.definitions) {
+    const line = definition.comment[0];
+    if (line !== undefined && line.trim() !== '') texts[definition.name] = line.trim();
+  }
+  return texts;
+}
+
+/** Write the interactive explorer of a state graph, whole or projected: click through next actions and paths. */
+export function exploreProjection(command: ExploreCommand, ports: ProjectionPorts): Outcome<Doc> {
+  const name: Doc['command'] = 'spec.projection.explore';
+  if (!/\.html?$/i.test(command.out)) return invalid(name, 'model', `--out ${command.out}: the file name must end in .html`);
+  const loaded = loadGraph(name, command.file, command, ports);
+  if (!loaded.ok) return loaded.outcome;
+  const projected = projectGraph(loaded.graph, command.keep);
+  if (!projected.ok) return invalid(name, 'model', projected.message, command.file);
+  const { view } = projected;
+  if (view.states.length > command.maxStates) {
+    return invalid(name, 'too-large', `the view has ${view.states.length} states, more than the explorer lays out well (--max-states ${command.maxStates}): keep fewer variables with --keep`, command.file);
+  }
+  const found = pathTo(name, view, command.to);
+  if (!found.ok) return found.outcome;
+  const source = command.model ?? (/\.tla$/i.test(command.file) ? command.file : undefined);
+  let actions: Record<string, string> = {};
+  if (source !== undefined) {
+    const read = ports.files.read(source);
+    if (!read.ok) return invalid(name, 'unreadable', read.message, source);
+    actions = actionTexts(read.text);
+  }
+  const options: Parameters<typeof explorerPayload>[1] = { title: command.title ?? `States of ${view.variables.join(', ')}`, actions };
+  if (found.path !== undefined) options.path = found.path;
+  const wrote = ports.explorer.write(command.out, explorerPayload(view, options));
+  if (!wrote.ok) return invalid(name, 'unreadable', wrote.message, command.out);
+  const document: Doc = { command: name, ok: true, graph: graphSummary(loaded.graph), view: viewSummary(view, found.path?.length), files: [{ path: command.out, written: true }], findings: [], issues: [] };
+  if (loaded.tlc !== undefined) document.tlc = loaded.tlc;
   return { exit: 'pass', document };
 }
 
