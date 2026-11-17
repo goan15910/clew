@@ -104,6 +104,8 @@ export interface ActionModel {
   /** Updated variable → its primed expression. */
   updates: Record<string, string>;
   notes: Traced[];
+  /** The states the step puts a noun in, one per result clause ("as STATE"). */
+  results: { noun: string; state: string }[];
 }
 
 export interface RefusalModel {
@@ -185,13 +187,15 @@ interface NounInfo {
   sentences: Set<string>;
 }
 
-interface Ctx {
+/** What a condition is compiled about: the sentence, and the instances the step has already bound. */
+export interface CondContext {
   sentence: AcceptedSentence;
   bindings: Map<string, string>;
   params: Param[];
   primary: string;
   findings: CanonFinding[];
 }
+type Ctx = CondContext;
 
 export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: CanonLexicon): CanonModel {
   const findings: CanonFinding[] = [];
@@ -383,83 +387,17 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
   }
 
   // ---- 3. Expressions. ----
-  const status = (id: string, instance: string | undefined): string => {
-    const model = models.get(id);
-    const name = model?.statusVar ?? `${ident(id)}_status`;
-    return model?.instanceSet !== undefined && instance !== undefined ? `${name}[${instance}]` : name;
-  };
-  const test = (expression: string, states: readonly string[], negated: boolean): string => {
-    if (states.length === 1) return `${expression} ${negated ? '#' : '='} ${quote(states[0] ?? '')}`;
-    return `${expression} ${negated ? '\\notin' : '\\in'} ${setText(states)}`;
-  };
-  /** How `to` is reached from an instance of `from`: through a link, or through a fixed ownership. */
-  const relation = (from: string, fromInstance: string | undefined, to: string): { expr: string; nullable: boolean } | undefined => {
-    const link = linkPairs.get(`${from}|${to}`);
-    const fromModel = models.get(from);
-    if (link !== undefined) {
-      return { expr: fromModel?.instanceSet !== undefined && fromInstance !== undefined ? `${link.var}[${fromInstance}]` : link.var, nullable: true };
-    }
-    const owned = ownership.find((item) => item.object === from && item.owner === to);
-    if (owned !== undefined && fromInstance !== undefined) return { expr: `${owned.name}[${fromInstance}]`, nullable: false };
-    return undefined;
-  };
-  /** The instance of `id` this action is about, when there is exactly one way to tell. */
-  const resolve = (id: string, ctx: Ctx): { expr: string | undefined; nullable: boolean } | undefined => {
-    const model = models.get(id);
-    if (model?.instanceSet === undefined) return { expr: undefined, nullable: false };
-    const bound = ctx.bindings.get(id);
-    if (bound !== undefined) return { expr: bound, nullable: false };
-    const primary = ctx.bindings.get(ctx.primary);
-    const viaPrimary = relation(ctx.primary, primary, id);
-    if (viaPrimary !== undefined) return viaPrimary;
-    for (const [other, instance] of ctx.bindings) {
-      const via = relation(other, instance, id);
-      if (via !== undefined) return via;
-    }
-    return undefined;
-  };
-  let quantNumber = 0;
-  const scopeOf = (id: string, ctx: Ctx, variable: string): string => {
-    const model = models.get(id);
-    const set = model?.instanceSet ?? 'BOOLEAN';
-    for (const [other, instance] of ctx.bindings) {
-      const owned = relation(id, variable, other);
-      if (owned !== undefined) return `{${variable} \\in ${set} : ${owned.expr} = ${instance}}`;
-    }
-    return set;
-  };
-  const predTla = (pred: Pred, ctx: Ctx): string => {
-    const id = noun(pred.subject);
-    const states = pred.states.map((state) => slug(state.text));
-    const qual = pred.subject.qual?.text.toLowerCase() ?? '';
-    const model = models.get(id);
-    let resolved = qual === '' ? resolve(id, ctx) : undefined;
-    if (qual === '' && resolved === undefined) {
-      find(ctx.sentence, 'unscoped-condition', 'warning', `"${say(ctx.sentence, pred.subject.span)}" has several instances and this step names none of them, so the condition is read as "some ${pred.subject.noun.text}": say each, some, one or no to be exact`, pred.span);
-    }
-    if (model?.instanceSet !== undefined && (qual !== '' || resolved === undefined)) {
-      quantNumber += 1;
-      const variable = `${ident(id)}_q${quantNumber}`;
-      const scope = scopeOf(id, ctx, variable);
-      const term = status(id, variable);
-      const body = test(term, states, pred.negated);
-      if (qual === 'each') return `\\A ${variable} \\in ${scope} : ${term} # ${NULL} => ${body}`;
-      if (qual === 'one') return `Cardinality({${variable} \\in ${scope} : ${body}}) = 1`;
-      if (qual === 'no') return `~(\\E ${variable} \\in ${scope} : ${body})`;
-      return `\\E ${variable} \\in ${scope} : ${body}`;
-    }
-    resolved ??= { expr: undefined, nullable: false };
-    const body = test(status(id, resolved.expr), states, pred.negated);
-    return resolved.nullable && resolved.expr !== undefined ? `(${resolved.expr} # ${NULL} /\\ ${body})` : body;
-  };
-  const condTla = (cond: Cond, ctx: Ctx, from: string): string => {
-    if (cond.type === 'pred') return predTla(cond.pred, ctx);
-    const parts = cond.items.map((item) => {
-      const text = condTla(item, ctx, from);
-      return item.type === 'pred' ? text : `(${text})`;
-    });
-    return parts.map((part) => (/\\[AE] /.test(part) && parts.length > 1 ? `(${part})` : part)).join(cond.type === 'and' ? ' /\\ ' : ' \\/ ');
-  };
+  const expr = conditionExpressions({
+    models,
+    links: linkPairs,
+    ownership,
+    lexicon,
+    variable: (name) => name,
+    definition: (name) => name,
+    quantPrefix: '',
+    warn: (ctx, code, message, span) => find(ctx.sentence, code, 'warning', message, span),
+  });
+  const { status, test, relation, resolve, predTla, condTla } = expr;
   const traced = (ctx: Ctx, tla: string, from: string, span: Span): Traced => ({ tla, from, sentence: ctx.sentence.id, span, words: say(ctx.sentence, span) });
 
   // ---- 4. Actions. ----
@@ -479,12 +417,13 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
     return chosen;
   };
 
-  const compileBranch = (sentence: AcceptedSentence, block: Block, branch: Branch, branchIndex: number, guardsOnly: boolean): { ctx: Ctx; guards: Traced[]; effects: Traced[]; updates: Map<string, ((previous: string) => string)[]>; notes: Traced[] } => {
+  const compileBranch = (sentence: AcceptedSentence, block: Block, branch: Branch, branchIndex: number, guardsOnly: boolean): { ctx: Ctx; guards: Traced[]; effects: Traced[]; updates: Map<string, ((previous: string) => string)[]>; notes: Traced[]; results: ActionModel['results'] } => {
     const first = branch.clauses[0] as Clause;
     const ctx: Ctx = { sentence, bindings: new Map(), params: [], primary: noun(first.object), findings };
     const guards: Traced[] = [];
     const effects: Traced[] = [];
     const notes: Traced[] = [];
+    const results: ActionModel['results'] = [];
     const updates = new Map<string, ((previous: string) => string)[]>();
     const update = (variable: string, change: (previous: string) => string): void => {
       const list = updates.get(variable) ?? [];
@@ -538,6 +477,7 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
           // The filter reads the state before the step; an earlier change in the same step is kept for the rest.
           update(model.statusVar, (previous) => `[${variable} \\in ${model.instanceSet} |-> IF ${filter} THEN ${value} ELSE ${previous === model.statusVar ? previous : `(${previous})`}[${variable}]]`);
           effects.push(traced(ctx, `each ${id}${filters.length > 0 ? ` where ${filters.join(' /\\ ')}` : ''} -> ${value}`, 'each object', [clause.object.span[0], clause.result.span[1]]));
+          results.push({ noun: id, state: slug(clause.result.state.text) });
         }
         continue;
       }
@@ -620,11 +560,12 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
         if (model.instanceSet !== undefined && self !== undefined) update(statusVar, (previous) => `[${previous} EXCEPT ![${self}] = ${value}]`);
         else update(statusVar, () => value);
         effects.push(traced(ctx, `${status(id, self)}' = ${value}`, 'result', clause.result.span));
+        results.push({ noun: id, state: slug(clause.result.state.text) });
       }
     }
     if (branch.guard !== null) guards.push(traced(ctx, condTla(branch.guard, ctx, 'condition'), 'condition', [branch.guard.type === 'pred' ? branch.guard.pred.span[0] : branch.guard.span[0], branch.span[1]]));
     void branchIndex;
-    return { ctx, guards, effects, updates, notes };
+    return { ctx, guards, effects, updates, notes, results };
   };
 
   const actionNames = new Map<string, string>();
@@ -665,6 +606,7 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
         effects: compiled.effects,
         updates,
         notes: compiled.notes,
+        results: compiled.results,
       });
     });
   }
@@ -718,7 +660,7 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
       const guard = statement.guard === null ? undefined : condTla(statement.guard, ctx, 'condition');
       tla = `\\A ${variable} \\in ${model.instanceSet} : ${guard === undefined ? body : `(${guard}) => ${body}`}`;
     } else {
-      const body = predTla(statement.pred, ctx);
+      const body = predTla(statement.pred, ctx, 'invariant');
       const guard = statement.guard === null ? undefined : condTla(statement.guard, ctx, 'condition');
       tla = guard === undefined ? body : `(${guard}) => (${body})`;
     }
@@ -816,4 +758,121 @@ export function sentenceOrder(left: string, right: string): number {
   const a = Number(left.replace(/\D+/g, ''));
   const b = Number(right.replace(/\D+/g, ''));
   return a === b ? left.localeCompare(right) : a - b;
+}
+
+/** What the condition compiler reads: the nouns, links, and ownership of a compiled model, and how to name them. */
+export interface ExpressionEnv {
+  models: ReadonlyMap<string, NounModel>;
+  /** `object|target` → the link. */
+  links: ReadonlyMap<string, LinkModel>;
+  ownership: CanonModel['ownership'];
+  lexicon: CanonLexicon;
+  /** How a variable of the blocks module is written. The identity inside the blocks module. */
+  variable(name: string): string;
+  /** How a definition of the blocks module (a set, an ownership map, Null) is written. */
+  definition(name: string): string;
+  /** Prefix of the variables a quantifier binds, so they cannot shadow a name of the module that reads them. */
+  quantPrefix: string;
+  warn(ctx: CondContext, code: string, message: string, span: Span): void;
+}
+
+export interface ConditionExpressions {
+  status(id: string, instance: string | undefined): string;
+  test(expression: string, states: readonly string[], negated: boolean): string;
+  relation(from: string, fromInstance: string | undefined, to: string): { expr: string; nullable: boolean } | undefined;
+  resolve(id: string, ctx: CondContext): { expr: string | undefined; nullable: boolean } | undefined;
+  predTla(pred: Pred, ctx: CondContext, from: string): string;
+  condTla(cond: Cond, ctx: CondContext, from: string): string;
+}
+
+/**
+ * One meaning for conditions. The blocks compiler and the workflow compiler both read a predicate through this,
+ * so "the order is approved" compiles to the same test in a spec sentence and in a workflow step.
+ */
+export function conditionExpressions(env: ExpressionEnv): ConditionExpressions {
+  const { models, links, ownership, lexicon } = env;
+  const v = env.variable;
+  const d = env.definition;
+  const nul = d(NULL);
+  const noun = (ref: Ref): string => nounOf(ref, lexicon);
+  const say = (sentence: AcceptedSentence, span: Span): string => sentence.text.slice(span[0], span[1]);
+  const status = (id: string, instance: string | undefined): string => {
+    const model = models.get(id);
+    const name = v(model?.statusVar ?? `${ident(id)}_status`);
+    return model?.instanceSet !== undefined && instance !== undefined ? `${name}[${instance}]` : name;
+  };
+  const test = (expression: string, states: readonly string[], negated: boolean): string => {
+    if (states.length === 1) return `${expression} ${negated ? '#' : '='} ${quote(states[0] ?? '')}`;
+    return `${expression} ${negated ? '\\notin' : '\\in'} ${setText(states)}`;
+  };
+  /** How `to` is reached from an instance of `from`: through a link, or through a fixed ownership. */
+  const relation = (from: string, fromInstance: string | undefined, to: string): { expr: string; nullable: boolean } | undefined => {
+    const link = links.get(`${from}|${to}`);
+    const fromModel = models.get(from);
+    if (link !== undefined) {
+      return { expr: fromModel?.instanceSet !== undefined && fromInstance !== undefined ? `${v(link.var)}[${fromInstance}]` : v(link.var), nullable: true };
+    }
+    const owned = ownership.find((item) => item.object === from && item.owner === to);
+    if (owned !== undefined && fromInstance !== undefined) return { expr: `${d(owned.name)}[${fromInstance}]`, nullable: false };
+    return undefined;
+  };
+  /** The instance of `id` this action is about, when there is exactly one way to tell. */
+  const resolve = (id: string, ctx: CondContext): { expr: string | undefined; nullable: boolean } | undefined => {
+    const model = models.get(id);
+    if (model?.instanceSet === undefined) return { expr: undefined, nullable: false };
+    const bound = ctx.bindings.get(id);
+    if (bound !== undefined) return { expr: bound, nullable: false };
+    const primary = ctx.bindings.get(ctx.primary);
+    const viaPrimary = relation(ctx.primary, primary, id);
+    if (viaPrimary !== undefined) return viaPrimary;
+    for (const [other, instance] of ctx.bindings) {
+      const via = relation(other, instance, id);
+      if (via !== undefined) return via;
+    }
+    return undefined;
+  };
+  let quantNumber = 0;
+  const scopeOf = (id: string, ctx: CondContext, variable: string): string => {
+    const model = models.get(id);
+    const set = model?.instanceSet === undefined ? 'BOOLEAN' : d(model.instanceSet);
+    for (const [other, instance] of ctx.bindings) {
+      const owned = relation(id, variable, other);
+      if (owned !== undefined) return `{${variable} \\in ${set} : ${owned.expr} = ${instance}}`;
+    }
+    return set;
+  };
+  const predTla = (pred: Pred, ctx: CondContext, from: string): string => {
+    const id = noun(pred.subject);
+    const states = pred.states.map((state) => slug(state.text));
+    const qual = pred.subject.qual?.text.toLowerCase() ?? '';
+    const model = models.get(id);
+    let resolved = qual === '' ? resolve(id, ctx) : undefined;
+    if (qual === '' && resolved === undefined) {
+      env.warn(ctx, 'unscoped-condition', `"${say(ctx.sentence, pred.subject.span)}" has several instances and this step names none of them, so the condition is read as "some ${pred.subject.noun.text}": say each, some, one or no to be exact`, pred.span);
+    }
+    if (model?.instanceSet !== undefined && (qual !== '' || resolved === undefined)) {
+      quantNumber += 1;
+      const variable = `${env.quantPrefix}${ident(id)}_q${quantNumber}`;
+      const scope = scopeOf(id, ctx, variable);
+      const term = status(id, variable);
+      const body = test(term, states, pred.negated);
+      if (qual === 'each') return `\\A ${variable} \\in ${scope} : ${term} # ${nul} => ${body}`;
+      if (qual === 'one') return `Cardinality({${variable} \\in ${scope} : ${body}}) = 1`;
+      if (qual === 'no') return `~(\\E ${variable} \\in ${scope} : ${body})`;
+      return `\\E ${variable} \\in ${scope} : ${body}`;
+    }
+    resolved ??= { expr: undefined, nullable: false };
+    const body = test(status(id, resolved.expr), states, pred.negated);
+    void from;
+    return resolved.nullable && resolved.expr !== undefined ? `(${resolved.expr} # ${nul} /\\ ${body})` : body;
+  };
+  const condTla = (cond: Cond, ctx: CondContext, from: string): string => {
+    if (cond.type === 'pred') return predTla(cond.pred, ctx, from);
+    const parts = cond.items.map((item) => {
+      const text = condTla(item, ctx, from);
+      return item.type === 'pred' ? text : `(${text})`;
+    });
+    return parts.map((part) => (/\\[AE] /.test(part) && parts.length > 1 ? `(${part})` : part)).join(cond.type === 'and' ? ' /\\ ' : ' \\/ ');
+  };
+  return { status, test, relation, resolve, predTla, condTla };
 }
