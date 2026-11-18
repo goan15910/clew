@@ -2,6 +2,7 @@
 import type { CanonLexicon, Diagnostic, Span } from '../domain/canon-ast.js';
 import type { CanonFinding, CanonModel } from '../domain/canon-compile.js';
 import type { DraftRewrite } from '../domain/canon-gate.js';
+import type { StepCitation, WorkflowExpect, WorkflowFinding, WorkflowMode, WorkflowSentenceView } from '../domain/canon-workflow.js';
 import type { Comparison } from '../domain/comparison.js';
 import type { StatusCoverage, TraceLink } from '../domain/spec-query.js';
 import type { ClauseStatus } from '../domain/spec-kernel.js';
@@ -857,6 +858,56 @@ export interface SpecDiffDocument {
   issues: OutputIssue[];
 }
 
+// English workflows (clew spec workflow ...).
+export interface EnglishWorkflowView {
+  id: string;
+  title: string;
+  expect: WorkflowExpect;
+  mode: WorkflowMode;
+  ready: boolean;
+  deleted?: boolean;
+  sentences: WorkflowSentenceView[];
+  findings: WorkflowFinding[];
+}
+
+export interface WorkflowRunView {
+  workflow: string;
+  title: string;
+  expect: WorkflowExpect;
+  mode: WorkflowMode;
+  /** holds: TLC agrees with what the workflow expects. fails: it does not. */
+  outcome: 'holds' | 'fails' | 'not-ready' | 'error' | 'timeout';
+  message?: string;
+  /** The witness of a possible workflow, or the path a refused one should not have. */
+  path?: { state: number; kind: 'step' | 'other' | 'environment'; step?: number; action?: string; specSentence?: string; values: string[] }[];
+  /** A possible workflow that TLC cannot complete: the first step the model never takes after the ones before it. */
+  stopsAt?: { step: number; sentence: string; text: string; reached: number; cites: StepCitation[] };
+  tlc?: TlcResultView;
+}
+
+export interface SpecWorkflowDocument {
+  command: 'spec.workflow.add' | 'spec.workflow.check' | 'spec.workflow.edit' | 'spec.workflow.step' | 'spec.workflow.delete' | 'spec.workflow.set' | 'spec.workflow.accept' | 'spec.workflow.parse' | 'spec.workflow.export' | 'spec.workflow.verify';
+  ok: boolean;
+  session?: string;
+  added?: string[];
+  /** spec.workflow.parse: the live sentences parsed again because the lexicon's grammar words changed. */
+  reparsed?: string[];
+  /** Sentences of the file under a heading that opens no workflow: kept out of every workflow, and listed here. */
+  skipped?: { text: string; section: string }[];
+  sentence?: string;
+  accepted?: { id: string; from: string; to: string; notes: string[]; dropped: string[] };
+  workflows?: EnglishWorkflowView[];
+  /** Spec sentences that do not pass the gate: they are not in the model the workflows are checked against. */
+  specDangling?: string[];
+  workflowFindings?: WorkflowFinding[];
+  files?: { path: string; module: string; workflow?: string }[];
+  run?: { workflow: string; command: string }[];
+  runs?: WorkflowRunView[];
+  findings: [];
+  fault?: 'unreadable' | 'locked' | 'schema' | 'session' | 'lexicon' | 'gate' | 'stale';
+  issues: OutputIssue[];
+}
+
 export type CommandDocument =
   | UpgradeDocument
   | ChartCheckDocument
@@ -886,7 +937,8 @@ export type CommandDocument =
   | SpecTlaCheckDocument
   | SpecCanonDocument
   | SpecMilestoneDocument
-  | SpecDiffDocument;
+  | SpecDiffDocument
+  | SpecWorkflowDocument;
 
 export type ExitKind = 'pass' | 'fail' | 'invalid';
 

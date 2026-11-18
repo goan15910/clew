@@ -37,6 +37,14 @@
 // clew spec milestone list [--session id] [--json]
 // clew spec milestone show <id> [--changes] [--session id] [--json]
 // clew spec diff [from] [to] [--session id] [--json]
+// clew spec workflow add --file workflows.md --reason text [--by] [--session id] [--json]
+// clew spec workflow check [--workflow w1] [--session id] [--json]
+// clew spec workflow edit --id w1.s2 --text sentence --reason text | step (--workflow w1 | --after w1.s2) --text sentence --reason text | delete --id w1.s2 --reason text
+// clew spec workflow set --workflow w1 [--expect possible|refused] [--mode loose|exact] [--title t] [--delete] --reason text
+// clew spec workflow accept --id w1.s2 --reason text [--descriptive text]
+// clew spec workflow parse [--workflow w1] [--session id] [--json]
+// clew spec workflow export --dir D --name Module [--workflow w1] [--session id] [--json]
+// clew spec workflow verify --dir D --name Module [--workflow w1] [--jar tla2tools.jar] [--timeout s] [--workers n] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show sentences|tagged|tokens|spans|concepts|frames [--session id] [--json]
@@ -96,6 +104,9 @@ import { tlaTextFiles } from './adapters/tla/text-files.js';
 import { canonFileStore, canonLexiconFile, canonTextFiles, javaTlcRunner } from './adapters/canon/canon-files.js';
 import { chevrotainCanonParser } from './adapters/canon/chevrotain-parser.js';
 import { acceptCanonDraft, checkCanon, exportCanon, mergeCanon, runCanonTlc, setCanonLexicon, type CanonPorts } from './application/canon.js';
+import { acceptWorkflowDraft, addWorkflows, checkWorkflowSet, editWorkflowSentence, exportWorkflows, parseWorkflowSet, setWorkflow, verifyWorkflows, type WorkflowPorts } from './application/canon-workflows.js';
+import { workflowFileStore } from './adapters/canon/workflow-files.js';
+import { CANON_WORKFLOW_ID_PATTERN, CANON_WORKFLOW_SENTENCE_ID_PATTERN } from './domain/canon-workflow.js';
 import { exportSpec } from './application/export-spec.js';
 import { isVersionRef, MILESTONE_ID_MESSAGE, MILESTONE_ID_PATTERN, VERSION_REF_MESSAGE } from './domain/spec-versions.js';
 import { closeMilestone, diffVersions, listMilestones, showMilestone, type MilestonePorts } from './application/milestones.js';
@@ -145,6 +156,7 @@ const comparePorts: ComparePorts = {
 const milestoneStore = jsonMilestoneStore();
 const canonPorts: CanonPorts = { store: jsonSpecStore, canon: canonFileStore(), parser: chevrotainCanonParser, milestones: milestoneStore };
 const milestonePorts: MilestonePorts = { store: jsonSpecStore, canon: canonPorts.canon, parser: chevrotainCanonParser, milestones: milestoneStore };
+const workflowPorts: WorkflowPorts = { store: jsonSpecStore, canon: canonPorts.canon, workflows: workflowFileStore(), parser: chevrotainCanonParser };
 const upgradePorts: UpgradePorts = {
   install: { locate: locateInstall },
   releases: githubReleases,
@@ -359,6 +371,35 @@ const SpecCanonTlcFlags = z.object({
   timeout: z.coerce.number().int().min(1).max(86400).default(300),
   workers: z.coerce.number().int().min(1).max(64).default(1),
   coverage: z.boolean().optional(),
+});
+const CanonWorkflowIdOption = z.string().regex(CANON_WORKFLOW_ID_PATTERN, 'workflow ids look like w1');
+const WorkflowSentenceIdOption = z.string({ error: '--id is required' }).regex(CANON_WORKFLOW_SENTENCE_ID_PATTERN, 'workflow sentence ids look like w1.s2');
+const SpecWorkflowAddFlags = z.object({ ...RevisionFlags, file: z.string({ error: '--file is required' }).min(1) });
+const SpecWorkflowCheckFlags = z.object({ json: z.boolean().optional(), session: SessionOption, workflow: CanonWorkflowIdOption.optional() });
+const SpecWorkflowEditFlags = z.object({ ...RevisionFlags, id: WorkflowSentenceIdOption, text: z.string({ error: '--text is required' }).trim().min(1) });
+const SpecWorkflowStepAddFlags = z.object({ ...RevisionFlags, workflow: CanonWorkflowIdOption.optional(), after: z.string().regex(CANON_WORKFLOW_SENTENCE_ID_PATTERN, '--after takes a workflow sentence id such as w1.s2').optional(), text: z.string({ error: '--text is required' }).trim().min(1) })
+  .refine((flags) => flags.workflow !== undefined || flags.after !== undefined, { message: 'pass --workflow w1 or --after w1.s2', path: ['workflow'] });
+const SpecWorkflowDeleteFlags = z.object({ ...RevisionFlags, id: WorkflowSentenceIdOption });
+const SpecWorkflowSetFlags = z.object({
+  ...RevisionFlags,
+  workflow: z.string({ error: '--workflow is required' }).regex(CANON_WORKFLOW_ID_PATTERN, 'workflow ids look like w1'),
+  title: z.string().trim().min(1).optional(),
+  expect: z.enum(['possible', 'refused']).optional(),
+  mode: z.enum(['loose', 'exact']).optional(),
+  delete: z.boolean().optional(),
+});
+const SpecWorkflowAcceptFlags = z.object({ ...RevisionFlags, id: WorkflowSentenceIdOption, descriptive: z.string().trim().min(1, '--descriptive needs a reason').optional() });
+const SpecWorkflowExportFlags = z.object({
+  json: z.boolean().optional(),
+  session: SessionOption,
+  workflow: CanonWorkflowIdOption.optional(),
+  name: z.string({ error: '--name is required' }).regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'a TLA+ module name starts with a letter and then uses letters, digits, or underscores'),
+  dir: z.string({ error: '--dir is required' }).min(1),
+});
+const SpecWorkflowVerifyFlags = SpecWorkflowExportFlags.extend({
+  jar: z.string().min(1).optional(),
+  timeout: z.coerce.number().int().min(1).max(86400).default(300),
+  workers: z.coerce.number().int().min(1).max(64).default(1),
 });
 const SpecSessionFlags = z.object({
   json: z.boolean().optional(),
@@ -1477,6 +1518,216 @@ setManual(spec
   examples: ['clew spec diff --json', 'clew spec diff m1 m2 --json', 'clew spec diff original latest --json'],
   exitCodes: specExits,
   notes: ['With no version named, diff shows the work not yet in a milestone. Each changed sentence lists the reasons recorded on it between the two versions.', 'Each side is gated with its own canonical lexicon; a side with none (the original spec) is gated with the other side\'s, and gatedWith says so. Actions match by name, which carries the sentence id.', jsonNote, sessionNote],
+});
+
+const workflow = spec.command('workflow').description('Write workflows in English, check them against the spec, and verify them with TLC.').helpCommand(false);
+const workflowNote = 'A workflow is a list of sentences in the canonical grammar, marked (possible) or (refused). It shares the spec\'s lexicon and concepts, passes the same gate, and cites the spec actions its steps match. It cannot add a concept or a step to the spec, and the spec (its versions and milestones included) never reads it. workflows.json stores each sentence\'s text, history, and parse; everything else is compiled on each run. See docs/workflows.md.';
+const workflowExits = [
+  { code: 0 as const, meaning: 'every workflow passes the gate, matches the spec, and is ready to check' },
+  { code: 1 as const, meaning: 'a workflow sentence is dangling, or a finding blocks a monitor' },
+  { code: 2 as const, meaning: 'the input is unreadable, the arguments are wrong, or there is no spec session, lexicon, or workflow' },
+];
+
+setManual(workflow
+  .command('add')
+  .description('Add the workflows of a Markdown file. Each heading that ends in (possible) or (refused) opens one.')
+  .option('--file <workflows.md>', 'Markdown: "## Happy path (possible)", then one sentence per step')
+  .option('--reason <text>', 'why these workflows')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowAddFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.add', opts, parsed.error);
+    emit(addWorkflows({ sessionId: parsed.data.session, file: parsed.data.file, reason: parsed.data.reason, by: parsed.data.by, finding: parsed.data.finding, comment: parsed.data.comment }, workflowPorts, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow add --file workflows.md --reason "intent from the product brief" --json'],
+  exitCodes: [{ code: 0, meaning: 'the workflows were added; check reports whether they are ready' }, { code: 2, meaning: 'the file is unreadable, a sentence is under no workflow heading, or there is no session or lexicon' }],
+  notes: ['"(possible)" asks TLC for a witness; "(refused)" asks TLC to show that no behaviour takes the steps. Add ", exact" ("(refused, exact)") when no other spec action may happen before or between the steps.', workflowNote, revisionNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('check')
+  .description('Gate the workflow sentences, align their concepts with the spec, and match each step to the spec actions it cites (read-only).')
+  .option('--workflow <id>', 'check one workflow only')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowCheckFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.check', opts, parsed.error);
+    emit(checkWorkflowSet({ sessionId: parsed.data.session, workflow: parsed.data.workflow }, workflowPorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow check --json', 'clew spec workflow check --workflow w2 --json'],
+  exitCodes: workflowExits,
+  notes: ['Findings: step-dangling, parse-stale, no-steps, unknown-concept, state-not-of-noun, needs-instances, step-unmatched (blocking or warning), and step-ambiguous (info). needs-instances is raised before any model checking: the step needs several instances of a noun the spec models as one. parse-stale: the lexicon\'s actors, terms, states, or verbs changed since the sentence was parsed; run clew spec workflow parse.', workflowNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('parse')
+  .description('Parse the workflow sentences again with the spec\'s lexicon as it is now, and store the parses. The text and its history are unchanged.')
+  .option('--workflow <id>', 'parse one workflow only')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowCheckFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.parse', opts, parsed.error);
+    emit(parseWorkflowSet({ sessionId: parsed.data.session, workflow: parsed.data.workflow }, workflowPorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow parse --json'],
+  exitCodes: workflowExits,
+  notes: ['Run it after the lexicon\'s actors, terms, states, or verbs change: check reports parse-stale until then. Only sentences whose parse is stale are parsed again; nothing deeper than the parse is stored.', workflowNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('edit')
+  .description('Rewrite one workflow sentence. It keeps its id and history.')
+  .option('--id <id>', 'workflow sentence, such as w1.s2')
+  .option('--text <sentence>', 'the new text, in the canonical grammar')
+  .option('--reason <text>', 'why it changes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowEditFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.edit', opts, parsed.error);
+    emit(editWorkflowSentence({ action: 'edit', sessionId: parsed.data.session, id: parsed.data.id, text: parsed.data.text, reason: parsed.data.reason, by: parsed.data.by, finding: parsed.data.finding, comment: parsed.data.comment }, workflowPorts, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow edit --id w1.s2 --text "The manager reviews the order as approved when the total is small." --reason "state the condition" --json'],
+  exitCodes: [{ code: 0, meaning: 'the sentence was rewritten' }, { code: 2, meaning: 'the id is unknown or deleted, or the text is unchanged' }],
+  notes: [workflowNote, revisionNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('step')
+  .description('Add one sentence to a workflow, at the end or after a given sentence.')
+  .option('--workflow <id>', 'the workflow, such as w1; the sentence goes at its end')
+  .option('--after <id>', 'add after this workflow sentence, such as w1.s2')
+  .option('--text <sentence>', 'the sentence, in the canonical grammar')
+  .option('--reason <text>', 'why it is added')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowStepAddFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.step', opts, parsed.error);
+    emit(editWorkflowSentence({ action: 'add', sessionId: parsed.data.session, workflow: parsed.data.workflow, after: parsed.data.after, text: parsed.data.text, reason: parsed.data.reason, by: parsed.data.by, finding: parsed.data.finding, comment: parsed.data.comment }, workflowPorts, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow step --after w1.s2 --text "The warehouse packs the order as packed." --reason "packing comes before shipping" --json'],
+  exitCodes: [{ code: 0, meaning: 'the sentence was added' }, { code: 2, meaning: 'the workflow or the sentence after which to add is unknown' }],
+  notes: ['A new sentence gets the next free id in its workflow; ids are never reused.', workflowNote, revisionNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('delete')
+  .description('Delete one workflow sentence. It stays in the history as a tombstone.')
+  .option('--id <id>', 'workflow sentence, such as w1.s2')
+  .option('--reason <text>', 'why it goes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowDeleteFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.delete', opts, parsed.error);
+    emit(editWorkflowSentence({ action: 'delete', sessionId: parsed.data.session, id: parsed.data.id, reason: parsed.data.reason, by: parsed.data.by, finding: parsed.data.finding, comment: parsed.data.comment }, workflowPorts, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow delete --id w1.s4 --reason "duplicates s3" --json'],
+  exitCodes: [{ code: 0, meaning: 'the sentence was deleted' }, { code: 2, meaning: 'the id is unknown or already deleted' }],
+  notes: [workflowNote, revisionNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('set')
+  .description('Change what a workflow expects, its mode, or its title, or delete it.')
+  .option('--workflow <id>', 'the workflow, such as w1')
+  .option('--expect <possible|refused>', 'what TLC must show')
+  .option('--mode <loose|exact>', 'loose: other spec actions may happen between the steps; exact: none may')
+  .option('--title <text>', 'a new title')
+  .option('--delete', 'delete the workflow; it stays in workflows.json as a tombstone')
+  .option('--reason <text>', 'why it changes')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowSetFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.set', opts, parsed.error);
+    const flags = parsed.data;
+    emit(setWorkflow({ sessionId: flags.session, workflow: flags.workflow, title: flags.title, expect: flags.expect, mode: flags.mode, delete: flags.delete, reason: flags.reason, by: flags.by, finding: flags.finding, comment: flags.comment }, workflowPorts), flags.json === true);
+  }), {
+  examples: ['clew spec workflow set --workflow w2 --mode exact --reason "approve must be the first step" --json'],
+  exitCodes: [{ code: 0, meaning: 'the workflow was changed' }, { code: 2, meaning: 'the workflow is unknown, or nothing to change' }],
+  notes: [workflowNote, revisionNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('accept')
+  .description('Replace a dangling workflow sentence with its draft rewrite.')
+  .option('--id <id>', 'dangling workflow sentence, such as w1.s2')
+  .option('--descriptive <reason>', 'accept a draft that leaves words out, saying why they have no behaviour')
+  .option('--reason <text>', 'why the draft is right')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowAcceptFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.accept', opts, parsed.error);
+    emit(acceptWorkflowDraft({ sessionId: parsed.data.session, id: parsed.data.id, reason: parsed.data.reason, descriptive: parsed.data.descriptive, by: parsed.data.by }, workflowPorts, specTextSource), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow accept --id w1.s1 --reason "the draft keeps the meaning" --json'],
+  exitCodes: [{ code: 0, meaning: 'the sentence now reads as its draft' }, { code: 2, meaning: 'the sentence passes already, has no draft, its draft does not pass, or it leaves words out without --descriptive' }],
+  notes: [workflowNote, revisionNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('export')
+  .description('Compile the workflows and write the scenario monitors: <Module>Workflows.tla, which instances <Module>Blocks, and one TLC config per ready workflow.')
+  .option('--name <Module>', 'the model name used with clew spec canon export')
+  .option('--dir <dir>', 'the directory clew spec canon export wrote')
+  .option('--workflow <id>', 'export one workflow only')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowExportFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.export', opts, parsed.error);
+    const flags = parsed.data;
+    emit(exportWorkflows({ sessionId: flags.session, dir: flags.dir, name: flags.name, workflow: flags.workflow }, workflowPorts, canonTextFiles), flags.json === true);
+  }), {
+  examples: ['clew spec workflow export --dir tla --name Order --json'],
+  exitCodes: [{ code: 0, meaning: 'the monitors were written and every workflow is ready' }, { code: 1, meaning: 'the monitors were written, but some workflow is not ready and was left out' }, { code: 2, meaning: 'the blocks module is stale or missing, or there is no session, lexicon, or workflow' }],
+  notes: ['The monitor declares the blocks module\'s variables and instances it (Blocks == INSTANCE <Module>Blocks WITH v <- v, ...), so the blocks module must be the one the spec compiles to now: run clew spec canon export first. The compiled workflows are not saved: only the .tla and .cfg files are written.', workflowNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('verify')
+  .description('Export the monitors and run TLC on each ready workflow: a witness for a possible one, no path for a refused one.')
+  .option('--name <Module>', 'the model name used with clew spec canon export')
+  .option('--dir <dir>', 'the directory clew spec canon export wrote')
+  .option('--workflow <id>', 'verify one workflow only')
+  .option('--jar <file>', 'tla2tools.jar; defaults to $TLA2TOOLS_JAR')
+  .option('--timeout <seconds>', 'stop each TLC run after this many seconds (default 300)')
+  .option('--workers <n>', 'TLC worker threads (default 1)')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowVerifyFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.verify', opts, parsed.error);
+    const flags = parsed.data;
+    emit(verifyWorkflows({ sessionId: flags.session, dir: flags.dir, name: flags.name, workflow: flags.workflow, jar: flags.jar, workers: flags.workers, timeoutSeconds: flags.timeout }, workflowPorts, canonTextFiles, javaTlcRunner()), flags.json === true);
+  }), {
+  examples: ['clew spec workflow verify --dir tla --name Order --jar tla2tools.jar --json'],
+  exitCodes: [{ code: 0, meaning: 'TLC agrees with every workflow' }, { code: 1, meaning: 'a possible workflow has no witness, a refused one goes through, or a workflow is not ready' }, { code: 2, meaning: 'no jar or Java, a stale export, or TLC could not run any monitor' }],
+  notes: ['Each path step names the workflow step, the spec action, and the spec sentence it came from. A possible workflow with no witness names the first step the model never takes.', 'Clew does not ship TLC. Pass --jar or set TLA2TOOLS_JAR; Java must be on PATH (or set JAVA).', workflowNote, jsonNote, sessionNote],
 });
 
 setManual(spec

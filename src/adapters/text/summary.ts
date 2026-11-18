@@ -1,5 +1,5 @@
 // Short stdout for humans. `--json` skips this and prints the command document.
-import type { CommandDocument, ConceptView, SpecCanonDocument, SpecDiffDocument, SpecMilestoneDocument, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
+import type { CommandDocument, ConceptView, SpecCanonDocument, SpecWorkflowDocument, SpecDiffDocument, SpecMilestoneDocument, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import type { ActionDiff, LexiconDiff, Milestone, VersionCounts } from '../../domain/spec-versions.js';
 import { formatIssues } from '../../application/documents.js';
 import { ROLE_NAMES } from '../../domain/spec-frames.js';
@@ -198,6 +198,7 @@ export function humanSummary(document: CommandDocument): string {
     return lines.join('\n');
   }
   if (document.command.startsWith('spec.canon.')) return canonSummary(document as SpecCanonDocument);
+  if (document.command.startsWith('spec.workflow.')) return workflowSummary(document as SpecWorkflowDocument);
   if (document.command.startsWith('spec.milestone.')) return milestoneSummary(document as SpecMilestoneDocument);
   if (document.command === 'spec.diff') return diffSummary(document);
   if (document.command === 'spec.status') {
@@ -547,6 +548,65 @@ function diffSummary(document: SpecDiffDocument): string {
   if (actions !== undefined) {
     for (const [label, names] of [['new action', actions.added], ['removed action', actions.removed], ['changed action', actions.changed]] as const) {
       for (const name of names) lines.push(`  ${label} ${name}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function workflowSummary(document: SpecWorkflowDocument): string {
+  if (!document.ok) return '';
+  const lines: string[] = [];
+  const session = document.session === undefined ? '' : `session ${document.session}: `;
+  const workflows = document.workflows ?? [];
+  switch (document.command) {
+    case 'spec.workflow.set': {
+      const workflow = workflows[0];
+      if (workflow === undefined) return '';
+      lines.push(`${session}${workflow.id} "${workflow.title}" ${workflow.deleted === true ? 'deleted' : `must be ${workflow.expect} (${workflow.mode})`}`);
+      return lines.join('\n');
+    }
+    case 'spec.workflow.add':
+      lines.push(`${session}added ${(document.added ?? []).join(', ')}`);
+      for (const note of document.skipped ?? []) lines.push(`  not a step (no workflow heading): "${note.text}"`);
+      break;
+    case 'spec.workflow.accept':
+      if (document.accepted !== undefined) lines.push(`${session}${document.accepted.id} now reads "${document.accepted.to}"`, `  was "${document.accepted.from}"`);
+      break;
+    case 'spec.workflow.parse':
+      lines.push(`${session}${(document.reparsed ?? []).length === 0 ? 'every parse is current' : `parsed again: ${(document.reparsed ?? []).join(', ')}`}`);
+      break;
+    case 'spec.workflow.edit':
+    case 'spec.workflow.step':
+    case 'spec.workflow.delete':
+      if (document.sentence !== undefined) lines.push(`${session}${document.sentence} ${document.command === 'spec.workflow.delete' ? 'deleted' : 'written'}`);
+      break;
+    default:
+      lines.push(`${session}${countPhrase(workflows.filter((workflow) => workflow.ready).length, 'workflow is', 'workflows are')} ready, ${countPhrase(workflows.filter((workflow) => !workflow.ready).length, 'is', 'are')} not`);
+  }
+  if ((document.specDangling ?? []).length > 0) lines.push(`  the spec has dangling sentences the model leaves out: ${(document.specDangling ?? []).join(', ')}`);
+  for (const workflow of workflows) {
+    lines.push(`  ${workflow.id} "${workflow.title}" must be ${workflow.expect} (${workflow.mode}): ${workflow.ready ? 'ready' : 'not ready'}`);
+    for (const sentence of workflow.sentences) {
+      const role = sentence.step === undefined ? sentence.role : `step ${sentence.step}`;
+      const cites = sentence.cites.length === 0 ? '' : `  cites ${sentence.cites.map((cite) => `${cite.action} (${cite.sentence})`).join(', ')}`;
+      lines.push(`    ${sentence.id} ${role}${sentence.status === 'dangling' ? ' DANGLING' : ''}: "${sentence.text}"${cites}`);
+      for (const diagnostic of sentence.diagnostics) lines.push(`      ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message}${diagnostic.found === '' ? '' : ` at "${diagnostic.found}"`}`);
+      const draft = sentence.draft;
+      if (draft !== undefined) lines.push(`      draft: "${draft.text}" (${draft.parses ? 'passes the gate' : 'does not pass yet'}${draft.needsConfirm ? '; guesses: confirm' : ''})`);
+    }
+    for (const finding of workflow.findings) lines.push(`    ${finding.severity} ${finding.code}${finding.sentence === undefined ? '' : ` ${finding.sentence}`}: ${finding.message}`);
+  }
+  for (const file of document.files ?? []) lines.push(`  wrote ${file.path}`);
+  for (const run of document.run ?? []) lines.push(`  run ${run.workflow}: ${run.command}`);
+  for (const run of document.runs ?? []) {
+    lines.push(`  ${run.workflow} ${run.outcome.toUpperCase()}: ${run.message ?? ''}`);
+    for (const step of run.path ?? []) {
+      const label = step.kind === 'step' ? `step ${String(step.step)}` : step.kind;
+      lines.push(`    ${String(step.state)}. ${label}${step.action === undefined ? '' : ` ${step.action}`}${step.specSentence === undefined ? '' : ` (${step.specSentence})`}: ${step.values.join(', ')}`);
+    }
+    if (run.stopsAt !== undefined) {
+      lines.push(`    stops at ${run.stopsAt.sentence} step ${String(run.stopsAt.step)}: "${run.stopsAt.text}"`);
+      for (const cite of run.stopsAt.cites) lines.push(`      ${cite.action} (${cite.sentence}) needs ${cite.guards.length === 0 ? 'nothing' : cite.guards.join(' /\\ ')}`);
     }
   }
   return lines.join('\n');

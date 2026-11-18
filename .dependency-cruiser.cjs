@@ -39,6 +39,13 @@ module.exports = {
       to: { path: '^src/domain/spec-(concepts|frames|clauses)\\.ts$' },
     },
     {
+      name: 'spec-never-cites-workflows',
+      severity: 'error',
+      comment: 'References go one way: a workflow may read the spec (its lexicon, gate, and compiled model), but the spec\'s grammar, gate, compiler, TLA+ export, use cases, and versioning (milestones, diff) never read a workflow.',
+      from: { path: '^src/(domain/(canon-(ast|compile|gate|rules|tla)|spec-versions)|application/(canon|versions)|adapters/canon/(canon-files|chevrotain-parser)|adapters/spec-store/[^/]+)\\.ts$' },
+      to: { path: '(^|/)(domain/canon-workflow|application/canon-workflows|adapters/canon/workflow-files)\\.ts$' },
+    },
+    {
       name: 'application-inward',
       severity: 'error',
       comment:
