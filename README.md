@@ -54,7 +54,7 @@ clew spec init examples/canon/order.md
 clew spec canon lexicon --file examples/canon/lexicon.json --reason "order example"
 clew spec canon check                       # dangling sentences come with a draft rewrite
 clew spec canon accept --id s7 --reason "a list of final states"
-clew spec canon accept --id s9 --reason "packing follows approval"
+clew spec canon accept --id s9 --confirm --reason "packing follows approval"
 mkdir -p /tmp/order && clew spec canon export --dir /tmp/order --name Order
 clew spec canon tlc /tmp/order/OrderBlocks.tla --jar tla2tools.jar
 ```

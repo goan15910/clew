@@ -8,7 +8,7 @@
 clew spec init order.md                                    # split the spec into sentences (unchanged)
 clew spec canon lexicon --file lexicon.json --reason "..."   # actors, multi-word nouns/states/verbs
 clew spec canon check                                      # gate every sentence; dangling ones get a draft
-clew spec canon accept --id s9 --reason "..."              # take a draft (the sentence keeps its id and history)
+clew spec canon accept --id s9 --confirm --reason "..."    # take a draft (the sentence keeps its id and history)
 clew spec sentences edit --id s4 --text "..." --reason "..." # or write the sentence yourself
 clew spec canon merge --id s3 --id s4 --text "..." --reason "..."  # restate several sentences as one action block
 clew spec canon export --dir tla --name Order              # OrderBlocks, Order (yours), OrderCheck, configs
@@ -51,9 +51,9 @@ The parser is Chevrotain (`src/adapters/canon/chevrotain-parser.ts`, the only fi
 
 ## The gate
 
-A sentence passes when it parses and breaks no rule above the grammar. Rule codes: `pronoun`, `again`, `qualifier`, `unknown-state`, `state-word`, `from-state`, `refusal`, `conflict`, `actor`, `extra-verb`, `retired-word`, `missing-result`, `mark-subject`. A state is *known* when some accepted sentence assigns it (`as STATE`) or a mark names it; the gate runs to a fixed point so order does not matter.
+A sentence passes when it parses and breaks no rule above the grammar. Rule codes: `pronoun`, `again`, `qualifier`, `unknown-state`, `state-word`, `from-state`, `refusal`, `conflict`, `actor`, `extra-verb`, `retired-word`, `missing-result`, `mark-subject`. A state is *known* when the lexicon declares it, or some sentence assigns it (`as STATE`) or a mark names it. The known states are collected in one pass over every sentence before any is gated, so sentence order does not matter; a sentence that does not parse yet still counts through its `as WORD`, so that fixing one sentence does not make another dangle.
 
-A dangling sentence gets a draft rewrite: the retired wording first (`if`/`once` → `when`, `must pack` → `packs`, `are` → `is`, `every` → `each`, ...), then token repairs, then the fixes the rules carry, for up to eight rounds. The draft says whether it `parses`, whether it guesses (`needsConfirm`), whether it holds a placeholder (`needsInput`), and which words it leaves out (`dropped`). `accept` refuses a draft that does not parse, and refuses one that drops words unless `--descriptive "<why they have no behaviour>"` is given.
+A dangling sentence gets a draft rewrite: the retired wording first (`if`/`once` → `when`, `must pack` → `packs`, `are` → `is`, `every` → `each`, ...), then token repairs, then the fixes the rules carry, for up to eight rounds. The draft says whether it `parses`, whether it guesses (`needsConfirm`), whether it holds a placeholder (`needsInput`), and which words it leaves out (`dropped`). `accept` refuses a draft that does not parse, refuses one that guesses unless `--confirm` is given, and refuses one that drops words unless `--descriptive "<why they have no behaviour>"` is given.
 
 ## The model
 
@@ -65,9 +65,9 @@ A dangling sentence gets a draft rewrite: the retired wording first (`if`/`once`
 * `ends as` marks define `Done`. `NoStuck == (~ENABLED Actions) => Done` replaces TLC's deadlock check (`CHECK_DEADLOCK FALSE`), so a finished object is not a deadlock and a stuck one is.
 * Each action is named after its sentence (`ReviewOrder_s3_2` is branch 2 of `s3`), so `spec canon tlc` maps a violation, each trace step, and each coverage line back to a sentence.
 
-`export` writes `<Name>Blocks.tla/.cfg`, `<Name>Check.tla/.cfg`, and `<Name>Coverage.cfg`, all owned by Clew and rewritten every time, and `<Name>.tla`, the model, which starts as a copy of the blocks plus `Blocks == INSTANCE <Name>Blocks` and is yours: it is kept unless `--force`. The check module asserts `Blocks!Spec`, the blocks' invariants and refusals, and one `Cover_` per action.
+`export` writes `<Name>Blocks.tla/.cfg`, `<Name>Check.tla/.cfg`, and `<Name>Coverage.cfg`, all owned by Clew and rewritten every time, and `<Name>.tla`, the model, which starts as a copy of the blocks plus `Blocks == INSTANCE <Name>Blocks` and is yours: it is kept unless `--force`. The check module asserts `Blocks!Spec` (`RefinesBlocks`) and the blocks' refusals, and defines one `Cover_` per action. The blocks' invariants are not listed in the check config: they hold on the model because it refines the blocks.
 
-Compiler findings: `abstract-condition`, `unscoped-condition`, `owner-unknown`, `scope-not-compiled`, `copy-source`, `same-on-single`, `refusal-unmatched`, `many-starts`, `final-has-exit`, `state-never-set`, `no-final-states`, `same-step-two-results`, `no-states`.
+Compiler findings: `abstract-condition`, `unscoped-condition`, `owner-unknown`, `scope-not-compiled`, `copy-source`, `same-on-single`, `refusal-unmatched`, `many-starts`, `final-has-exit`, `no-source-state`, `state-never-set`, `no-final-states`, `same-step-two-results`, `no-states`.
 
 ## Decisions
 
@@ -112,3 +112,16 @@ Each decision below was taken while building the prototype. The proposal or the 
 **D19. The lexicon can fix an abstract condition (`fixed`).** Found on the order example: "the order is never shipped when the total is large" failed because the environment changed the total after shipping. An order's total is an attribute, picked once. `fixed` makes it keep its initial state; the `abstract-condition` finding says how to use it.
 
 **D20. `spec status` lists dangling sentences but keeps its exit code.** Status reports the frames layers; the canonical gate's exit code is `spec canon check`'s.
+
+**D21. A draft that guesses needs `--confirm` to be accepted.** Raised in review: `needsConfirm` was reported but `--reason` alone accepted it. A guess (a pronoun resolved, a result state taken from the verb, `in` read as `via`) changes meaning, so taking it is an explicit act, like `--descriptive` for dropped words.
+
+**D22. A step that sets an object without reading its state raises `no-source-state`.** Raised in review: "reviews the order as rejected when the total is large" compiled to an action guarded only by the total, so it could fire from any state, final ones included, and TLC still passed. The sentence is legal, so it is a warning, not a gate rule; the finding tells the author to name the source state.
+
+## Known limits
+
+* **The model's own dead ends are not checked.** `NoStuck` is an invariant of the blocks module. The check config proves that the model refines the blocks, which does not prove that the model can always take a next step: a model that drops an action still refines. Coverage (`Cover_X: 0`) shows a dropped action, but nothing fails.
+* **`accept` and `merge` are several writes with no rollback.** The sentence edit and `canon.json` are written one after the other, and `canon.json` has no lock of its own. A failure between them leaves the sentence changed and the canon history one entry short.
+* **Diagnostics are not stored.** They are recomputed by every command. Only the notes of an accepted draft are kept, in the sentence history and `canon.json`.
+* **`check` exits 1 only for dangling sentences.** No compiler finding is blocking yet, so warnings such as `no-source-state`, `unscoped-condition`, and `scope-not-compiled` do not fail it.
+* **CI does not run TLC.** The TLC step of the end-to-end test runs only when `TLA2TOOLS_JAR` is set.
+* **Layering to tidy.** The canon store, lexicon source, and TLC runner ports live in `application/canon.ts` rather than `ports.ts`; `readTlcOutput` knows TLC's output format in the application layer; and the retired words are listed in the gate, the rules, and the parser adapter.

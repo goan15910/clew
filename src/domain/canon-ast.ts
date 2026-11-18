@@ -194,8 +194,11 @@ export function lemma(verb: string): string {
   return low;
 }
 
+/** `orders` → `order`, `buses` → `bus`, and `bus`, `status`, `class`, `analysis` stay. A heuristic: declare a term when it is wrong. */
 export function singular(word: string): string {
-  return word !== word.toUpperCase() && /s$/.test(word) && !/ss$/.test(word) ? word.slice(0, -1) : word;
+  if (word === word.toUpperCase() || !/s$/i.test(word) || /(ss|us|is)$/i.test(word)) return word;
+  if (/[^aeo]uses$/i.test(word) || /(sses|shes|ches|xes|zes)$/i.test(word)) return word.slice(0, -2);
+  return word.slice(0, -1);
 }
 
 /** The noun a reference names: a declared term as declared, any other word in the singular. */

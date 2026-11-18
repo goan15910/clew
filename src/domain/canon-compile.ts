@@ -22,7 +22,6 @@ import {
   type Mark,
   type Pred,
   type Ref,
-  type Slot,
   type Span,
   type Statement,
 } from './canon-ast.js';
@@ -429,7 +428,7 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
     }
     return set;
   };
-  const predTla = (pred: Pred, ctx: Ctx, from: string): string => {
+  const predTla = (pred: Pred, ctx: Ctx): string => {
     const id = noun(pred.subject);
     const states = pred.states.map((state) => slug(state.text));
     const qual = pred.subject.qual?.text.toLowerCase() ?? '';
@@ -451,11 +450,10 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
     }
     resolved ??= { expr: undefined, nullable: false };
     const body = test(status(id, resolved.expr), states, pred.negated);
-    void from;
     return resolved.nullable && resolved.expr !== undefined ? `(${resolved.expr} # ${NULL} /\\ ${body})` : body;
   };
   const condTla = (cond: Cond, ctx: Ctx, from: string): string => {
-    if (cond.type === 'pred') return predTla(cond.pred, ctx, from);
+    if (cond.type === 'pred') return predTla(cond.pred, ctx);
     const parts = cond.items.map((item) => {
       const text = condTla(item, ctx, from);
       return item.type === 'pred' ? text : `(${text})`;
@@ -640,7 +638,10 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
       const event = verbOf(first.verb.text);
       const object = noun(first.object);
       const base = `${pascal(event)}${pascal(object)}_${sentence.id}${block.branches.length > 1 ? `_${index + 1}` : ''}`;
-      const name = claim(base);
+      // A clash gets `_altN`, never a bare digit: `_s3` must not turn into `_s32`.
+      let name = base;
+      for (let alt = 2; used.has(name); alt += 1) name = `${base}_alt${alt}`;
+      used.add(name);
       actionNames.set(`${sentence.id}|${index}`, name);
       const updates: Record<string, string> = {};
       for (const [variable, changes] of compiled.updates) {
@@ -717,7 +718,7 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
       const guard = statement.guard === null ? undefined : condTla(statement.guard, ctx, 'condition');
       tla = `\\A ${variable} \\in ${model.instanceSet} : ${guard === undefined ? body : `(${guard}) => ${body}`}`;
     } else {
-      const body = predTla(statement.pred, ctx, 'invariant');
+      const body = predTla(statement.pred, ctx);
       const guard = statement.guard === null ? undefined : condTla(statement.guard, ctx, 'condition');
       tla = guard === undefined ? body : `(${guard}) => (${body})`;
     }
@@ -736,6 +737,21 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
         const leaves = actions.some((action) => action.guards.some((guard) => guard.from === 'object state' && guard.tla.endsWith(quote(state))) && action.object === model.noun);
         if (leaves) find(mark, 'final-has-exit', 'warning', `"${state}" is a final state of "${model.noun}", but some action starts from it`, mark.statement.span);
       }
+    }
+  }
+  // A step that sets an object without reading that object's state can fire from any state, final ones included.
+  for (const action of actions) {
+    for (const model of models.values()) {
+      const variable = model.statusVar;
+      if (variable === undefined || model.abstract) continue;
+      const update = action.updates[variable];
+      if (update === undefined || update.startsWith('[')) continue;
+      const reads = action.guards.some((guard) => new RegExp(`\\b${variable}\\b`).test(guard.tla));
+      if (reads) continue;
+      const sentence = sentences.find((item) => item.id === action.sentence);
+      const text = `${action.name} sets "${model.noun}" without saying which state it starts from, so it can happen in any state${model.finals.length > 0 ? `, final ones (${model.finals.join(', ')}) included` : ''}: name the state before the noun ("the submitted ${model.noun}") or in a condition`;
+      if (sentence !== undefined) find(sentence, 'no-source-state', 'warning', text);
+      else find(undefined, 'no-source-state', 'warning', text);
     }
   }
   for (const model of models.values()) {
@@ -800,9 +816,4 @@ export function sentenceOrder(left: string, right: string): number {
   const a = Number(left.replace(/\D+/g, ''));
   const b = Number(right.replace(/\D+/g, ''));
   return a === b ? left.localeCompare(right) : a - b;
-}
-
-/** For callers that list a slot's meaning. Exported for tests. */
-export function describeSlot(slot: Slot): string {
-  return `${slotKey(slot)} ${slot.ref.noun.text}`;
 }

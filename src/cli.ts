@@ -28,7 +28,7 @@
 // clew spec tla check <model.tla> [--session id] [--json]
 // clew spec canon lexicon --file lexicon.json --reason text [--by] [--session id] [--json]
 // clew spec canon check [--sentence s1] [--session id] [--json]
-// clew spec canon accept --id s1 --reason text [--descriptive text] [--by] [--session id] [--json]
+// clew spec canon accept --id s1 --reason text [--confirm] [--descriptive text] [--by] [--session id] [--json]
 // clew spec canon merge --id s1 --id s2 --text block --reason text [--by] [--session id] [--json]
 // clew spec canon export (--dry-run | --dir D) --name Module [--force] [--session id] [--json]
 // clew spec canon tlc <file.tla> [--config file.cfg] [--jar tla2tools.jar] [--timeout s] [--workers n] [--coverage] [--json]
@@ -323,7 +323,7 @@ const SpecCanonCheckFlags = z.object({
   session: z.string().regex(SPEC_SESSION_ID_PATTERN, SPEC_SESSION_ID_MESSAGE).optional(),
   sentence: z.string().regex(SPEC_SENTENCE_ID_PATTERN, SPEC_SENTENCE_ID_MESSAGE).optional(),
 });
-const SpecCanonAcceptFlags = z.object({ ...RevisionFlags, id: SentenceIdOption, descriptive: z.string().trim().min(1, '--descriptive needs a reason').optional() });
+const SpecCanonAcceptFlags = z.object({ ...RevisionFlags, id: SentenceIdOption, confirm: z.boolean().optional(), descriptive: z.string().trim().min(1, '--descriptive needs a reason').optional() });
 const SpecCanonMergeFlags = z.object({
   ...RevisionFlags,
   id: z.array(SentenceIdOption).min(2, 'merge takes at least two --id'),
@@ -1294,6 +1294,7 @@ setManual(canon
   .command('accept')
   .description('Replace a dangling sentence with its draft rewrite. The sentence keeps its id and history.')
   .option('--id <id>', 'dangling sentence')
+  .option('--confirm', 'accept a draft that guesses (needsConfirm), after reading it')
   .option('--descriptive <reason>', 'accept a draft that leaves words out, saying why they have no behaviour')
   .option('--reason <text>', 'why the draft is right')
   .option('--finding <id>', 'finding this write answers')
@@ -1304,10 +1305,10 @@ setManual(canon
   .action((opts) => {
     const parsed = SpecCanonAcceptFlags.safeParse(opts);
     if (!parsed.success) usage('spec.canon.accept', opts, parsed.error);
-    emit(acceptCanonDraft({ sessionId: parsed.data.session, id: parsed.data.id, reason: parsed.data.reason, descriptive: parsed.data.descriptive, by: parsed.data.by }, canonPorts, compromiseTagger, specTextSource), parsed.data.json === true);
+    emit(acceptCanonDraft({ sessionId: parsed.data.session, id: parsed.data.id, reason: parsed.data.reason, descriptive: parsed.data.descriptive, confirm: parsed.data.confirm === true, by: parsed.data.by }, canonPorts, compromiseTagger, specTextSource), parsed.data.json === true);
   }), {
-  examples: ['clew spec canon accept --id s7 --reason "the draft keeps the meaning" --json'],
-  exitCodes: [{ code: 0, meaning: 'the sentence now reads as its draft' }, { code: 2, meaning: 'the sentence passes already, has no draft, its draft does not pass, or it leaves words out without --descriptive' }],
+  examples: ['clew spec canon accept --id s7 --reason "the draft keeps the meaning" --json', 'clew spec canon accept --id s9 --confirm --reason "it is the order, and packing leaves it packed" --json'],
+  exitCodes: [{ code: 0, meaning: 'the sentence now reads as its draft' }, { code: 2, meaning: 'the sentence passes already, has no draft, its draft does not pass, it guesses without --confirm, or it leaves words out without --descriptive' }],
   notes: ['A draft that does not pass the gate cannot be accepted: write the sentence yourself with clew spec sentences edit.', revisionNote, jsonNote, sessionNote],
 });
 
@@ -1327,7 +1328,7 @@ setManual(canon
     if (!parsed.success) usage('spec.canon.merge', opts, parsed.error);
     emit(mergeCanon({ sessionId: parsed.data.session, ids: parsed.data.id, text: parsed.data.text, reason: parsed.data.reason, by: parsed.data.by }, canonPorts, compromiseTagger, specTextSource), parsed.data.json === true);
   }), {
-  examples: ['clew spec canon merge --id s3 --id s4 --text "When the clerk files the form: if the form is complete, the form is filed, or else the form is returned." --reason "one decision" --json'],
+  examples: ['clew spec canon merge --id s3 --id s4 --text "The manager reviews the submitted order as approved when the total is small, or reviews the submitted order as rejected when the total is large." --reason "one decision" --json'],
   exitCodes: [{ code: 0, meaning: 'the block was added and the sources deleted' }, { code: 2, meaning: 'the block does not pass the gate, an id is not live, or there is no spec session' }],
   notes: ['An action block is one atomic step: one event, its branches, each with conditions and results.', revisionNote, jsonNote, sessionNote],
 });

@@ -205,7 +205,7 @@ export function checkCanon(command: { sessionId?: string; sentence?: string }, p
 
 /** Replace a dangling sentence with its draft. The sentence keeps its id and history, so the draft links to its original. */
 export function acceptCanonDraft(
-  command: { sessionId?: string; id: string; reason: string; descriptive?: string; by?: string },
+  command: { sessionId?: string; id: string; reason: string; descriptive?: string; confirm?: boolean; by?: string },
   ports: CanonPorts,
   tagger: PosTaggerPort,
   text: Pick<SpecTextSource, 'hash'>,
@@ -223,10 +223,15 @@ export function acceptCanonDraft(
   if (!draft.parses) {
     return invalid(name, 'gate', `the draft of ${command.id} does not pass the gate yet (${draft.needsInput ? 'it has a placeholder to fill in' : draft.remaining[0]?.message ?? 'it still fails'}): write the sentence with clew spec sentences edit`);
   }
+  if (draft.needsConfirm && command.confirm !== true) {
+    const guesses = draft.notes.filter((note) => /confirm/.test(note));
+    return invalid(name, 'gate', `the draft of ${command.id} guesses (${guesses.join('; ')}): read "${draft.text}" and pass --confirm if it is right, or write the sentence with clew spec sentences edit`);
+  }
   if (draft.dropped.length > 0 && command.descriptive === undefined) {
     return invalid(name, 'gate', `the draft of ${command.id} leaves out ${draft.dropped.map((word) => `"${word}"`).join(', ')}: restate it in a slot with clew spec sentences edit, or pass --descriptive with the reason it has no behaviour`);
   }
   const notes = [...draft.notes];
+  if (draft.needsConfirm) notes.push('guesses confirmed with --confirm');
   if (command.descriptive !== undefined) notes.push(`left out as descriptive: ${command.descriptive}`);
   const edit: Parameters<typeof editSentence>[0] = {
     action: 'edit',
@@ -356,7 +361,7 @@ export function runCanonTlc(request: TlcRequest, runner: TlcRunner): Outcome<Doc
 
 /** The sentence an action, invariant, or refusal name was compiled from: `ApproveOrder_s3_2` → `s3`. */
 export function sentenceOfName(name: string): string | undefined {
-  const match = /_(s[1-9][0-9]*)(?:_[0-9]+)?$/.exec(name);
+  const match = /_(s[1-9][0-9]*)(?:_[0-9]+)?(?:_alt[0-9]+)?$/.exec(name);
   return match?.[1];
 }
 

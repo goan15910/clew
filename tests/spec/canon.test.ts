@@ -9,7 +9,7 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { chevrotainCanonParser } from '../../src/adapters/canon/chevrotain-parser.js';
 import { readTlcOutput, sentenceOfName } from '../../src/application/canon.js';
-import type { CanonLexicon } from '../../src/domain/canon-ast.js';
+import { singular, type CanonLexicon } from '../../src/domain/canon-ast.js';
 import { compileCanon } from '../../src/domain/canon-compile.js';
 import { runGate } from '../../src/domain/canon-gate.js';
 import { canonTlaFiles } from '../../src/domain/canon-tla.js';
@@ -21,7 +21,7 @@ const LEXICON: CanonLexicon = { actors: ['customer', 'manager', 'warehouse'], te
 const ORDER = [
   'The order starts as draft.',
   'The customer submits the draft order as submitted.',
-  'The manager reviews the submitted order as approved when the total is small, or reviews the order as rejected when the total is large.',
+  'The manager reviews the submitted order as approved when the total is small, or reviews the submitted order as rejected when the total is large.',
   'The warehouse ships the order as shipped when the order is packed.',
   'The customer cancels the order as cancelled when the order is submitted or approved.',
   'The customer cannot cancel the order when the order is shipped.',
@@ -152,6 +152,25 @@ describe('canonical compiler', () => {
     assert.match(files.check.tla, /Cover_ShipOrder_s4/);
   });
 
+  test('a step that sets an object without reading its state is a finding', () => {
+    assert.equal(compiled(ORDER).model.findings.some((finding) => finding.code === 'no-source-state'), false);
+    const loose = [...ORDER];
+    loose[2] = 'The manager reviews the submitted order as approved when the total is small, or reviews the order as rejected when the total is large.';
+    const finding = compiled(loose).model.findings.find((item) => item.code === 'no-source-state');
+    assert.equal(finding?.sentence, 's3');
+    assert.match(finding?.message ?? '', /ReviewOrder_s3_2/);
+  });
+
+  test('the merge example in the help passes the gate', () => {
+    const result = gate([...ORDER.slice(0, 2), 'The manager reviews the submitted order as approved when the total is small, or reviews the submitted order as rejected when the total is large.']);
+    assert.equal(result.sentences[2]?.status, 'accepted');
+  });
+
+  test('singular keeps bus and status, and folds buses into bus', () => {
+    assert.deepEqual(['bus', 'buses', 'status', 'orders', 'boxes', 'class'].map(singular), ['bus', 'bus', 'status', 'order', 'box', 'class']);
+    assert.equal(sentenceOfName('ApproveOrder_s3_alt2'), 's3');
+  });
+
   test('a state no sentence sets is a finding', () => {
     const { model } = compiled([...ORDER, 'The warehouse returns the order as returned when the order is lost.']);
     assert.ok(model.findings.some((finding) => finding.code === 'state-never-set'));
@@ -216,7 +235,10 @@ describe('clew spec canon', { concurrency: false }, () => {
       const status = JSON.parse(clew(['spec', 'status', '--json'], env).stdout) as { canon?: { dangling: { id: string }[] } };
       assert.deepEqual(status.canon?.dangling.map((item) => item.id), ['s9']);
 
-      const accept = clew(['spec', 'canon', 'accept', '--id', 's9', '--reason', 'packing follows approval', '--json'], env);
+      const unconfirmed = clew(['spec', 'canon', 'accept', '--id', 's9', '--reason', 'packing follows approval', '--json'], env);
+      assert.equal(unconfirmed.status, 2, 'a draft that guesses needs --confirm');
+      assert.match(unconfirmed.stderr, /--confirm/);
+      const accept = clew(['spec', 'canon', 'accept', '--id', 's9', '--confirm', '--reason', 'packing follows approval', '--json'], env);
       assert.equal(accept.status, 0, accept.stderr);
       assert.equal(clew(['spec', 'canon', 'check'], env).status, 0);
 
