@@ -47,6 +47,20 @@ The tarball must match `SHA256SUMS` (and GitHub's asset digest, and `--checksum`
 
 Installs up to `0.1.0-alpha.2` have no `upgrade` command. Re-run the install script for those.
 
+## Canonical sentences to TLC (prototype)
+
+```bash
+clew spec init examples/canon/order.md
+clew spec canon lexicon --file examples/canon/lexicon.json --reason "order example"
+clew spec canon check                       # dangling sentences come with a draft rewrite
+clew spec canon accept --id s7 --reason "a list of final states"
+clew spec canon accept --id s9 --confirm --reason "packing follows approval"
+mkdir -p /tmp/order && clew spec canon export --dir /tmp/order --name Order
+clew spec canon tlc /tmp/order/OrderBlocks.tla --jar tla2tools.jar
+```
+
+See [docs/canon.md](docs/canon.md).
+
 ## Help
 
 ```bash

@@ -1,5 +1,5 @@
 // Short stdout for humans. `--json` skips this and prints the command document.
-import type { CommandDocument, ConceptView, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
+import type { CommandDocument, ConceptView, SpecCanonDocument, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
 import { formatIssues } from '../../application/documents.js';
 import { ROLE_NAMES } from '../../domain/spec-frames.js';
 import { CLEW_AUTHOR } from '../../domain/spec.js';
@@ -194,12 +194,17 @@ export function humanSummary(document: CommandDocument): string {
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
     return lines.join('\n');
   }
+  if (document.command.startsWith('spec.canon.')) return canonSummary(document as SpecCanonDocument);
   if (document.command === 'spec.status') {
     if (document.fault !== undefined || document.session === undefined || document.coverage === undefined) return '';
     const sentences = document.coverage.sentences;
     const lines = [`session ${document.session}: ${sentences.mapped.length} mapped, ${sentences.pending.length} pending, ${sentences.deleted.length} deleted`];
     for (const clause of document.clauses ?? []) lines.push(`  clause ${clause.frame} ${clause.event} ${reachText(clause)}`);
     for (const finding of document.findings) lines.push(`  ${finding.severity} ${finding.code}: ${finding.message}`);
+    if (document.canon !== undefined) {
+      lines.push(`  canonical gate: ${document.canon.accepted.length} pass, ${document.canon.dangling.length} dangling`);
+      canonDangling({ command: 'spec.canon.check', ok: true, dangling: document.canon.dangling, findings: [], issues: [] }, lines);
+    }
     return lines.join('\n');
   }
   if (document.command === 'spec.session.list') {
@@ -359,4 +364,68 @@ function reachText(reach: FrameReachView): string {
   if (reach.status === 'reachable') return `reachable via ${(reach.witness ?? []).join(' → ')}`;
   if (reach.status === 'unreachable') return `unreachable: ${(reach.blockedBy ?? []).length === 0 ? 'its guard never holds' : (reach.blockedBy ?? []).join(', ')}`;
   return 'unexplored: the search reached its state bound';
+}
+
+function canonDangling(document: SpecCanonDocument, lines: string[]): void {
+  for (const view of document.dangling ?? []) {
+    lines.push(`  dangling ${view.id}: "${view.text}"`);
+    for (const diagnostic of view.diagnostics) lines.push(`    ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message}${diagnostic.found === '' ? '' : ` at "${diagnostic.found}"`}`);
+    const draft = view.draft;
+    if (draft !== undefined) {
+      const tags = [draft.parses ? 'passes the gate' : 'does not pass yet', draft.needsConfirm ? 'guesses: confirm' : '', draft.needsInput ? 'fill in the placeholder' : '', draft.dropped.length > 0 ? `leaves out ${draft.dropped.join(', ')}` : ''].filter((tag) => tag !== '');
+      lines.push(`    draft: "${draft.text}" (${tags.join('; ')})`);
+    }
+  }
+}
+
+function canonSummary(document: SpecCanonDocument): string {
+  if (!document.ok && document.tlc === undefined) return '';
+  const lines: string[] = [];
+  const session = document.session === undefined ? '' : `session ${document.session}: `;
+  switch (document.command) {
+    case 'spec.canon.lexicon':
+    case 'spec.canon.check': {
+      const verb = document.command === 'spec.canon.lexicon' ? 'lexicon set; ' : '';
+      lines.push(`${session}${verb}${countPhrase(document.accepted?.length ?? 0, 'sentence passes', 'sentences pass')} the gate, ${countPhrase(document.dangling?.length ?? 0, 'sentence is', 'sentences are')} dangling`);
+      canonDangling(document, lines);
+      for (const action of document.actions ?? []) lines.push(`  action ${action.name} (${action.sentence}): ${action.actor} ${action.event} ${action.object}`);
+      for (const finding of document.canonFindings ?? []) lines.push(`  ${finding.severity} ${finding.code}${finding.sentence === undefined ? '' : ` ${finding.sentence}`}: ${finding.message}`);
+      break;
+    }
+    case 'spec.canon.accept': {
+      const sentence = document.sentence;
+      if (sentence === undefined) return '';
+      lines.push(`${session}${sentence.id} now reads "${sentence.to}"`, `  was "${sentence.from}"`);
+      for (const note of sentence.notes) lines.push(`  note: ${note}`);
+      break;
+    }
+    case 'spec.canon.merge': {
+      if (document.merged === undefined) return '';
+      lines.push(`${session}${document.merged.from.join(', ')} merged into ${document.merged.into}`);
+      break;
+    }
+    case 'spec.canon.export': {
+      const written = (document.files ?? []).filter((file) => file.written);
+      lines.push(written.length > 0 ? `${session}wrote ${countPhrase(written.length, 'file', 'files')}` : `${session}dry run, nothing written`);
+      for (const file of document.files ?? []) lines.push(`  ${file.written ? 'wrote' : 'kept '} ${file.path}`);
+      lines.push(`  ${countPhrase(document.actions?.length ?? 0, 'action', 'actions')} from ${countPhrase(document.accepted?.length ?? 0, 'accepted sentence', 'accepted sentences')}; ${countPhrase(document.dangling?.length ?? 0, 'dangling sentence', 'dangling sentences')} left out`);
+      for (const finding of document.canonFindings ?? []) lines.push(`  ${finding.severity} ${finding.code}${finding.sentence === undefined ? '' : ` ${finding.sentence}`}: ${finding.message}`);
+      if (document.run !== undefined) lines.push('  run TLC:', `    ${document.run.blocks}`, `    ${document.run.refinement}`, `    ${document.run.coverage}`);
+      if (document.tla !== undefined) lines.push('', document.tla.blocks.trimEnd());
+      break;
+    }
+    case 'spec.canon.tlc': {
+      const tlc = document.tlc;
+      if (tlc === undefined) return '';
+      const states = tlc.states === undefined ? '' : ` (${tlc.states.distinct} distinct states${tlc.states.depth === undefined ? '' : `, depth ${tlc.states.depth}`})`;
+      lines.push(`TLC: ${tlc.status}${states}`);
+      if (tlc.violation !== undefined) lines.push(`  ${tlc.violation.kind}${tlc.violation.name === undefined ? '' : ` ${tlc.violation.name}`}${tlc.violation.sentence === undefined ? '' : ` (sentence ${tlc.violation.sentence})`}: ${tlc.violation.message}`);
+      for (const step of tlc.trace ?? []) lines.push(`  ${step.step}. ${step.action ?? 'Init'}${step.sentence === undefined ? '' : ` (${step.sentence})`}: ${step.state.join(', ')}`);
+      for (const row of tlc.coverage ?? []) lines.push(`  cover ${row.action}${row.sentence === undefined ? '' : ` (${row.sentence})`}: ${row.distinct}:${row.total}${row.total === 0 ? '  never taken' : ''}`);
+      for (const error of tlc.errors ?? []) lines.push(`  error: ${error}`);
+      if (tlc.status === 'error' && tlc.output !== undefined) lines.push('', tlc.output);
+      break;
+    }
+  }
+  return lines.join('\n');
 }
