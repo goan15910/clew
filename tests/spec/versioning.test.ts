@@ -113,7 +113,7 @@ describe('clew spec milestone and spec diff', { concurrency: false }, () => {
 
       assert.equal(run('spec', 'canon', 'lexicon', '--file', 'examples/canon/lexicon.json', '--reason', 'order example').status, 0);
       assert.equal(run('spec', 'canon', 'accept', '--id', 's7', '--reason', 'a list of final states').status, 0);
-      assert.equal(run('spec', 'canon', 'accept', '--id', 's9', '--reason', 'packing follows approval').status, 0);
+      assert.equal(run('spec', 'canon', 'accept', '--id', 's9', '--confirm', '--reason', 'packing follows approval').status, 0);
 
       const first = run('spec', 'milestone', 'close', '--title', 'Gate pass', '--goal', 'every sentence passes the gate', '--decision', 'accept both drafts: they keep the meaning');
       assert.equal(first.status, 0, first.stderr);
