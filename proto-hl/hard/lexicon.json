@@ -1,0 +1,1 @@
+{ "actors": ["customer", "account manager", "warehouse"], "terms": ["purchase order"], "states": ["On Hold"], "verbs": ["sign off"], "fixed": ["total"] }

@@ -502,7 +502,8 @@ function parserFor(lexicon: CanonLexicon): CanonParser {
           form: entry === 'block' ? FORMS.block : entry === 'mark' ? FORMS.mark : FORMS.invariant,
         });
       }
-      return { statement: diagnostics.length > 0 || statement === undefined ? null : statement, diagnostics };
+      const tokens = lexed.tokens.map((token) => ({ type: token.tokenType.name, span: [token.startOffset, (token.endOffset ?? token.startOffset) + 1] as Span }));
+      return { statement: diagnostics.length > 0 || statement === undefined ? null : statement, diagnostics, tokens };
     },
   };
 }

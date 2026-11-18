@@ -153,6 +153,8 @@ export interface ParseOutput {
   statement: Statement | null;
   /** Syntax diagnostics only. Rules run on the tree afterwards. */
   diagnostics: Diagnostic[];
+  /** The lexer's tokens, in order: the token type's name ("ACTOR", "TERM", "when", "Comma", ...) and its span. */
+  tokens?: { type: string; span: Span }[];
 }
 
 export const KEYWORDS = {
