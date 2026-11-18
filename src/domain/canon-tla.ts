@@ -237,12 +237,7 @@ export function canonTlaFiles(input: CanonTlaInput): CanonTlaFiles {
   blocks.push('  One action per branch of each sentence: its clauses happen in one step.');
   blocks.push('  Each guard and effect names the sentence and the words it came from.');
   blocks.push('*)');
-  const blockVars = body(input, blocks);
-  if (blockVars.length > 0) {
-    blocks.push('\\* Each variable as a definition, so a module that instances this one can read it (Blocks!Get_<variable>).');
-    for (const variable of blockVars) blocks.push(`Get_${variable} == ${variable}`);
-    blocks.push('');
-  }
+  body(input, blocks);
   const checked = properties(input, blocks);
   footer(blocks);
   const cfg = [

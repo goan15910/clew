@@ -572,6 +572,9 @@ function workflowSummary(document: SpecWorkflowDocument): string {
     case 'spec.workflow.accept':
       if (document.accepted !== undefined) lines.push(`${session}${document.accepted.id} now reads "${document.accepted.to}"`, `  was "${document.accepted.from}"`);
       break;
+    case 'spec.workflow.parse':
+      lines.push(`${session}${(document.reparsed ?? []).length === 0 ? 'every parse is current' : `parsed again: ${(document.reparsed ?? []).join(', ')}`}`);
+      break;
     case 'spec.workflow.edit':
     case 'spec.workflow.step':
     case 'spec.workflow.delete':

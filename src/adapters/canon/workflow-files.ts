@@ -1,4 +1,7 @@
 // workflows.json beside a session's sentences and canon.json. Zod stays at this boundary.
+//
+// It is data the spec is checked against, like a fixture: a milestone does not freeze it and spec diff does not
+// read it. Each sentence stores its text, its history, and its parse; nothing compiled from the spec is stored.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
@@ -23,11 +26,22 @@ const note = {
   comment: z.string().optional(),
 };
 
+const SpanSchema = z.tuple([z.number().int().min(0), z.number().int().min(0)]);
+
+// The parser's own tree (canon-ast.ts). Only its outer shape is checked here; check reads it through the gate's rules.
+const ParsedSchema = z.strictObject({
+  grammar: z.string(),
+  statement: z.looseObject({ kind: z.enum(['block', 'mark', 'invariant']), span: SpanSchema }).nullable(),
+  diagnostics: z.array(z.looseObject({ severity: z.enum(['syntax', 'rule']), code: z.string(), message: z.string(), span: SpanSchema })),
+});
+
 const SentenceSchema = z.strictObject({
   id: z.string().regex(CANON_WORKFLOW_SENTENCE_ID_PATTERN, 'workflow sentence ids look like w1.s1'),
   original: TextSchema.nullable(),
   latest: TextSchema.nullable(),
   history: z.array(z.strictObject({ ...note, value: TextSchema.nullable() })),
+  /** The parse of latest; null for a tombstone. */
+  parsed: ParsedSchema.nullable(),
 });
 
 const Expect = z.enum(['possible', 'refused']);
@@ -58,7 +72,7 @@ function clean<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/** Reads a workflows.json file. Exported so a milestone or a diff can read a frozen copy. */
+/** Reads a workflows.json file. */
 export function readWorkflowState(file: string): { ok: true; state: WorkflowState | undefined } | { ok: false; message: string } {
   if (!existsSync(file)) return { ok: true, state: undefined };
   try {

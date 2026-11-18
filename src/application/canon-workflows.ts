@@ -2,11 +2,18 @@
 // with the spec, edit their sentences with a reason, export their scenario monitors, and verify them with TLC.
 //
 // A workflow reads the spec (its sentences, lexicon, gate, and compiled model) and never writes it. The spec's
-// use cases (canon.ts) never read workflows.json: references go one way.
+// use cases (canon.ts) and its versioning (milestones, diff) never read workflows.json: references go one way.
+//
+// workflows.json is data the spec is checked against, like a test fixture: each sentence keeps its text, its
+// history, and its parse. Nothing deeper is stored. The gate's rules, the concepts, the citations, and the
+// monitor are compiled from the stored parse and the spec as it is now, on every check, export, and verify.
 import { canonTlaFiles } from '../domain/canon-tla.js';
 import {
+  blocksVariables,
   checkWorkflows,
+  grammarKey,
   parseWorkflowHeading,
+  parseWorkflowSentence,
   prefixInvariant,
   stepOfName,
   workflowConfig,
@@ -18,7 +25,9 @@ import {
   type WorkflowFinding,
   type WorkflowInput,
   type WorkflowMode,
+  type ParsedSentence,
 } from '../domain/canon-workflow.js';
+import type { CanonLexicon } from '../domain/canon-ast.js';
 import { applySentenceEdit, type SentenceEdit } from '../domain/spec-sentences.js';
 import { splitSpec, type Revision, type Sentence, type SentenceText, type SpecSnapshot } from '../domain/spec.js';
 import { compileGate, gateSession, readTlcOutput, sentenceOfName, type CanonStore, type TlcRunner } from './canon.js';
@@ -37,10 +46,13 @@ export interface StoredWorkflow {
   source?: { path: string; hash: string };
   deleted?: true;
   /** Ids look like w1.s1. A deleted sentence stays as a tombstone; ids are never reused. */
-  sentences: Sentence[];
+  sentences: StoredWorkflowSentence[];
   /** Every write to the title, the expectation, or the mode, and the deletion, with who and why. */
   history: Revision<{ title: string; expect: WorkflowExpect; mode: WorkflowMode; deleted: boolean }>[];
 }
+
+/** A workflow sentence as stored: the spec's sentence shape, and the parse of its latest text (null for a tombstone). */
+export type StoredWorkflowSentence = Sentence & { parsed: ParsedSentence | null };
 
 export interface WorkflowState {
   schemaVersion: 1;
@@ -86,9 +98,12 @@ export function workflowInputs(state: WorkflowState, only?: string): WorkflowInp
   const out: WorkflowInput[] = [];
   for (const workflow of state.workflows) {
     if (workflow.deleted === true || (only !== undefined && workflow.id !== only)) continue;
-    const sentences: { id: string; text: string }[] = [];
+    const sentences: WorkflowInput['sentences'] = [];
     for (const sentence of workflow.sentences) {
-      if (sentence.latest !== null) sentences.push({ id: sentence.id, text: sentence.latest.text });
+      if (sentence.latest === null) continue;
+      // A live sentence without a parse cannot be read: it counts as parsed with no grammar, so check says to parse it.
+      const parsed: ParsedSentence = sentence.parsed ?? { grammar: '', statement: null, diagnostics: [] };
+      sentences.push({ id: sentence.id, text: sentence.latest.text, parsed });
     }
     out.push({ id: workflow.id, title: workflow.title, expect: workflow.expect, mode: workflow.mode, sentences });
   }
@@ -106,7 +121,21 @@ function specFor(command: Doc['command'], loaded: Loaded, ports: WorkflowPorts) 
   const gate = gateSession(loaded.snapshot, lexicon, ports.parser);
   const model = compileGate(gate, lexicon);
   const parse = ports.parser.forLexicon(lexicon);
-  return { ok: true as const, spec: { lexicon, gate, model }, parse: (text: string) => parse.parse(text), dangling: gate.sentences.filter((sentence) => sentence.status === 'dangling').map((sentence) => sentence.id) };
+  return { ok: true as const, spec: { lexicon, gate, model }, lexicon, parse: (text: string) => parse.parse(text), dangling: gate.sentences.filter((sentence) => sentence.status === 'dangling').map((sentence) => sentence.id) };
+}
+
+/**
+ * Attach the parse of each live sentence. A sentence whose text is unchanged keeps the parse it has, even one made
+ * with other lexicon words: re-parsing is clew spec workflow parse, never a side effect of another write.
+ */
+function withParses(sentences: readonly Sentence[], previous: readonly StoredWorkflowSentence[], lexicon: CanonLexicon, parse: (text: string) => ReturnType<Parameters<typeof parseWorkflowSentence>[2]>): StoredWorkflowSentence[] {
+  const before = new Map(previous.map((sentence) => [sentence.id, sentence]));
+  return sentences.map((sentence) => {
+    if (sentence.latest === null) return { ...sentence, parsed: null };
+    const old = before.get(sentence.id);
+    if (old?.parsed != null && old.latest?.text === sentence.latest.text) return { ...sentence, parsed: old.parsed };
+    return { ...sentence, parsed: parseWorkflowSentence(sentence.latest.text, lexicon, parse) };
+  });
 }
 
 function allFindings(checks: readonly WorkflowCheck[]): WorkflowFinding[] {
@@ -185,10 +214,10 @@ export function addWorkflows(
   const note = stamp(command.by, command.reason, command);
   for (const workflow of parsed.workflows) {
     const id = nextWorkflowId(state);
-    const sentences: Sentence[] = workflow.sentences.map((text, index) => {
+    const sentences: StoredWorkflowSentence[] = workflow.sentences.map((text, index) => {
       const latest: SentenceText = { ...text, hash: source.hash(text.text) };
       const revision: Revision<SentenceText | null> = { ...note, value: { ...latest, span: [latest.span[0], latest.span[1]] } };
-      return { id: `${id}.s${index + 1}`, original: { ...latest, span: [latest.span[0], latest.span[1]] }, latest, history: [revision] };
+      return { id: `${id}.s${index + 1}`, original: { ...latest, span: [latest.span[0], latest.span[1]] }, latest, history: [revision], parsed: parseWorkflowSentence(latest.text, spec.lexicon, spec.parse) };
     });
     state.workflows.push({
       id,
@@ -223,6 +252,45 @@ export function checkWorkflowSet(command: { sessionId?: string; workflow?: strin
   return { exit: checks.every((check) => check.ready) ? 'pass' : 'fail', document: checkDocument(name, loaded.value, checks, spec.dangling) };
 }
 
+/**
+ * Parse the live workflow sentences again with the spec's lexicon as it is now, and store the parses. Needed after
+ * the lexicon's actors, terms, states, or verbs change (parse-stale). The text and its history are unchanged.
+ */
+export function parseWorkflowSet(command: { sessionId?: string; workflow?: string }, ports: WorkflowPorts): Outcome<Doc> {
+  const name: Doc['command'] = 'spec.workflow.parse';
+  const loaded = load(name, command.sessionId, ports);
+  if (!loaded.ok) return loaded.outcome;
+  const spec = specFor(name, loaded.value, ports);
+  if (!spec.ok) return spec.outcome;
+  const live = loaded.value.state.workflows.filter((workflow) => workflow.deleted !== true && (command.workflow === undefined || workflow.id === command.workflow));
+  if (live.length === 0) return invalid(name, 'session', command.workflow === undefined ? 'the session has no workflow' : `no live workflow "${command.workflow}"`);
+  const grammar = grammarKey(spec.lexicon);
+  const reparsed: string[] = [];
+  const state: WorkflowState = {
+    schemaVersion: 1,
+    workflows: loaded.value.state.workflows.map((workflow) => {
+      if (!live.includes(workflow)) return workflow;
+      return {
+        ...workflow,
+        sentences: workflow.sentences.map((sentence) => {
+          if (sentence.latest === null) return { ...sentence, parsed: null };
+          if (sentence.parsed?.grammar === grammar) return sentence;
+          reparsed.push(sentence.id);
+          return { ...sentence, parsed: parseWorkflowSentence(sentence.latest.text, spec.lexicon, spec.parse) };
+        }),
+      };
+    }),
+  };
+  if (reparsed.length > 0) {
+    const wrote = ports.workflows.write(loaded.value.session, state);
+    if (!wrote.ok) return invalid(name, 'unreadable', wrote.message);
+  }
+  const checks = checkWorkflows(spec.spec, workflowInputs(state, command.workflow), spec.parse);
+  const document = checkDocument(name, { ...loaded.value, state }, checks, spec.dangling);
+  document.reparsed = reparsed;
+  return { exit: checks.every((check) => check.ready) ? 'pass' : 'fail', document };
+}
+
 /** Add, edit, or delete one workflow sentence. Ids stay in the workflow's namespace and are never reused. */
 export function editWorkflowSentence(
   command: { sessionId?: string; action: 'add' | 'edit' | 'delete'; id?: string; workflow?: string; after?: string; text?: string; reason: string; by?: string; finding?: string; comment?: string },
@@ -252,14 +320,15 @@ export function editWorkflowSentence(
       ? command.text === undefined ? 'edit takes --text' : { action: 'edit', id: local(command.id ?? ''), text: command.text, hash: hash.hash(command.text) }
       : { action: 'delete', id: local(command.id ?? '') };
   if (typeof edit === 'string') return invalid(name, 'session', edit);
-  const localized = workflow.sentences.map((sentence) => ({ ...sentence, id: local(sentence.id) }));
+  // The new text is parsed with the spec's lexicon before anything is written.
+  const spec = specFor(name, loaded.value, ports);
+  if (!spec.ok) return spec.outcome;
+  const localized = workflow.sentences.map(({ parsed, ...sentence }) => { void parsed; return { ...sentence, id: local(sentence.id) }; });
   const applied = applySentenceEdit(localized, edit, stamp(command.by, command.reason, command));
   if (!applied.ok) return invalid(name, 'session', applied.message.replace(/"(s\d+)"/g, `"${target}.$1"`).replace(/^(s\d+)/, `${target}.$1`));
-  workflow.sentences = applied.sentences.map((sentence) => ({ ...sentence, id: `${target}.${sentence.id}` }));
+  workflow.sentences = withParses(applied.sentences.map((sentence) => ({ ...sentence, id: `${target}.${sentence.id}` })), workflow.sentences, spec.lexicon, spec.parse);
   const wrote = ports.workflows.write(loaded.value.session, state);
   if (!wrote.ok) return invalid(name, 'unreadable', wrote.message);
-  const spec = specFor(name, { ...loaded.value, state }, ports);
-  if (!spec.ok) return spec.outcome;
   const checks = checkWorkflows(spec.spec, workflowInputs(state, target), spec.parse);
   const document = checkDocument(name, { ...loaded.value, state }, checks, spec.dangling);
   document.sentence = `${target}.${applied.sentence.id}`;
@@ -342,19 +411,16 @@ function exportFiles(
   if (!spec.ok) return spec;
   const inputs = workflowInputs(loaded.value.state, command.workflow);
   if (inputs.length === 0) return { ok: false, outcome: invalid(name, 'session', command.workflow === undefined ? 'the session has no workflow' : `no live workflow "${command.workflow}"`) };
-  // The monitor reads the model through Blocks!<action> and Blocks!Get_<variable>: the blocks module must be the
-  // one the spec compiles to now, and the agent's model must exist.
+  // The monitor instances the blocks module and names its actions (Blocks!<action>): the blocks module on disk must
+  // be the one the spec compiles to now. The monitor is compiled here and only its TLA+ text is written.
   const tla = canonTlaFiles({ name: command.name, session: loaded.value.session, model: spec.spec.model });
   const blocksPath = files.join(command.dir, `${tla.blocks.module}.tla`);
   const blocks = files.read(blocksPath);
   if (!blocks.ok || blocks.text !== tla.blocks.tla) {
     return { ok: false, outcome: invalid(name, 'stale', `${blocksPath} is ${blocks.ok ? 'not what the spec compiles to now' : 'missing'}: run clew spec canon export --dir ${command.dir} --name ${command.name} first`) };
   }
-  if (!files.exists(files.join(command.dir, `${command.name}.tla`))) {
-    return { ok: false, outcome: invalid(name, 'stale', `${files.join(command.dir, `${command.name}.tla`)} is missing: run clew spec canon export --dir ${command.dir} --name ${command.name} first`) };
-  }
   const checks = checkWorkflows(spec.spec, inputs, spec.parse);
-  const module = workflowModule({ name: command.name, session: loaded.value.session, workflows: checks });
+  const module = workflowModule({ name: command.name, session: loaded.value.session, variables: blocksVariables(spec.spec.model), workflows: checks });
   const modulePath = files.join(command.dir, `${module.module}.tla`);
   const wrote = files.write(modulePath, module.tla);
   if (!wrote.ok) return { ok: false, outcome: invalid(name, 'unreadable', wrote.message) };
@@ -427,12 +493,12 @@ export function verifyWorkflows(
       view.outcome = completed ? 'holds' : 'fails';
       view.message = completed
         ? `possible: TLC found a witness in ${String(view.path?.length ?? 0)} steps`
-        : `not possible: no behaviour of ${command.name} takes the steps in order`;
+        : `not possible: no behaviour of ${command.name}Blocks takes the steps in order`;
     } else {
       view.outcome = completed ? 'fails' : 'holds';
       view.message = completed
-        ? `goes through: ${command.name} takes every step of a workflow that must be refused`
-        : `refused: no behaviour of ${command.name} takes the steps in order (${String(result.states?.distinct ?? 0)} states)`;
+        ? `goes through: ${command.name}Blocks takes every step of a workflow that must be refused`
+        : `refused: no behaviour of ${command.name}Blocks takes the steps in order (${String(result.states?.distinct ?? 0)} states)`;
     }
     // Possible but not reached: find the last step the model can take, so the step that cannot happen is named.
     if (check.expect === 'possible' && !completed) {
@@ -458,9 +524,9 @@ export function verifyWorkflows(
           cites: check.sentences.find((sentence) => sentence.id === blocked.sentence)?.cites ?? [],
           reached,
         };
-        view.message = `not possible: the model takes steps 1 to ${String(reached)} but never step ${String(blocked.number)} ("${blocked.text}") after them`;
+        view.message = `not possible: the spec takes steps 1 to ${String(reached)} but never step ${String(blocked.number)} ("${blocked.text}") after them`;
       } else if (ends) {
-        view.message = 'not possible: the model takes every step but never ends as the workflow says';
+        view.message = 'not possible: the spec takes every step but never ends as the workflow says';
       }
     }
   }

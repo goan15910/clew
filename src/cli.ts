@@ -42,6 +42,7 @@
 // clew spec workflow edit --id w1.s2 --text sentence --reason text | step (--workflow w1 | --after w1.s2) --text sentence --reason text | delete --id w1.s2 --reason text
 // clew spec workflow set --workflow w1 [--expect possible|refused] [--mode loose|exact] [--title t] [--delete] --reason text
 // clew spec workflow accept --id w1.s2 --reason text [--descriptive text]
+// clew spec workflow parse [--workflow w1] [--session id] [--json]
 // clew spec workflow export --dir D --name Module [--workflow w1] [--session id] [--json]
 // clew spec workflow verify --dir D --name Module [--workflow w1] [--jar tla2tools.jar] [--timeout s] [--workers n] [--json]
 // clew spec trace <id> [--session id] [--json]
@@ -103,7 +104,7 @@ import { tlaTextFiles } from './adapters/tla/text-files.js';
 import { canonFileStore, canonLexiconFile, canonTextFiles, javaTlcRunner } from './adapters/canon/canon-files.js';
 import { chevrotainCanonParser } from './adapters/canon/chevrotain-parser.js';
 import { acceptCanonDraft, checkCanon, exportCanon, mergeCanon, runCanonTlc, setCanonLexicon, type CanonPorts } from './application/canon.js';
-import { acceptWorkflowDraft, addWorkflows, checkWorkflowSet, editWorkflowSentence, exportWorkflows, setWorkflow, verifyWorkflows, type WorkflowPorts } from './application/canon-workflows.js';
+import { acceptWorkflowDraft, addWorkflows, checkWorkflowSet, editWorkflowSentence, exportWorkflows, parseWorkflowSet, setWorkflow, verifyWorkflows, type WorkflowPorts } from './application/canon-workflows.js';
 import { workflowFileStore } from './adapters/canon/workflow-files.js';
 import { CANON_WORKFLOW_ID_PATTERN, CANON_WORKFLOW_SENTENCE_ID_PATTERN } from './domain/canon-workflow.js';
 import { exportSpec } from './application/export-spec.js';
@@ -1520,7 +1521,7 @@ setManual(spec
 });
 
 const workflow = spec.command('workflow').description('Write workflows in English, check them against the spec, and verify them with TLC.').helpCommand(false);
-const workflowNote = 'A workflow is a list of sentences in the canonical grammar, marked (possible) or (refused). It shares the spec\'s lexicon and concepts, passes the same gate, and cites the spec actions its steps match. It cannot add a concept or a step to the spec, and the spec never reads it. See docs/workflows.md.';
+const workflowNote = 'A workflow is a list of sentences in the canonical grammar, marked (possible) or (refused). It shares the spec\'s lexicon and concepts, passes the same gate, and cites the spec actions its steps match. It cannot add a concept or a step to the spec, and the spec (its versions and milestones included) never reads it. workflows.json stores each sentence\'s text, history, and parse; everything else is compiled on each run. See docs/workflows.md.';
 const workflowExits = [
   { code: 0 as const, meaning: 'every workflow passes the gate, matches the spec, and is ready to check' },
   { code: 1 as const, meaning: 'a workflow sentence is dangling, or a finding blocks a monitor' },
@@ -1560,7 +1561,23 @@ setManual(workflow
   }), {
   examples: ['clew spec workflow check --json', 'clew spec workflow check --workflow w2 --json'],
   exitCodes: workflowExits,
-  notes: ['Findings: step-dangling, no-steps, unknown-concept, state-not-of-noun, needs-instances, step-unmatched (blocking or warning), and step-ambiguous (info). needs-instances is raised before any model checking: the step needs several instances of a noun the spec models as one.', workflowNote, jsonNote, sessionNote],
+  notes: ['Findings: step-dangling, parse-stale, no-steps, unknown-concept, state-not-of-noun, needs-instances, step-unmatched (blocking or warning), and step-ambiguous (info). needs-instances is raised before any model checking: the step needs several instances of a noun the spec models as one. parse-stale: the lexicon\'s actors, terms, states, or verbs changed since the sentence was parsed; run clew spec workflow parse.', workflowNote, jsonNote, sessionNote],
+});
+
+setManual(workflow
+  .command('parse')
+  .description('Parse the workflow sentences again with the spec\'s lexicon as it is now, and store the parses. The text and its history are unchanged.')
+  .option('--workflow <id>', 'parse one workflow only')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecWorkflowCheckFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.workflow.parse', opts, parsed.error);
+    emit(parseWorkflowSet({ sessionId: parsed.data.session, workflow: parsed.data.workflow }, workflowPorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec workflow parse --json'],
+  exitCodes: workflowExits,
+  notes: ['Run it after the lexicon\'s actors, terms, states, or verbs change: check reports parse-stale until then. Only sentences whose parse is stale are parsed again; nothing deeper than the parse is stored.', workflowNote, jsonNote, sessionNote],
 });
 
 setManual(workflow
@@ -1674,7 +1691,7 @@ setManual(workflow
 
 setManual(workflow
   .command('export')
-  .description('Write the scenario monitors: <Module>Workflows.tla, which extends your model, and one TLC config per ready workflow.')
+  .description('Compile the workflows and write the scenario monitors: <Module>Workflows.tla, which instances <Module>Blocks, and one TLC config per ready workflow.')
   .option('--name <Module>', 'the model name used with clew spec canon export')
   .option('--dir <dir>', 'the directory clew spec canon export wrote')
   .option('--workflow <id>', 'export one workflow only')
@@ -1687,8 +1704,8 @@ setManual(workflow
     emit(exportWorkflows({ sessionId: flags.session, dir: flags.dir, name: flags.name, workflow: flags.workflow }, workflowPorts, canonTextFiles), flags.json === true);
   }), {
   examples: ['clew spec workflow export --dir tla --name Order --json'],
-  exitCodes: [{ code: 0, meaning: 'the monitors were written and every workflow is ready' }, { code: 1, meaning: 'the monitors were written, but some workflow is not ready and was left out' }, { code: 2, meaning: 'the blocks module is stale or missing, the model is missing, or there is no session, lexicon, or workflow' }],
-  notes: ['The monitor reads your model through Blocks!<action> and Blocks!Get_<variable>, so the blocks module must be the one the spec compiles to now: run clew spec canon export first.', workflowNote, jsonNote, sessionNote],
+  exitCodes: [{ code: 0, meaning: 'the monitors were written and every workflow is ready' }, { code: 1, meaning: 'the monitors were written, but some workflow is not ready and was left out' }, { code: 2, meaning: 'the blocks module is stale or missing, or there is no session, lexicon, or workflow' }],
+  notes: ['The monitor declares the blocks module\'s variables and instances it (Blocks == INSTANCE <Module>Blocks WITH v <- v, ...), so the blocks module must be the one the spec compiles to now: run clew spec canon export first. The compiled workflows are not saved: only the .tla and .cfg files are written.', workflowNote, jsonNote, sessionNote],
 });
 
 setManual(workflow

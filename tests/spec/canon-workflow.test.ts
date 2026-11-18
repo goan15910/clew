@@ -13,7 +13,8 @@ import type { CanonLexicon } from '../../src/domain/canon-ast.js';
 import { compileCanon } from '../../src/domain/canon-compile.js';
 import { runGate } from '../../src/domain/canon-gate.js';
 import { canonTlaFiles } from '../../src/domain/canon-tla.js';
-import { checkWorkflows, parseWorkflowHeading, stepOfName, workflowModule, type WorkflowExpect, type WorkflowMode } from '../../src/domain/canon-workflow.js';
+import { SNAPSHOT_FILES } from '../../src/adapters/spec-store/milestone-store.js';
+import { blocksVariables, checkWorkflows, grammarKey, parseWorkflowHeading, parseWorkflowSentence, stepOfName, workflowModule, type WorkflowExpect, type WorkflowMode } from '../../src/domain/canon-workflow.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
@@ -48,13 +49,15 @@ function specOf(texts: string[], lexicon: CanonLexicon) {
   return { spec: { lexicon, gate, model: compileCanon(accepted, lexicon) }, parse };
 }
 
-function workflow(id: string, texts: string[], expect: WorkflowExpect = 'possible', mode: WorkflowMode = 'loose') {
-  return { id, title: id, expect, mode, sentences: texts.map((text, index) => ({ id: `${id}.s${index + 1}`, text })) };
+/** A workflow as stored: each sentence with its parse, made with the lexicon given. */
+function workflow(id: string, texts: string[], expect: WorkflowExpect = 'possible', mode: WorkflowMode = 'loose', lexicon = ORDER_LEXICON) {
+  const parser = chevrotainCanonParser.forLexicon(lexicon);
+  return { id, title: id, expect, mode, sentences: texts.map((text, index) => ({ id: `${id}.s${index + 1}`, text, parsed: parseWorkflowSentence(text, lexicon, (input) => parser.parse(input)) })) };
 }
 
 function check(texts: string[], expect: WorkflowExpect = 'possible', mode: WorkflowMode = 'loose', base = ORDER, lexicon = ORDER_LEXICON) {
   const { spec, parse } = specOf(base, lexicon);
-  const [result] = checkWorkflows(spec, [workflow('w1', texts, expect, mode)], parse);
+  const [result] = checkWorkflows(spec, [workflow('w1', texts, expect, mode, lexicon)], parse);
   return { result: result!, spec };
 }
 
@@ -113,10 +116,41 @@ describe('workflow gate and concepts', () => {
     checkWorkflows(spec, [workflow('w1', ['The customer pays the invoice as paid.'])], (text) => chevrotainCanonParser.forLexicon(ORDER_LEXICON).parse(text));
     const after = canonTlaFiles({ name: 'Order', session: 'order', model: spec.model });
     assert.equal(after.blocks.tla, before.blocks.tla);
-    for (const file of ['canon-ast', 'canon-compile', 'canon-gate', 'canon-rules', 'canon-tla']) {
+    for (const file of ['canon-ast', 'canon-compile', 'canon-gate', 'canon-rules', 'canon-tla', 'spec-versions']) {
       assert.doesNotMatch(readFileSync(join(root, 'src', 'domain', `${file}.ts`), 'utf8'), /canon-workflow/, file);
     }
     assert.doesNotMatch(readFileSync(join(root, 'src', 'application', 'canon.ts'), 'utf8'), /canon-workflows?/);
+    assert.doesNotMatch(readFileSync(join(root, 'src', 'application', 'versions.ts'), 'utf8'), /canon-workflows?|workflows\.json/);
+  });
+
+  test('a milestone freezes the spec only: workflows are data the spec is checked against', () => {
+    assert.ok(!(SNAPSHOT_FILES as readonly string[]).includes('workflows.json'));
+    assert.doesNotMatch(readFileSync(join(root, 'src', 'adapters', 'spec-store', 'milestone-store.ts'), 'utf8'), /workflow/i);
+  });
+});
+
+describe('stored parses', () => {
+  test('a stored parse is gated with the spec as it is now, and compiled on every check', () => {
+    const parsed = workflow('w1', ['The manager reviews the order as approved when the total is small.']).sentences[0]!.parsed;
+    assert.equal(parsed.statement?.kind, 'block');
+    assert.deepEqual(parsed.diagnostics, []);
+    assert.equal(parsed.grammar, grammarKey(ORDER_LEXICON));
+    // Nothing of the spec is in it: no sentence id, action, or state the spec knows, only words and spans.
+    assert.doesNotMatch(JSON.stringify(parsed), /"s[0-9]+"|_s[0-9]|Blocks|status/);
+  });
+
+  test('the key covers only the words the parser reads', () => {
+    assert.equal(grammarKey({ ...ORDER_LEXICON, instances: { order: 3 }, fixed: [] }), grammarKey(ORDER_LEXICON));
+    assert.equal(grammarKey({ ...ORDER_LEXICON, actors: ['warehouse', 'manager', 'customer'] }), grammarKey(ORDER_LEXICON));
+    assert.notEqual(grammarKey({ ...ORDER_LEXICON, terms: ['gift card'] }), grammarKey(ORDER_LEXICON));
+  });
+
+  test('a parse made with other grammar words is not read: parse-stale blocks until it is parsed again', () => {
+    const { spec, parse } = specOf(ORDER, { ...ORDER_LEXICON, terms: ['gift card'] });
+    const [result] = checkWorkflows(spec, [workflow('w1', ['The customer submits the order as submitted.'])], parse);
+    assert.deepEqual(codes(result!.findings), ['parse-stale']);
+    assert.equal(result!.sentences[0]?.status, 'dangling');
+    assert.equal(result!.monitor, undefined);
   });
 });
 
@@ -149,20 +183,25 @@ describe('needs-instances (E13)', () => {
 });
 
 describe('scenario monitor', () => {
-  test('one definition per step and spec action, read through Blocks!, with the step\'s own conditions', () => {
+  test('the monitor declares the blocks variables, maps them one to one, and reads them directly', () => {
     const { spec, parse } = specOf(ORDER, ORDER_LEXICON);
     const checks = checkWorkflows(spec, [
       workflow('w1', ['The total starts as small.', 'The customer submits the order as submitted.', 'The manager reviews the order as approved when the total is small.', 'The order ends as approved.']),
       workflow('w2', ['The manager reviews the order as approved.'], 'refused', 'exact'),
     ], parse);
-    const module = workflowModule({ name: 'Order', session: 'order', workflows: checks });
+    const module = workflowModule({ name: 'Order', session: 'order', variables: blocksVariables(spec.model), workflows: checks });
     assert.equal(module.module, 'OrderWorkflows');
-    assert.match(module.tla, /^EXTENDS Order$/m);
+    assert.match(module.tla, /^EXTENDS Naturals, FiniteSets$/m);
+    assert.doesNotMatch(module.tla, /^EXTENDS Order$/m, 'the monitor runs on the spec, not on the agent\'s model');
+    assert.match(module.tla, /^VARIABLES order_status, total_status$/m);
+    assert.match(module.tla, /^Blocks == INSTANCE OrderBlocks WITH order_status <- order_status, total_status <- total_status$/m);
     assert.match(module.tla, /^W1_Step2_ReviewOrder_s3_1 ==$/m);
-    assert.match(module.tla, /Blocks!Get_total_status = "small"/);
+    assert.match(module.tla, /^ {2}\/\\ total_status = "small"/m);
+    assert.doesNotMatch(module.tla, /Get_/);
+    assert.match(module.tla, /^ {2}\/\\ Blocks!Init$/m);
     assert.match(module.tla, /^W1_Other_CancelOrder_s5 == /m, 'loose: other spec actions may interleave');
     assert.doesNotMatch(module.tla, /^W2_Other_/m, 'exact: no other spec action');
-    assert.match(module.tla, /^W2_Env == Next \/\\ ~Blocks!Actions/m);
+    assert.match(module.tla, /^W2_Env == Blocks!Next \/\\ ~Blocks!Actions/m);
     assert.match(module.tla, /^W1_NotDone == ~W1_Done$/m);
     assert.deepEqual(module.configs.map((config) => config.file), ['OrderWorkflow_w1.cfg', 'OrderWorkflow_w2.cfg']);
     assert.match(module.configs[0]!.cfg, /SPECIFICATION W1_Spec\nINVARIANT W1_NotDone/);
@@ -171,16 +210,19 @@ describe('scenario monitor', () => {
 
   test('a noun the workflow names without a quantifier is one instance throughout', () => {
     const { spec, parse } = specOf(SHIPMENTS, { ...SHIP_LEXICON, instances: { shipment: 2 } });
-    const checks = checkWorkflows(spec, [workflow('w1', ['The warehouse packs the new shipment as packed.', 'The carrier ships the shipment as in transit.'])], parse);
-    const module = workflowModule({ name: 'Ship', session: 'ship', workflows: checks });
+    const lexicon = { ...SHIP_LEXICON, instances: { shipment: 2 } };
+    const checks = checkWorkflows(spec, [workflow('w1', ['The warehouse packs the new shipment as packed.', 'The carrier ships the shipment as in transit.'], 'possible', 'loose', lexicon)], parse);
+    const module = workflowModule({ name: 'Ship', session: 'ship', variables: blocksVariables(spec.model), workflows: checks });
     assert.match(module.tla, /^VARIABLES wf_pc, wf_shipment$/m);
     assert.match(module.tla, /Blocks!PackShipment_s2\(wf_shipment\)/);
     assert.match(module.tla, /Blocks!ShipShipment_s3\(wf_shipment\)/);
   });
 
-  test('the blocks module reads out each variable for the monitor', () => {
+  test('the blocks module has no accessor for the monitor: the mapping is the monitor\'s own', () => {
     const { spec } = specOf(ORDER, ORDER_LEXICON);
-    assert.match(canonTlaFiles({ name: 'Order', session: 'order', model: spec.model }).blocks.tla, /^Get_order_status == order_status$/m);
+    const blocks = canonTlaFiles({ name: 'Order', session: 'order', model: spec.model }).blocks.tla;
+    assert.doesNotMatch(blocks, /Get_/);
+    assert.match(blocks, new RegExp(`^VARIABLES ${blocksVariables(spec.model).join(', ')}$`, 'm'), 'the monitor declares the same variables');
   });
 });
 
@@ -237,9 +279,29 @@ describe('clew spec workflow', { concurrency: false }, () => {
       assert.equal(clew(['spec', 'workflow', 'delete', '--id', 'w1.s5', '--reason', 'probe done', '--json'], env).status, 0);
       assert.equal(clew(['spec', 'workflow', 'edit', '--id', 'w1.s3', '--text', 'The warehouse ships the order as shipped.', '--reason', 'same', '--json'], env).status, 2, 'unchanged text');
       assert.equal(clew(['spec', 'workflow', 'set', '--workflow', 'w2', '--mode', 'exact', '--reason', 'approve must come first', '--json'], env).status, 0);
-      const stored = JSON.parse(readFileSync(join(dir, 'data', 'spec', 'order', 'workflows.json'), 'utf8')) as { workflows: { id: string; sentences: { id: string; latest: unknown; history: unknown[] }[]; history: unknown[] }[] };
+      const stored = JSON.parse(readFileSync(join(dir, 'data', 'spec', 'order', 'workflows.json'), 'utf8')) as { workflows: { id: string; sentences: { id: string; latest: unknown; history: unknown[]; parsed: { grammar: string; statement: { kind: string } | null } | null }[]; history: unknown[] }[] };
       const w1 = stored.workflows.find((item) => item.id === 'w1')!;
       assert.equal(w1.sentences.find((sentence) => sentence.id === 'w1.s5')?.latest, null, 'a tombstone');
+      assert.equal(w1.sentences.find((sentence) => sentence.id === 'w1.s5')?.parsed, null, 'a tombstone has no parse');
+      assert.equal(w1.sentences.find((sentence) => sentence.id === 'w1.s2')?.parsed?.statement?.kind, 'block', 'the parse is stored');
+      assert.deepEqual(Object.keys(w1.sentences[0]!).sort(), ['history', 'id', 'latest', 'original', 'parsed'], 'nothing compiled is stored');
+
+      // The parse is kept until the grammar words change; then check blocks and parse refreshes it.
+      writeFileSync(join(dir, 'lexicon2.json'), JSON.stringify({ ...ORDER_LEXICON, terms: ['gift card'] }));
+      assert.equal(clew(['spec', 'canon', 'lexicon', '--file', join(dir, 'lexicon2.json'), '--reason', 'a new term', '--json'], env).status, 0);
+      const stale = clew(['spec', 'workflow', 'check', '--json'], env);
+      assert.equal(stale.status, 1);
+      assert.ok((JSON.parse(stale.stdout) as { workflowFindings: { code: string }[] }).workflowFindings.every((finding) => finding.code === 'parse-stale'));
+      const reparsed = clew(['spec', 'workflow', 'parse', '--json'], env);
+      assert.equal(reparsed.status, 0, reparsed.stdout);
+      assert.ok((JSON.parse(reparsed.stdout) as { reparsed: string[] }).reparsed.includes('w1.s1'));
+      assert.deepEqual((JSON.parse(clew(['spec', 'workflow', 'parse', '--json'], env).stdout) as { reparsed: string[] }).reparsed, [], 'only stale parses are parsed again');
+
+      // A milestone freezes the spec, not the workflows.
+      const closed = clew(['spec', 'milestone', 'close', '--title', 'Order', '--goal', 'the order spec', '--json'], env);
+      assert.equal(closed.status, 0, closed.stdout + closed.stderr);
+      assert.ok(existsSync(join(dir, 'data', 'spec', 'order', 'milestones', 'm1', 'sentences.json')));
+      assert.ok(!existsSync(join(dir, 'data', 'spec', 'order', 'milestones', 'm1', 'workflows.json')));
       assert.equal(w1.sentences.find((sentence) => sentence.id === 'w1.s5')?.history.length, 3, 'added, accepted, deleted');
       assert.equal(stored.workflows.find((item) => item.id === 'w2')?.history.length, 2);
 

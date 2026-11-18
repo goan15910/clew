@@ -15,9 +15,14 @@
 // and the shared concepts it names. Nothing here is read by the spec's gate or compiler: a workflow cannot add a
 // concept, a state, or a step to the spec. A step that needs one the spec lacks raises a finding instead.
 //
-// Each workflow compiles to a scenario monitor: a step counter that advances only on the named spec actions,
-// read through the agent's model (Blocks!<Action>). TLC returns a witness for a possible workflow, or shows a
-// refused workflow going through.
+// A workflow sentence is stored as its text and its parse (ParsedSentence): the deepest layer that names nothing
+// of the spec. Everything below the parse (the gate's rules, the concepts, the citations, the monitor) is computed
+// here on every run and never saved, because the spec it reads can change between versions.
+//
+// Each workflow compiles to a scenario monitor: a step counter that advances only on the named spec actions. The
+// monitor declares the blocks module's variables itself and maps them one to one (Blocks == INSTANCE <Name>Blocks
+// WITH v <- v), so it reads them directly. TLC returns a witness for a possible workflow, or shows a refused
+// workflow going through.
 import {
   condPreds,
   nounOf,
@@ -34,6 +39,7 @@ import {
   type Span,
   type Statement,
 } from './canon-ast.js';
+import { checkStatement } from './canon-rules.js';
 import {
   conditionExpressions,
   ident,
@@ -45,7 +51,7 @@ import {
   type LinkModel,
   type NounModel,
 } from './canon-compile.js';
-import { draftRewrite, gateSentence, type DraftRewrite, type GateContext, type GateResult, type ParseSentence } from './canon-gate.js';
+import { draftRewrite, type DraftRewrite, type GateContext, type GateResult, type ParseSentence } from './canon-gate.js';
 import type { FindingSeverity } from './spec.js';
 
 export type WorkflowExpect = 'possible' | 'refused';
@@ -58,13 +64,62 @@ export type WorkflowMode = 'loose' | 'exact';
 export const CANON_WORKFLOW_ID_PATTERN = /^w[1-9][0-9]*$/;
 export const CANON_WORKFLOW_SENTENCE_ID_PATTERN = /^w[1-9][0-9]*\.s[1-9][0-9]*$/;
 
-/** One workflow as the checker reads it: the live sentences in order. */
+/**
+ * What a workflow sentence stores beside its text: the parser's output, and the grammar words it was parsed with.
+ * It names no spec sentence, action, or state the spec knows, so it stays true when the spec changes; only a change
+ * to the words the grammar reads (actors, multi-word terms, states, and verbs) makes it stale.
+ */
+export interface ParsedSentence {
+  /** grammarKey of the lexicon the sentence was parsed with. */
+  grammar: string;
+  /** Null when the grammar rejects the sentence. */
+  statement: Statement | null;
+  /** Syntax diagnostics only: the gate's rules run on the statement on every check. */
+  diagnostics: Diagnostic[];
+}
+
+/** One workflow as the checker reads it: the live sentences in order, each with its stored parse. */
 export interface WorkflowInput {
   id: string;
   title: string;
   expect: WorkflowExpect;
   mode: WorkflowMode;
-  sentences: { id: string; text: string }[];
+  sentences: { id: string; text: string; parsed: ParsedSentence }[];
+}
+
+/** The lexicon words the parser reads, as one key: a parse is current while its key matches. */
+export function grammarKey(lexicon: CanonLexicon): string {
+  const sorted = (words: readonly string[]): string[] => [...words].map((word) => word.toLowerCase()).sort();
+  const text = JSON.stringify([sorted(lexicon.actors), sorted(lexicon.terms), sorted(lexicon.states), sorted(lexicon.verbs)]);
+  // FNV-1a, 32 bits: a fingerprint to compare, not a security hash.
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `fnv1a:${hash.toString(16).padStart(8, '0')}`;
+}
+
+/** Parse one workflow sentence for storage. */
+export function parseWorkflowSentence(text: string, lexicon: CanonLexicon, parse: ParseSentence): ParsedSentence {
+  const parsed = parse(text);
+  return { grammar: grammarKey(lexicon), statement: parsed.statement, diagnostics: parsed.diagnostics };
+}
+
+/** The gate on a stored parse: the spec's rules, with the spec's lexicon and known states, as gateSentence runs them. */
+function gateParsed(text: string, parsed: ParsedSentence, context: GateContext): { statement: Statement | null; diagnostics: Diagnostic[] } {
+  if (parsed.statement === null) return { statement: null, diagnostics: parsed.diagnostics };
+  const diagnostics = checkStatement(parsed.statement, { lexicon: context.lexicon, known: context.known, text });
+  return { statement: diagnostics.length === 0 ? parsed.statement : null, diagnostics };
+}
+
+/** The blocks module's variables, in its order: the monitor declares the same ones and maps them one to one. */
+export function blocksVariables(model: CanonModel): string[] {
+  const vars: string[] = [];
+  for (const noun of model.nouns) if (noun.statusVar !== undefined) vars.push(noun.statusVar);
+  for (const link of model.links) vars.push(link.var);
+  for (const condition of model.conditions) vars.push(condition.var);
+  return vars;
 }
 
 export interface WorkflowFinding {
@@ -298,6 +353,7 @@ export function checkWorkflows(spec: WorkflowSpec, workflows: readonly WorkflowI
     }
   }
   const context: GateContext = { lexicon, parse, known, events };
+  const grammar = grammarKey(lexicon);
   const models = new Map(model.nouns.map((noun) => [noun.noun, noun]));
   const links = new Map<string, LinkModel>(model.links.map((link) => [`${link.object}|${link.target}`, link]));
   const conditions = new Set(model.conditions.map((condition) => condition.var));
@@ -320,7 +376,9 @@ export function checkWorkflows(spec: WorkflowSpec, workflows: readonly WorkflowI
     const accepted: { view: WorkflowSentenceView; sentence: AcceptedSentence }[] = [];
     let stepNumber = 0;
     for (const input of workflow.sentences) {
-      const gated = gateSentence(input.text, context);
+      // A parse made with other grammar words may not be what the parser says now: it is not read until parsed again.
+      const stale = input.parsed.grammar !== grammar;
+      const gated = stale ? { statement: null, diagnostics: [] } : gateParsed(input.text, input.parsed, context);
       let statement = gated.statement;
       let diagnostics = gated.diagnostics;
       if (statement !== null) {
@@ -336,7 +394,9 @@ export function checkWorkflows(spec: WorkflowSpec, workflows: readonly WorkflowI
         stepNumber += 1;
         view.step = stepNumber;
       }
-      if (statement === null) {
+      if (stale) {
+        find('parse-stale', 'blocking', `${input.id} was parsed with other lexicon words (actors, terms, states, or verbs) than the spec has now: run clew spec workflow parse to parse it again`, input);
+      } else if (statement === null) {
         const draft = draftRewrite(input.text, context);
         if (draft !== undefined) {
           // The draft must pass the workflow rules too, not only the spec's gate.
@@ -504,7 +564,7 @@ function buildMonitor(
     links,
     ownership: model.ownership,
     lexicon,
-    variable: (name) => `Blocks!Get_${name}`,
+    variable: (name) => name,
     definition: (name) => `Blocks!${name}`,
     quantPrefix: 'wfq_',
     warn: (ctx, code, message, span) => find(code, 'warning', message, ctx.sentence, span),
@@ -532,11 +592,11 @@ function buildMonitor(
     const guards: MonitorStep['guards'] = [];
     for (const { pred, words } of stepPreds(statement)) guards.push({ tla: expr.predTla(pred, ctx, 'object state'), words: say(sentence, words) });
     if (statement.lead?.kind === 'when') guards.push({ tla: expr.condTla(statement.lead.cond, ctx, 'leading condition'), words: say(sentence, statement.lead.span) });
-    if (statement.lead?.kind === 'after') guards.push({ tla: `Blocks!Get_after_${ident(nounOf(statement.lead.ref, lexicon))}`, words: say(sentence, statement.lead.span) });
+    if (statement.lead?.kind === 'after') guards.push({ tla: `after_${ident(nounOf(statement.lead.ref, lexicon))}`, words: say(sentence, statement.lead.span) });
     for (const clause of branch.clauses) {
       for (const slot of clause.slots) {
         const key = slotKey(slot);
-        if (key === 'on' || key === 'after') guards.push({ tla: `Blocks!Get_${key}_${ident(nounOf(slot.ref, lexicon))}`, words: say(sentence, slot.span) });
+        if (key === 'on' || key === 'after') guards.push({ tla: `${key}_${ident(nounOf(slot.ref, lexicon))}`, words: say(sentence, slot.span) });
       }
     }
     if (branch.guard !== null) guards.push({ tla: expr.condTla(branch.guard, ctx, 'condition'), words: say(sentence, [branch.guard.type === 'pred' ? branch.guard.pred.span[0] : branch.guard.span[0], branch.span[1]]) });
@@ -566,9 +626,11 @@ function buildMonitor(
 }
 
 export interface WorkflowModuleInput {
-  /** The model name: the monitor extends `<name>` and reads `Blocks`, the instance of `<name>Blocks` in it. */
+  /** The spec's module name: the monitor instances `<name>Blocks` as `Blocks`. */
   name: string;
   session: string;
+  /** The blocks module's variables (blocksVariables): the monitor declares them and maps each to itself. */
+  variables: readonly string[];
   workflows: readonly WorkflowCheck[];
 }
 
@@ -614,16 +676,27 @@ export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles 
   lines.push('(*');
   lines.push('  Written by clew spec workflow export. Do not edit: export again instead.');
   lines.push('');
-  lines.push(`  Scenario monitors for the workflows of Clew session "${comment(input.session)}", run on the model`);
-  lines.push(`  ${input.name}. wf_pc counts the steps a behaviour has taken. A step advances it only when the`);
-  lines.push('  model takes the spec action the step names (Blocks!<action>), under the step\'s own conditions.');
-  lines.push('  Steps that are no spec action (the environment) may happen between steps; another spec action');
-  lines.push('  may not. A noun the workflow names without a quantifier is one instance (wf_<noun>) throughout.');
+  lines.push(`  Scenario monitors for the workflows of Clew session "${comment(input.session)}", run on the spec's`);
+  lines.push(`  blocks module ${input.name}Blocks. This module declares the blocks module's variables itself and maps`);
+  lines.push('  each to itself (Blocks == INSTANCE ... WITH v <- v), so a step\'s conditions read them directly.');
+  lines.push('  wf_pc counts the steps a behaviour has taken. A step advances it only when the spec takes the action');
+  lines.push('  the step names (Blocks!<action>), under the step\'s own conditions. Steps that are no spec action');
+  lines.push('  (the environment) may happen between steps; another spec action may not, unless the workflow is');
+  lines.push('  loose. A noun the workflow names without a quantifier is one instance (wf_<noun>) throughout.');
   lines.push('');
   lines.push('  <W>_NotDone is violated when the workflow completes: for a possible workflow that is the witness,');
   lines.push('  for a refused one it is the path that should not exist.');
   lines.push('*)');
-  lines.push(`EXTENDS ${input.name}`);
+  lines.push('EXTENDS Naturals, FiniteSets');
+  lines.push('');
+  lines.push(`\\* The variables of ${input.name}Blocks, by the same names.`);
+  if (input.variables.length > 0) {
+    lines.push(`VARIABLES ${input.variables.join(', ')}`);
+    lines.push(`vars == <<${input.variables.join(', ')}>>`);
+  } else {
+    lines.push('vars == <<>>');
+  }
+  lines.push(`Blocks == INSTANCE ${input.name}Blocks${input.variables.length === 0 ? '' : ` WITH ${input.variables.map((variable) => `${variable} <- ${variable}`).join(', ')}`}`);
   lines.push('');
   lines.push(`VARIABLES ${wfVars.join(', ')}`);
   lines.push(`wf_vars == <<${wfVars.join(', ')}>>`);
@@ -638,7 +711,7 @@ export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles 
     lines.push(`\\* ${workflow.id}: "${comment(workflow.title)}" must be ${workflow.expect} (${workflow.mode}).`);
     for (const sentence of workflow.sentences) lines.push(`\\*   ${sentence.id}${sentence.step === undefined ? ` (${sentence.role})` : ` step ${sentence.step}`}: "${comment(sentence.text)}"`);
     lines.push(`${p}_Init ==`);
-    lines.push('  /\\ Init');
+    lines.push('  /\\ Blocks!Init');
     lines.push('  /\\ wf_pc = 0');
     for (const variable of extra) {
       const item = boundAll.get(variable);
@@ -656,7 +729,7 @@ export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles 
         lines.push(`${name} ==`);
         lines.push(`  /\\ wf_pc = ${index}`);
         for (const guard of step.guards) lines.push(`  /\\ ${wrap(guard.tla)}   \\* "${comment(guard.words)}"`);
-        lines.push('  /\\ Next');
+        lines.push('  /\\ Blocks!Next');
         lines.push(`  /\\ ${wrap(alternative.call)}`);
         lines.push(`  /\\ wf_pc' = ${index + 1}`);
         if (extra.length > 0) lines.push(`  /\\ ${keep(extra)}`);
@@ -670,13 +743,13 @@ export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles 
       for (const other of monitor.others) {
         const name = `${p}_Other_${other.action}`;
         otherNames.push(name);
-        lines.push(`${name} == Next /\\ ${wrap(other.call)} /\\ ${keep(wfVars)}`);
+        lines.push(`${name} == Blocks!Next /\\ ${wrap(other.call)} /\\ ${keep(wfVars)}`);
       }
     } else {
       lines.push('\\* exact: no spec action happens but the steps, in order.');
     }
-    lines.push('\\* A step of the model that is no spec action: the environment, or the model\'s own bookkeeping.');
-    lines.push(`${p}_Env == Next /\\ ~Blocks!Actions /\\ ${keep(wfVars)}`);
+    lines.push('\\* A step of the spec that is no spec action: the environment.');
+    lines.push(`${p}_Env == Blocks!Next /\\ ~Blocks!Actions /\\ ${keep(wfVars)}`);
     lines.push('');
     lines.push(`${p}_Next ==`);
     for (const name of stepNames) lines.push(`  \\/ ${name}`);

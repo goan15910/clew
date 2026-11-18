@@ -886,10 +886,12 @@ export interface WorkflowRunView {
 }
 
 export interface SpecWorkflowDocument {
-  command: 'spec.workflow.add' | 'spec.workflow.check' | 'spec.workflow.edit' | 'spec.workflow.step' | 'spec.workflow.delete' | 'spec.workflow.set' | 'spec.workflow.accept' | 'spec.workflow.export' | 'spec.workflow.verify';
+  command: 'spec.workflow.add' | 'spec.workflow.check' | 'spec.workflow.edit' | 'spec.workflow.step' | 'spec.workflow.delete' | 'spec.workflow.set' | 'spec.workflow.accept' | 'spec.workflow.parse' | 'spec.workflow.export' | 'spec.workflow.verify';
   ok: boolean;
   session?: string;
   added?: string[];
+  /** spec.workflow.parse: the live sentences parsed again because the lexicon's grammar words changed. */
+  reparsed?: string[];
   /** Sentences of the file under a heading that opens no workflow: kept out of every workflow, and listed here. */
   skipped?: { text: string; section: string }[];
   sentence?: string;
