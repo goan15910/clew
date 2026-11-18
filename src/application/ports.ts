@@ -4,6 +4,7 @@ import type { Model } from '../domain/model.js';
 import type { Spec, SpecDraft } from '../domain/spec-model.js';
 import type { BuildInfo } from '../domain/upgrade.js';
 import type { PosTagging, SpecHistoryEntry, SpecSnapshot } from '../domain/spec.js';
+import type { Milestone } from '../domain/spec-versions.js';
 import type { Traversal } from '../domain/traversal.js';
 import type { TransitionCoverage, WorkflowResult } from '../domain/verification.js';
 import type { WorkflowSet, WorkflowSetDraft } from '../domain/workflow.js';
@@ -214,4 +215,62 @@ export interface CanonParser {
 export interface CanonParserFactory {
   readonly name: string;
   forLexicon(lexicon: CanonLexicon): CanonParser;
+}
+
+/** What the canonical pipeline keeps in a session, beside the sentences. */
+export interface CanonState {
+  schemaVersion: 1;
+  lexicon: CanonLexicon;
+  /** Every lexicon write and every accepted draft, with who and why. */
+  history: CanonHistoryEntry[];
+}
+
+export interface CanonHistoryEntry {
+  at: string;
+  who: string;
+  reason: string;
+  action: 'lexicon' | 'accept' | 'merge';
+  sentence?: string;
+  from?: string;
+  to?: string;
+  notes?: string[];
+  dropped?: string[];
+  descriptive?: string;
+  merged?: string[];
+}
+
+export interface CanonStore {
+  read(session: string): { ok: true; state: CanonState | undefined } | { ok: false; message: string };
+  write(session: string, state: CanonState): { ok: true } | { ok: false; message: string };
+}
+
+/** A session as a milestone froze it: the sentence layers and, when the session had one, the canonical lexicon. */
+export interface FrozenVersion {
+  snapshot: SpecSnapshot;
+  canon: CanonState | undefined;
+}
+
+/** The session at the moment a milestone is closed, read under the session lock. */
+export interface SessionNow extends FrozenVersion {
+  history: SpecHistoryEntry[];
+  milestones: Milestone[];
+}
+
+export type MilestoneFault = 'missing' | 'locked' | 'schema' | 'unreadable';
+export type MilestoneRead<T> = ({ ok: true } & T) | { ok: false; fault: MilestoneFault; message: string };
+
+/** Milestones over a session's history, each with a frozen copy of the session files it closed on. */
+export interface MilestoneStore {
+  list(session: string): MilestoneRead<{ milestones: Milestone[] }>;
+  read(session: string, id: string): MilestoneRead<{ frozen: FrozenVersion }>;
+  /** The session's history.jsonl, oldest line first. */
+  log(session: string): MilestoneRead<{ history: SpecHistoryEntry[] }>;
+  /**
+   * Hold the session lock, read the session, and let `build` write the record. When `build` returns a milestone, its
+   * record is appended to the list and the session files are frozen beside it; a refusal writes nothing.
+   */
+  close(
+    session: string,
+    build: (now: SessionNow) => { ok: true; milestone: Milestone } | { ok: false; message: string },
+  ): MilestoneRead<{ milestone: Milestone }> | { ok: false; fault: 'refused'; message: string };
 }

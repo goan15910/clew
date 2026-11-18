@@ -1,5 +1,6 @@
 // Short stdout for humans. `--json` skips this and prints the command document.
-import type { CommandDocument, ConceptView, SpecCanonDocument, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
+import type { CommandDocument, ConceptView, SpecCanonDocument, SpecDiffDocument, SpecMilestoneDocument, FrameReachView, FrameView, SpecShowDocument, SpecTokenReadingView } from '../../application/documents.js';
+import type { ActionDiff, LexiconDiff, Milestone, VersionCounts } from '../../domain/spec-versions.js';
 import { formatIssues } from '../../application/documents.js';
 import { ROLE_NAMES } from '../../domain/spec-frames.js';
 import { CLEW_AUTHOR } from '../../domain/spec.js';
@@ -71,7 +72,9 @@ export function humanSummary(document: CommandDocument): string {
   if (document.command === 'spec.export') {
     if (document.fault !== undefined || document.session === undefined) return '';
     const where = document.written === undefined ? '' : ` to ${document.written}`;
-    return `session ${document.session}: exported ${document.sentences ?? 0} ${document.version ?? 'latest'} sentences${where}`;
+    const version = document.version ?? 'latest';
+    const which = version === 'original' || version === 'latest' ? `${version} sentences` : `sentences as of ${version}`;
+    return `session ${document.session}: exported ${document.sentences ?? 0} ${which}${where}`;
   }
   if (document.command === 'spec.tag') {
     if (document.fault !== undefined || document.session === undefined) return '';
@@ -195,6 +198,8 @@ export function humanSummary(document: CommandDocument): string {
     return lines.join('\n');
   }
   if (document.command.startsWith('spec.canon.')) return canonSummary(document as SpecCanonDocument);
+  if (document.command.startsWith('spec.milestone.')) return milestoneSummary(document as SpecMilestoneDocument);
+  if (document.command === 'spec.diff') return diffSummary(document);
   if (document.command === 'spec.status') {
     if (document.fault !== undefined || document.session === undefined || document.coverage === undefined) return '';
     const sentences = document.coverage.sentences;
@@ -425,6 +430,123 @@ function canonSummary(document: SpecCanonDocument): string {
       for (const error of tlc.errors ?? []) lines.push(`  error: ${error}`);
       if (tlc.status === 'error' && tlc.output !== undefined) lines.push('', tlc.output);
       break;
+    }
+  }
+  return lines.join('\n');
+}
+
+function arrow(before: number | undefined, after: number | undefined): string {
+  return `${before === undefined ? '-' : String(before)} -> ${after === undefined ? '-' : String(after)}`;
+}
+
+/** The digest lines shared by a milestone and a diff: counts before and after, in the proposal's layout. */
+function countLines(before: VersionCounts, after: VersionCounts, added: number, deleted: number, edited: number, lines: string[], actions?: ActionDiff): void {
+  lines.push(`  sentences  ${arrow(before.live, after.live)} live (${added} added, ${deleted} deleted, ${edited} edited)`);
+  if (before.accepted !== undefined || after.accepted !== undefined) {
+    lines.push(`  gate       ${arrow(before.accepted, after.accepted)} pass, ${arrow(before.dangling, after.dangling)} dangling`);
+    const changed = actions === undefined ? '' : ` (${actions.added.length} new, ${actions.removed.length} removed, ${actions.changed.length} changed)`;
+    lines.push(`  actions    ${arrow(before.actions, after.actions)}${changed}`);
+  }
+  if (before.frames !== undefined || after.frames !== undefined) lines.push(`  frames     ${arrow(before.frames, after.frames)}`);
+}
+
+function lexiconLine(diff: LexiconDiff | undefined): string | undefined {
+  if (diff === undefined) return undefined;
+  const parts: string[] = [];
+  for (const field of ['actors', 'terms', 'states', 'verbs', 'fixed'] as const) {
+    const change = diff[field];
+    if (change === undefined) continue;
+    const quote = (word: string): string => (word.includes(' ') ? `"${word}"` : word);
+    const words = [...change.added.map((word) => `+${quote(word)}`), ...change.removed.map((word) => `-${quote(word)}`)];
+    parts.push(`${field} ${words.join(' ')}`);
+  }
+  const instances = (diff.instances ?? []).map((change) => `${change.noun} ${change.from ?? 'default'} -> ${change.to ?? 'default'}`);
+  if (instances.length > 0) parts.push(`instances ${instances.join(', ')}`);
+  return `  lexicon    ${parts.join('; ')}`;
+}
+
+function milestoneHead(milestone: Milestone): string {
+  const count = milestone.history.to - milestone.history.from;
+  const lines = count === 0 ? 'no history lines' : count === 1 ? `history line ${milestone.history.to}` : `history lines ${milestone.history.from + 1}-${milestone.history.to}`;
+  const canon = milestone.canon.to > milestone.canon.from ? `, ${countPhrase(milestone.canon.to - milestone.canon.from, 'canonical change', 'canonical changes')}` : '';
+  return `${milestone.id} "${milestone.title}" by ${milestone.who}, ${milestone.at} (${lines}${canon}, since ${milestone.previous})`;
+}
+
+function milestoneDigest(milestone: Milestone, lines: string[]): void {
+  const digest = milestone.digest;
+  countLines(digest.before, digest.after, digest.added.length, digest.deleted.length, digest.edited.length, lines, digest.actions);
+  const lexicon = lexiconLine(digest.lexicon);
+  if (lexicon !== undefined) lines.push(lexicon);
+  const commands = Object.entries(digest.commands).map(([command, count]) => `${command.replace(/^spec\./, '')} ${count}`);
+  if (commands.length > 0) lines.push(`  commands   ${commands.join(', ')}`);
+}
+
+function milestoneSummary(document: SpecMilestoneDocument): string {
+  if (!document.ok) return '';
+  const lines: string[] = [];
+  const session = document.session === undefined ? '' : `session ${document.session}: `;
+  if (document.command === 'spec.milestone.list') {
+    const milestones = document.milestones ?? [];
+    lines.push(`${session}${countPhrase(milestones.length, 'milestone', 'milestones')}`);
+    for (const milestone of milestones) {
+      const digest = milestone.digest;
+      const gate = digest.after.accepted === undefined ? '' : `, ${digest.after.accepted} pass, ${digest.after.dangling ?? 0} dangling, ${digest.after.actions ?? 0} actions`;
+      lines.push(`  ${milestone.id}  ${milestone.at}  ${milestone.title}  (${digest.after.live} live: +${digest.added.length} -${digest.deleted.length} ~${digest.edited.length}${gate})`);
+    }
+    const pending = document.pending;
+    if (pending !== undefined) {
+      lines.push(pending.history + pending.canon === 0
+        ? `  nothing changed since ${pending.since}`
+        : `  not in a milestone yet: ${countPhrase(pending.history, 'history line', 'history lines')} and ${countPhrase(pending.canon, 'canonical change', 'canonical changes')} since ${pending.since}`);
+    }
+    return lines.join('\n');
+  }
+  const milestone = document.milestone;
+  if (milestone === undefined) return '';
+  lines.push(`${session}${document.command === 'spec.milestone.close' ? 'closed ' : ''}${milestoneHead(milestone)}`);
+  lines.push(`  goal: ${milestone.goal}`);
+  for (const decision of milestone.decisions) lines.push(`  decision: ${decision}`);
+  milestoneDigest(milestone, lines);
+  const digest = milestone.digest;
+  if (document.command === 'spec.milestone.show') {
+    if (digest.added.length > 0) lines.push(`  added: ${digest.added.join(', ')}`);
+    if (digest.deleted.length > 0) lines.push(`  deleted: ${digest.deleted.join(', ')}`);
+    if (digest.edited.length > 0) lines.push(`  edited: ${digest.edited.join(', ')}`);
+    if (digest.actions !== undefined) {
+      for (const [label, names] of [['new actions', digest.actions.added], ['removed actions', digest.actions.removed], ['changed actions', digest.actions.changed]] as const) {
+        if (names.length > 0) lines.push(`  ${label}: ${names.join(', ')}`);
+      }
+    }
+  }
+  for (const change of document.changes ?? []) {
+    const where = change.log === 'history' ? `history ${change.line}` : `canon ${change.line}`;
+    const ids = change.ids.length === 0 ? '' : ` ${change.ids.join(', ')}`;
+    lines.push(`  ${where}  ${change.at}  ${change.command.replace(/^spec\./, '')}${ids}${change.who === undefined ? '' : ` by ${change.who}`}${change.reason === undefined ? '' : `: ${change.reason}`}`);
+  }
+  return lines.join('\n');
+}
+
+function diffSummary(document: SpecDiffDocument): string {
+  if (!document.ok || document.counts === undefined || document.sentences === undefined) return '';
+  const sentences = document.sentences;
+  const lines = [`session ${document.session ?? ''}: ${document.from ?? ''} -> ${document.to ?? ''}`];
+  countLines(document.counts.from, document.counts.to, sentences.added.length, sentences.deleted.length, sentences.edited.length, lines, document.actions);
+  if (document.gatedWith?.from !== undefined) lines.push(`  (${document.from ?? ''} has no lexicon; gated with ${document.gatedWith.from}'s)`);
+  if (document.gatedWith?.to !== undefined) lines.push(`  (${document.to ?? ''} has no lexicon; gated with ${document.gatedWith.to}'s)`);
+  const lexicon = lexiconLine(document.lexicon);
+  if (lexicon !== undefined) lines.push(lexicon);
+  const why = (revisions: readonly { who: string; reason: string }[]): string[] => revisions.map((revision) => `      why (${revision.who}): ${revision.reason}`);
+  for (const item of sentences.added) lines.push(`  + ${item.id}: "${item.text}"`, ...why(item.revisions));
+  for (const item of sentences.deleted) lines.push(`  - ${item.id}: "${item.text}"`, ...why(item.revisions));
+  for (const item of sentences.edited) {
+    lines.push(`  ~ ${item.id}: "${item.from}"`, `      now "${item.to}"`);
+    if (item.sections !== undefined) lines.push(`      moved from "${item.sections.from}" to "${item.sections.to}"`);
+    lines.push(...why(item.revisions));
+  }
+  const actions = document.actions;
+  if (actions !== undefined) {
+    for (const [label, names] of [['new action', actions.added], ['removed action', actions.removed], ['changed action', actions.changed]] as const) {
+      for (const name of names) lines.push(`  ${label} ${name}`);
     }
   }
   return lines.join('\n');

@@ -402,7 +402,8 @@ function toLiveSpan(raw: z.infer<typeof LiveSpanSchema>): LiveSpan {
   return span;
 }
 
-function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapshot | undefined } | SpecStoreResult & { ok: false } {
+/** Read the session files in `dir` (a live session, or a copy a milestone froze). Undefined when there is no session yet. */
+export function readSnapshot(dir: string, id: string): { ok: true; snapshot: SpecSnapshot | undefined } | SpecStoreResult & { ok: false } {
   const sessionFile = join(dir, 'session.json');
   if (!existsSync(sessionFile)) {
     const names = readdirSync(dir);
@@ -918,7 +919,8 @@ function errorCode(error: unknown): string | undefined {
   return undefined;
 }
 
-function acquireLock(dir: string, id: string): { ok: true; release: () => void } | { ok: false; message: string } {
+/** The session lock every write holds. Milestones hold it while they freeze the session files. */
+export function acquireLock(dir: string, id: string): { ok: true; release: () => void } | { ok: false; message: string } {
   const lockPath = join(dir, '.lock');
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
