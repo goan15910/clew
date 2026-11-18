@@ -82,7 +82,7 @@ export function renderSentenceHtml(sentence: HighlightedSentence, options: Rende
   const opens = new Map<number, string[]>();
   const closes = new Map<number, number>();
   for (const region of regions) {
-    const label = region.kind === 'branch' ? ` data-branch="${region.branch ?? ''}"` : '';
+    const label = region.kind === 'branch' ? ` data-branch="${region.branch ?? ''}"` : region.kind === 'clause' ? ` data-clause="${region.clause ?? ''}"` : '';
     const tag = `<span class="cnl-region cnl-${region.kind}"${label}>`;
     opens.set(region.span[0], [...(opens.get(region.span[0]) ?? []), tag]);
     closes.set(region.span[1], (closes.get(region.span[1]) ?? 0) + 1);

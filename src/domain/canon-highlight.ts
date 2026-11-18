@@ -56,9 +56,11 @@ export interface HighlightToken {
 }
 
 export interface HighlightRegion {
-  kind: 'guard' | 'branch' | 'lead' | 'sep';
+  kind: 'guard' | 'branch' | 'lead' | 'sep' | 'clause';
   span: Span;
   branch?: number;
+  /** 1-based clause number inside its branch, for a clause region. */
+  clause?: number;
 }
 
 export interface HighlightNote {
@@ -169,6 +171,7 @@ function semanticRoles(statement: Statement): { roles: Map<string, HighlightRole
       branches.push(branch.span);
       if (statement.branches.length > 1) regions.push({ kind: 'branch', span: branch.span, branch: index + 1 });
       branch.clauses.forEach((clause, clauseIndex) => {
+        regions.push({ kind: 'clause', span: clause.span, branch: index + 1, clause: clauseIndex + 1 });
         if (clauseIndex > 0) {
           const previous = branch.clauses[clauseIndex - 1];
           if (previous !== undefined) joins.push([previous.span[1], clause.span[0]]);
