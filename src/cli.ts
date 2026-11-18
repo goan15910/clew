@@ -1550,7 +1550,7 @@ setManual(spec
 });
 
 const workflow = spec.command('workflow').description('Write workflows in English, check them against the spec, and verify them with TLC.').helpCommand(false);
-const workflowNote = 'A workflow is a list of sentences in the canonical grammar, marked (possible) or (refused). It shares the spec\'s lexicon and concepts, passes the same gate, and cites the spec actions its steps match. It cannot add a concept or a step to the spec, and the spec (its versions and milestones included) never reads it. workflows.json stores each sentence\'s text, history, and parse; everything else is compiled on each run. See docs/workflows.md.';
+const workflowNote = 'A workflow is a list of sentences in the canonical grammar, marked (possible) or (refused). It shares the spec\'s lexicon and concepts, and passes the same gate. A step is a probe: it states who acts, the conditions before, and the state its object ends in, and TLC decides whether the spec can take such a step. A workflow cannot add a concept to the spec, and the spec (its versions and milestones included) never reads it. workflows.json stores each sentence\'s text, history, and parse; everything else is compiled on each run. See docs/workflows.md.';
 const workflowExits = [
   { code: 0 as const, meaning: 'every workflow passes the gate, matches the spec, and is ready to check' },
   { code: 1 as const, meaning: 'a workflow sentence is dangling, or a finding blocks a monitor' },
@@ -1579,7 +1579,7 @@ setManual(workflow
 
 setManual(workflow
   .command('check')
-  .description('Gate the workflow sentences, align their concepts with the spec, and match each step to the spec actions it cites (read-only).')
+  .description('Gate the workflow sentences and align their concepts with the spec (read-only). Whether the model can take the steps is for clew spec workflow verify.')
   .option('--workflow <id>', 'check one workflow only')
   .option('--session <id>', 'session to read; defaults to the only open session')
   .option('--json', 'print the result document as JSON on stdout')
@@ -1590,7 +1590,7 @@ setManual(workflow
   }), {
   examples: ['clew spec workflow check --json', 'clew spec workflow check --workflow w2 --json'],
   exitCodes: workflowExits,
-  notes: ['Findings: step-dangling, parse-stale, no-steps, unknown-concept, state-not-of-noun, needs-instances, step-unmatched (blocking or warning), and step-ambiguous (info). needs-instances is raised before any model checking: the step needs several instances of a noun the spec models as one. parse-stale: the lexicon\'s actors, terms, states, or verbs changed since the sentence was parsed; run clew spec workflow parse.', workflowNote, jsonNote, sessionNote],
+  notes: ['Findings: step-dangling, parse-stale, no-steps, unknown-concept, state-not-of-noun, and needs-instances (blocking or warning). needs-instances is raised before any model checking: the step needs several instances of a noun the spec models as one. parse-stale: the lexicon\'s actors, terms, states, or verbs changed since the sentence was parsed; run clew spec workflow parse.', workflowNote, jsonNote, sessionNote],
 });
 
 setManual(workflow
@@ -1734,7 +1734,7 @@ setManual(workflow
   }), {
   examples: ['clew spec workflow export --dir tla --name Order --json'],
   exitCodes: [{ code: 0, meaning: 'the monitors were written and every workflow is ready' }, { code: 1, meaning: 'the monitors were written, but some workflow is not ready and was left out' }, { code: 2, meaning: 'the blocks module is stale or missing, or there is no session, lexicon, or workflow' }],
-  notes: ['The monitor declares the blocks module\'s variables and instances it (Blocks == INSTANCE <Module>Blocks WITH v <- v, ...), so the blocks module must be the one the spec compiles to now: run clew spec canon export first. The compiled workflows are not saved: only the .tla and .cfg files are written.', workflowNote, jsonNote, sessionNote],
+  notes: ['The monitor declares the blocks module\'s variables and instances it (Blocks == INSTANCE <Module>Blocks WITH v <- v, ...), the actor included, and labels each step by the Blocks!<action> the spec took, so the blocks module must be the one the spec compiles to now: run clew spec canon export first. The compiled workflows are not saved: only the .tla and .cfg files are written.', workflowNote, jsonNote, sessionNote],
 });
 
 setManual(workflow
@@ -1756,7 +1756,7 @@ setManual(workflow
   }), {
   examples: ['clew spec workflow verify --dir tla --name Order --jar tla2tools.jar --json'],
   exitCodes: [{ code: 0, meaning: 'TLC agrees with every workflow' }, { code: 1, meaning: 'a possible workflow has no witness, a refused one goes through, or a workflow is not ready' }, { code: 2, meaning: 'no jar or Java, a stale export, or TLC could not run any monitor' }],
-  notes: ['Each path step names the workflow step, the spec action, and the spec sentence it came from. A possible workflow with no witness names the first step the model never takes.', 'Clew does not ship TLC. Pass --jar or set TLA2TOOLS_JAR; Java must be on PATH (or set JAVA).', workflowNote, jsonNote, sessionNote],
+  notes: ['Each path step names the workflow step, and the spec action the model took with the spec sentence it came from. A possible workflow with no witness names the first step the model never takes, and what that step asks.', 'Clew does not ship TLC. Pass --jar or set TLA2TOOLS_JAR; Java must be on PATH (or set JAVA).', workflowNote, jsonNote, sessionNote],
 });
 
 const projection = spec.command('projection').description('Find the variables of a TLA+ model that belong together, write a projected view, check it with TLC, and draw it.').helpCommand(false);

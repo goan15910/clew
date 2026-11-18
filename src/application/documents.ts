@@ -2,7 +2,7 @@
 import type { CanonLexicon, Diagnostic, Span } from '../domain/canon-ast.js';
 import type { CanonFinding, CanonModel } from '../domain/canon-compile.js';
 import type { DraftRewrite } from '../domain/canon-gate.js';
-import type { StepCitation, WorkflowExpect, WorkflowFinding, WorkflowMode, WorkflowSentenceView } from '../domain/canon-workflow.js';
+import type { WorkflowExpect, WorkflowFinding, WorkflowMode, WorkflowSentenceView } from '../domain/canon-workflow.js';
 import type { Comparison } from '../domain/comparison.js';
 import type { KeepEvaluation, ProjectionAnalysis, ViewDraft } from '../domain/projection.js';
 import type { GraphStats } from '../domain/state-graph.js';
@@ -880,10 +880,10 @@ export interface WorkflowRunView {
   /** holds: TLC agrees with what the workflow expects. fails: it does not. */
   outcome: 'holds' | 'fails' | 'not-ready' | 'error' | 'timeout';
   message?: string;
-  /** The witness of a possible workflow, or the path a refused one should not have. */
+  /** The witness of a possible workflow, or the path a refused one should not have. `action` is the spec action the model took. */
   path?: { state: number; kind: 'step' | 'other' | 'environment'; step?: number; action?: string; specSentence?: string; values: string[] }[];
   /** A possible workflow that TLC cannot complete: the first step the model never takes after the ones before it. */
-  stopsAt?: { step: number; sentence: string; text: string; reached: number; cites: StepCitation[] };
+  stopsAt?: { step: number; sentence: string; text: string; reached: number; asks: { words: string; tla: string }[] };
   tlc?: TlcResultView;
 }
 

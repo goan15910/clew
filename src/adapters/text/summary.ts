@@ -591,8 +591,7 @@ function workflowSummary(document: SpecWorkflowDocument): string {
     lines.push(`  ${workflow.id} "${workflow.title}" must be ${workflow.expect} (${workflow.mode}): ${workflow.ready ? 'ready' : 'not ready'}`);
     for (const sentence of workflow.sentences) {
       const role = sentence.step === undefined ? sentence.role : `step ${sentence.step}`;
-      const cites = sentence.cites.length === 0 ? '' : `  cites ${sentence.cites.map((cite) => `${cite.action} (${cite.sentence})`).join(', ')}`;
-      lines.push(`    ${sentence.id} ${role}${sentence.status === 'dangling' ? ' DANGLING' : ''}: "${sentence.text}"${cites}`);
+      lines.push(`    ${sentence.id} ${role}${sentence.status === 'dangling' ? ' DANGLING' : ''}: "${sentence.text}"`);
       for (const diagnostic of sentence.diagnostics) lines.push(`      ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message}${diagnostic.found === '' ? '' : ` at "${diagnostic.found}"`}`);
       const draft = sentence.draft;
       if (draft !== undefined) lines.push(`      draft: "${draft.text}" (${draft.parses ? 'passes the gate' : 'does not pass yet'}${draft.needsConfirm ? '; guesses: confirm' : ''})`);
@@ -609,7 +608,7 @@ function workflowSummary(document: SpecWorkflowDocument): string {
     }
     if (run.stopsAt !== undefined) {
       lines.push(`    stops at ${run.stopsAt.sentence} step ${String(run.stopsAt.step)}: "${run.stopsAt.text}"`);
-      for (const cite of run.stopsAt.cites) lines.push(`      ${cite.action} (${cite.sentence}) needs ${cite.guards.length === 0 ? 'nothing' : cite.guards.join(' /\\ ')}`);
+      for (const ask of run.stopsAt.asks) lines.push(`      it asks "${ask.words}": ${ask.tla}`);
     }
   }
   return lines.join('\n');

@@ -64,12 +64,11 @@ function check(texts: string[], expect: WorkflowExpect = 'possible', mode: Workf
 const codes = (findings: { code: string }[]): string[] => findings.map((finding) => finding.code);
 
 describe('workflow gate and concepts', () => {
-  test('each step cites the spec action it matches, and the spec sentence behind it', () => {
+  test('a step is gated and its concepts are the spec\'s; it is not tied to a spec action', () => {
     const { result } = check(['The customer submits the order as submitted.', 'The manager reviews the order as rejected when the total is large.', 'The order ends as rejected.']);
     assert.equal(result.ready, true, JSON.stringify(result.findings));
     assert.deepEqual(result.sentences.map((sentence) => sentence.role), ['step', 'step', 'end']);
-    assert.deepEqual(result.sentences[0]?.cites.map((cite) => `${cite.action}@${cite.sentence}`), ['SubmitOrder_s2@s2']);
-    assert.deepEqual(result.sentences[1]?.cites.map((cite) => `${cite.action}@${cite.sentence}`), ['ReviewOrder_s3_2@s3']);
+    assert.ok(!('cites' in result.sentences[0]!));
     assert.ok(result.sentences[1]?.concepts.includes('actor:manager'));
     assert.ok(result.sentences[1]?.concepts.includes('state:total/large'));
   });
@@ -93,7 +92,7 @@ describe('workflow gate and concepts', () => {
   test('a workflow cannot add a concept: an unknown noun or actor is a finding, not a new concept', () => {
     const { result, spec } = check(['The customer pays the invoice as paid.', 'The courier ships the order as shipped.']);
     assert.ok(codes(result.findings).includes('unknown-concept'));
-    assert.ok(codes(result.findings).includes('step-unmatched'));
+    assert.ok(!codes(result.findings).includes('step-unmatched'), 'there is no step matching');
     assert.equal(result.ready, false);
     assert.ok(!spec.model.nouns.some((noun) => noun.noun === 'invoice'));
   });
@@ -103,11 +102,11 @@ describe('workflow gate and concepts', () => {
     assert.ok(codes(result.findings).includes('state-not-of-noun'), codes(result.findings).join());
   });
 
-  test('a step with no matching result names the spec actions it could have meant', () => {
-    const { result } = check(['The manager reviews the order as cancelled.']);
-    const finding = result.findings.find((item) => item.code === 'step-unmatched');
-    assert.ok(finding !== undefined);
-    assert.match(finding.message, /ReviewOrder_s3_1/);
+  test('a step no spec sentence states is still ready: TLC, not Clew, says whether the model can take it', () => {
+    const { result } = check(['The manager reviews the order as cancelled.', 'The warehouse refunds the order as cancelled.']);
+    assert.deepEqual(codes(result.findings), []);
+    assert.equal(result.ready, true);
+    assert.equal(result.monitor?.steps.length, 2);
   });
 
   test('the spec compiles the same with or without workflows: references go one way', () => {
@@ -183,7 +182,7 @@ describe('needs-instances (E13)', () => {
 });
 
 describe('scenario monitor', () => {
-  test('the monitor declares the blocks variables, maps them one to one, and reads them directly', () => {
+  test('the monitor declares the blocks variables and reads them directly; a step is its own formula', () => {
     const { spec, parse } = specOf(ORDER, ORDER_LEXICON);
     const checks = checkWorkflows(spec, [
       workflow('w1', ['The total starts as small.', 'The customer submits the order as submitted.', 'The manager reviews the order as approved when the total is small.', 'The order ends as approved.']),
@@ -193,12 +192,15 @@ describe('scenario monitor', () => {
     assert.equal(module.module, 'OrderWorkflows');
     assert.match(module.tla, /^EXTENDS Naturals, FiniteSets$/m);
     assert.doesNotMatch(module.tla, /^EXTENDS Order$/m, 'the monitor runs on the spec, not on the agent\'s model');
-    assert.match(module.tla, /^VARIABLES order_status, total_status$/m);
-    assert.match(module.tla, /^Blocks == INSTANCE OrderBlocks WITH order_status <- order_status, total_status <- total_status$/m);
-    assert.match(module.tla, /^W1_Step2_ReviewOrder_s3_1 ==$/m);
-    assert.match(module.tla, /^ {2}\/\\ total_status = "small"/m);
+    assert.match(module.tla, /^VARIABLES order_status, total_status, actor$/m);
+    assert.match(module.tla, /^Blocks == INSTANCE OrderBlocks WITH order_status <- order_status, total_status <- total_status, actor <- actor$/m);
     assert.doesNotMatch(module.tla, /Get_/);
     assert.match(module.tla, /^ {2}\/\\ Blocks!Init$/m);
+    assert.match(module.tla, /^W1_Step2_Pre ==\n  \/\\ wf_pc = 1\n  \/\\ total_status = "small"/m);
+    assert.match(module.tla, /^W1_Step2_Post ==\n  \/\\ actor' = "manager".*\n  \/\\ order_status # "approved" \/\\ order_status' = "approved".*\n  \/\\ wf_pc' = 2$/m);
+    assert.match(module.tla, /^W1_Step2_ReviewOrder_s3_1 == W1_Step2_Pre \/\\ Blocks!Next \/\\ Blocks!ReviewOrder_s3_1 \/\\ W1_Step2_Post$/m, 'the name says which spec action the model took');
+    assert.match(module.tla, /^W1_Step2_CancelOrder_s5 == /m, 'every spec action is a candidate: none is picked beforehand');
+    assert.match(module.tla, /^W1_Step2_Unstated == W1_Step2_Pre \/\\ Blocks!Next \/\\ ~Blocks!Actions \/\\ W1_Step2_Post/m);
     assert.match(module.tla, /^W1_Other_CancelOrder_s5 == /m, 'loose: other spec actions may interleave');
     assert.doesNotMatch(module.tla, /^W2_Other_/m, 'exact: no other spec action');
     assert.match(module.tla, /^W2_Env == Blocks!Next \/\\ ~Blocks!Actions/m);
@@ -206,6 +208,7 @@ describe('scenario monitor', () => {
     assert.deepEqual(module.configs.map((config) => config.file), ['OrderWorkflow_w1.cfg', 'OrderWorkflow_w2.cfg']);
     assert.match(module.configs[0]!.cfg, /SPECIFICATION W1_Spec\nINVARIANT W1_NotDone/);
     assert.deepEqual(stepOfName('W1_Step2_ReviewOrder_s3_1'), { workflow: 'w1', step: 2, action: 'ReviewOrder_s3_1' });
+    assert.deepEqual(stepOfName('W1_Step2_Unstated'), { workflow: 'w1', step: 2 });
   });
 
   test('a noun the workflow names without a quantifier is one instance throughout', () => {
@@ -214,8 +217,9 @@ describe('scenario monitor', () => {
     const checks = checkWorkflows(spec, [workflow('w1', ['The warehouse packs the new shipment as packed.', 'The carrier ships the shipment as in transit.'], 'possible', 'loose', lexicon)], parse);
     const module = workflowModule({ name: 'Ship', session: 'ship', variables: blocksVariables(spec.model), workflows: checks });
     assert.match(module.tla, /^VARIABLES wf_pc, wf_shipment$/m);
-    assert.match(module.tla, /Blocks!PackShipment_s2\(wf_shipment\)/);
-    assert.match(module.tla, /Blocks!ShipShipment_s3\(wf_shipment\)/);
+    assert.match(module.tla, /shipment_status\[wf_shipment\] # "packed" \/\\ shipment_status'\[wf_shipment\] = "packed"/);
+    assert.match(module.tla, /shipment_status'\[wf_shipment\] = "in-transit"/);
+    assert.match(module.tla, /UNCHANGED wf_shipment/);
   });
 
   test('the blocks module has no accessor for the monitor: the mapping is the monitor\'s own', () => {
@@ -326,11 +330,20 @@ describe('clew spec workflow', { concurrency: false }, () => {
         const impossible = join(dir, 'impossible.md');
         writeFileSync(impossible, '## Ship before packing (possible, exact)\n\nThe customer submits the order as submitted.\nThe manager reviews the order as approved.\nThe warehouse ships the order as shipped.\n');
         assert.equal(clew(['spec', 'workflow', 'add', '--file', impossible, '--reason', 'probe', '--json'], env).status, 0);
-        const stuck = JSON.parse(clew(['spec', 'workflow', 'verify', '--dir', out, '--name', 'Order', '--workflow', 'w5', '--jar', jar, '--json'], env).stdout) as { runs: { outcome: string; stopsAt?: { step: number; reached: number; cites: { sentence: string }[] } }[] };
+        const stuck = JSON.parse(clew(['spec', 'workflow', 'verify', '--dir', out, '--name', 'Order', '--workflow', 'w5', '--jar', jar, '--json'], env).stdout) as { runs: { outcome: string; stopsAt?: { step: number; reached: number; asks: { words: string; tla: string }[] } }[] };
         assert.equal(stuck.runs[0]?.outcome, 'fails');
         assert.equal(stuck.runs[0]?.stopsAt?.step, 3);
         assert.equal(stuck.runs[0]?.stopsAt?.reached, 2);
-        assert.deepEqual(stuck.runs[0]?.stopsAt?.cites.map((cite) => cite.sentence), ['s4']);
+        assert.deepEqual(stuck.runs[0]?.stopsAt?.asks.map((ask) => ask.words), ['warehouse', 'the order as shipped']);
+
+        // Authorization: the spec lets the manager review, so a customer who reviews is a step TLC never finds.
+        const wrongActor = join(dir, 'wrong-actor.md');
+        writeFileSync(wrongActor, '## Customer approves (refused)\n\nThe customer submits the order as submitted.\nThe customer reviews the order as approved.\n\n## Manager approves (possible)\n\nThe customer submits the order as submitted.\nThe manager reviews the order as approved.\n');
+        assert.equal(clew(['spec', 'workflow', 'add', '--file', wrongActor, '--reason', 'probe', '--json'], env).status, 0);
+        for (const id of ['w6', 'w7']) {
+          const ran = JSON.parse(clew(['spec', 'workflow', 'verify', '--dir', out, '--name', 'Order', '--workflow', id, '--jar', jar, '--json'], env).stdout) as { runs: { outcome: string }[] };
+          assert.equal(ran.runs[0]?.outcome, 'holds', id);
+        }
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });

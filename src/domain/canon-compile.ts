@@ -6,6 +6,8 @@
 //   <noun>_status   the state of a noun that some sentence gives a state, a function when the noun has instances
 //   <noun>_<target> a link set by "with" / "to", Null until set
 //   on_<noun>, after_<noun>   an event condition: a boolean the environment sets
+//   actor           who took the last step. Each action names its actor as a guard on the step, so who may take a
+//                   step (authorization) is part of the model and TLC can check it
 // A noun no action changes and no mark starts is an abstract condition: the environment picks its state.
 import {
   condPreds,
@@ -114,8 +116,11 @@ export interface RefusalModel {
   text: string;
   event: string;
   object: string;
-  /** The actions the refusal constrains, each with the guard under which it must not happen. */
-  over: { action: string; params: Param[]; when: string }[];
+  /**
+   * The actions the refusal constrains, each with the guard under which it must not happen. `as` narrows it to
+   * steps that actor takes, when the action itself lets anyone act.
+   */
+  over: { action: string; params: Param[]; when: string; as?: string }[];
   guards: Traced[];
 }
 
@@ -126,7 +131,16 @@ export interface InvariantModel {
   tla: string;
 }
 
+/** Who can act, and the variable that holds who took the last step. */
+export interface ActorModel {
+  var: string;
+  /** The name of the set of actors. */
+  set: string;
+  actors: string[];
+}
+
 export interface CanonModel {
+  actor: ActorModel;
   nouns: NounModel[];
   links: LinkModel[];
   conditions: ConditionModel[];
@@ -364,6 +378,8 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
     links.push(named);
   }
   for (const item of conditionVars.values()) used.add(item.var);
+  const actorNames = new Set(lexicon.actors.map((actor) => slug(actor)));
+  const actorModel: ActorModel = { var: claim('actor'), set: claim('Actor'), actors: [] };
   const ownership: CanonModel['ownership'] = [];
   for (const pair of ownerPairs) {
     const [object, owner] = pair.split('|') as [string, string];
@@ -591,8 +607,20 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
         updates[variable] = expression;
       }
       let actor = '';
-      for (const clause of branch.clauses) if (clause.actor !== null) { actor = slug(clause.actor.text); break; }
-      if (actor === '') actor = lastActor(block, index);
+      let actorSpan: Span | undefined;
+      for (const clause of branch.clauses) if (clause.actor !== null) { actor = slug(clause.actor.text); actorSpan = clause.actor.span; break; }
+      if (actor === '') {
+        const earlier = lastActor(block, index);
+        actor = earlier.actor;
+        actorSpan = earlier.span;
+      }
+      // Authorization: the step is this actor's. A step anyone else takes is not this action.
+      if (actor !== '' && actorSpan !== undefined) {
+        actorNames.add(actor);
+        compiled.guards.unshift(traced(compiled.ctx, `${actorModel.var}' = ${quote(actor)}`, 'actor', actorSpan));
+      } else {
+        find(sentence, 'no-actor', 'info', `"${say(sentence, first.span)}" names no actor, so the model lets anyone take this step: name the actor to say who may`, first.span);
+      }
       actions.push({
         name,
         sentence: sentence.id,
@@ -622,8 +650,11 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
     const name = claim(`Refuse${pascal(event)}${pascal(object)}_${sentence.id}`);
     const over: RefusalModel['over'] = [];
     let guardTrace: Traced[] = [];
+    // "The customer cannot cancel" refuses the customer's step, not another actor's.
+    const refused = clause.actor === null ? '' : slug(clause.actor.text);
     for (const action of actions) {
       if (action.event !== event || action.object !== object) continue;
+      if (refused !== '' && action.actor !== '' && action.actor !== refused) continue;
       // Compile the refusal's condition about the same instances the action binds.
       const compiled = compileBranch(sentence, block, branch, 0, true);
       const rename = new Map<string, string>();
@@ -634,11 +665,13 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
       const extra = compiled.ctx.params.filter((param) => !rename.has(param.name));
       const when = compiled.guards.map((guard) => renameIdents(guard.tla, rename));
       const condition = when.length === 0 ? 'TRUE' : when.map((part) => `(${part})`).join(' /\\ ');
-      over.push({ action: action.name, params: action.params, when: extra.length === 0 ? condition : `\\E ${extra.map((param) => `${param.name} \\in ${param.set}`).join(', ')} : ${condition}` });
+      const item: RefusalModel['over'][number] = { action: action.name, params: action.params, when: extra.length === 0 ? condition : `\\E ${extra.map((param) => `${param.name} \\in ${param.set}`).join(', ')} : ${condition}` };
+      if (refused !== '' && action.actor === '') item.as = refused;
+      over.push(item);
       guardTrace = compiled.guards;
     }
     if (over.length === 0) {
-      find(sentence, 'refusal-unmatched', 'info', `no accepted sentence states "${clause.verb.text} ${clause.object.noun.text}", so this refusal holds trivially`, clause.span);
+      find(sentence, 'refusal-unmatched', 'info', `no accepted sentence states "${clause.verb.text} ${clause.object.noun.text}"${refused === '' ? '' : ` for the ${refused}`}, so this refusal holds trivially`, clause.span);
       continue;
     }
     refusals.push({ name, sentence: sentence.id, text: sentence.text, event, object, over, guards: guardTrace });
@@ -728,7 +761,9 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
   }
 
   const ordered = [...models.values()].sort((left, right) => left.noun.localeCompare(right.noun));
+  actorModel.actors = [...actorNames].sort();
   return {
+    actor: actorModel,
     nouns: ordered,
     links,
     conditions: [...conditionVars.values()],
@@ -741,12 +776,12 @@ export function compileCanon(sentences: readonly AcceptedSentence[], lexicon: Ca
   };
 }
 
-function lastActor(block: Block, upTo: number): string {
-  let actor = '';
+function lastActor(block: Block, upTo: number): { actor: string; span?: Span } {
+  let found: { actor: string; span?: Span } = { actor: '' };
   for (let index = 0; index <= upTo; index += 1) {
-    for (const clause of block.branches[index]?.clauses ?? []) if (clause.actor !== null) actor = slug(clause.actor.text);
+    for (const clause of block.branches[index]?.clauses ?? []) if (clause.actor !== null) found = { actor: slug(clause.actor.text), span: clause.actor.span };
   }
-  return actor;
+  return found;
 }
 
 function renameIdents(text: string, rename: ReadonlyMap<string, string>): string {
