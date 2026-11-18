@@ -171,6 +171,33 @@ describe('canonical compiler', () => {
     assert.equal(sentenceOfName('ApproveOrder_s3_alt2'), 's3');
   });
 
+  test('the actor of a sentence is a guard on who takes the step', () => {
+    const { model } = compiled(ORDER);
+    assert.deepEqual(model.actor.actors, ['customer', 'manager', 'warehouse']);
+    const submit = model.actions.find((action) => action.name === 'SubmitOrder_s2')!;
+    assert.ok(submit.guards.some((guard) => guard.tla === `actor' = "customer"`));
+    const files = canonTlaFiles({ name: 'Order', session: 'order', model });
+    assert.match(files.blocks.tla, /^Actor == \{"customer", "manager", "warehouse"\}/m);
+    assert.match(files.blocks.tla, /actor \\in Actor \\cup \{Null\}/);
+    assert.match(files.blocks.tla, /\/\\ actor = Null/);
+    assert.match(files.blocks.tla, /\/\\ actor' = "manager"/);
+    assert.ok(!model.findings.some((finding) => finding.code === 'no-actor'));
+  });
+
+  test('the gate asks every step for an actor, so every action has one to guard on', () => {
+    const { result, model } = compiled(['The order starts as draft.', 'The customer submits the draft order as submitted.', 'Expire the submitted order as expired.', 'The order ends as expired.']);
+    assert.ok(result.sentences[2]!.diagnostics.some((diagnostic) => diagnostic.code === 'actor'));
+    assert.ok(model.actions.every((action) => action.guards.some((guard) => guard.tla.startsWith("actor' = "))));
+  });
+
+  test('a refusal covers the refused actor only', () => {
+    const { model } = compiled([...ORDER, 'The manager cannot cancel the order when the order is shipped.']);
+    const refusals = model.refusals.filter((refusal) => refusal.over.length > 0);
+    assert.equal(refusals.length, 1);
+    assert.deepEqual(refusals[0]!.over.map((item) => item.action), ['CancelOrder_s5']);
+    assert.ok(model.findings.some((finding) => finding.sentence === 's10'));
+  });
+
   test('a state no sentence sets is a finding', () => {
     const { model } = compiled([...ORDER, 'The warehouse returns the order as returned when the order is lost.']);
     assert.ok(model.findings.some((finding) => finding.code === 'state-never-set'));

@@ -62,6 +62,7 @@ function allVars(model: CanonModel): string[] {
   for (const noun of model.nouns) if (noun.statusVar !== undefined) vars.push(noun.statusVar);
   for (const link of model.links) vars.push(link.var);
   for (const condition of model.conditions) vars.push(condition.var);
+  vars.push(model.actor.var);
   return vars;
 }
 
@@ -83,10 +84,15 @@ function quantified(params: readonly Param[], body: string): string {
 function body(input: CanonTlaInput, lines: string[]): string[] {
   const { model } = input;
   const vars = allVars(model);
+  const actor = model.actor;
+  const anyone = `${actor.set} \\cup {${NULL}}`;
   lines.push('EXTENDS Naturals, FiniteSets');
   lines.push('');
   lines.push('\\* An object that is in no state yet, and a link that points nowhere.');
   lines.push(`${NULL} == "null"`);
+  lines.push('');
+  lines.push(`\\* Who can act. ${actor.var} holds who took the last step; it is ${NULL} at the start and after an environment step.`);
+  lines.push(`${actor.set} == ${setText(actor.actors)}`);
   lines.push('');
   for (const noun of model.nouns) {
     if (noun.instanceSet !== undefined) lines.push(`${noun.instanceSet} == ${setText(noun.instances)}`);
@@ -132,6 +138,8 @@ function body(input: CanonTlaInput, lines: string[]): string[] {
     typeLines.push(`${condition.var} \\in BOOLEAN`);
     initLines.push(`${condition.var} \\in BOOLEAN   \\* ${condition.kind} ${condition.noun}: the environment sets it`);
   }
+  typeLines.push(`${actor.var} \\in ${anyone}`);
+  initLines.push(`${actor.var} = ${NULL}   \\* nobody has acted yet`);
   lines.push('TypeOK ==');
   if (typeLines.length === 0) lines.push('  TRUE');
   for (const line of typeLines) lines.push(`  /\\ ${line}`);
@@ -145,9 +153,10 @@ function body(input: CanonTlaInput, lines: string[]): string[] {
     lines.push(`\\*   actor ${action.actor || 'unknown'}${action.notes.map((note) => `; ${note.tla}`).join('')}`);
     lines.push(`${call(action)} ==`);
     for (const guard of action.guards) lines.push(`  /\\ ${conjunct(guard.tla)}   \\* ${guard.from}: "${comment(guard.words)}"`);
+    if (action.actor === '') lines.push(`  /\\ ${actor.var}' \\in ${anyone}   \\* no actor is stated: anyone may take this step`);
     const changed = Object.keys(action.updates);
     for (const variable of changed) lines.push(`  /\\ ${variable}' = ${action.updates[variable] ?? variable}`);
-    const kept = vars.filter((variable) => !changed.includes(variable));
+    const kept = vars.filter((variable) => !changed.includes(variable) && variable !== actor.var);
     if (kept.length > 0) lines.push(`  /\\ ${unchanged(kept)}`);
     if (action.guards.length === 0 && changed.length === 0 && kept.length === 0) lines.push('  TRUE');
     lines.push('');
@@ -160,18 +169,18 @@ function body(input: CanonTlaInput, lines: string[]): string[] {
   const environment: string[] = [];
   for (const noun of model.nouns) {
     if (!noun.abstract || noun.fixed || noun.statusVar === undefined) continue;
-    const others = vars.filter((variable) => variable !== noun.statusVar);
+    const others = vars.filter((variable) => variable !== noun.statusVar && variable !== actor.var);
     const change = noun.instanceSet === undefined
       ? `${noun.statusVar}' \\in ${statesName(noun)}`
       : `\\E i \\in ${noun.instanceSet}, s \\in ${statesName(noun)} : ${noun.statusVar}' = [${noun.statusVar} EXCEPT ![i] = s]`;
-    environment.push(`(${change} /\\ ${unchanged(others)})`);
+    environment.push(`(${change} /\\ ${actor.var}' = ${NULL} /\\ ${unchanged(others)})`);
   }
   for (const condition of model.conditions) {
-    const others = vars.filter((variable) => variable !== condition.var);
-    environment.push(`(${condition.var}' = ~${condition.var} /\\ ${unchanged(others)})`);
+    const others = vars.filter((variable) => variable !== condition.var && variable !== actor.var);
+    environment.push(`(${condition.var}' = ~${condition.var} /\\ ${actor.var}' = ${NULL} /\\ ${unchanged(others)})`);
   }
   if (environment.length > 0) {
-    lines.push('\\* Conditions no sentence sets: the environment changes them, one at a time.');
+    lines.push('\\* Conditions no sentence sets: the environment changes them, one at a time. Nobody acts in such a step.');
     lines.push('Environment ==');
     for (const line of environment) lines.push(`  \\/ ${line}`);
     lines.push('');
@@ -214,7 +223,7 @@ function properties(input: CanonTlaInput, lines: string[]): { invariants: string
     const parts = refusal.over.map((item) => {
       const action = model.actions.find((candidate) => candidate.name === item.action);
       const head = action === undefined ? item.action : call(action);
-      const inner = `${head} => ~(${item.when})`;
+      const inner = `${item.as === undefined ? head : `(${head} /\\ ${model.actor.var}' = ${quote(item.as)})`} => ~(${item.when})`;
       return item.params.length === 0 ? inner : `\\A ${item.params.map((param) => `${param.name} \\in ${param.set}`).join(', ')} : ${inner}`;
     });
     lines.push(`${refusal.name} == [][${parts.map((part) => `(${part})`).join(' /\\ ')}]_vars`);
@@ -236,6 +245,7 @@ export function canonTlaFiles(input: CanonTlaInput): CanonTlaFiles {
   blocks.push(`  What the accepted sentences of Clew session "${comment(input.session)}" say, and nothing more.`);
   blocks.push('  One action per branch of each sentence: its clauses happen in one step.');
   blocks.push('  Each guard and effect names the sentence and the words it came from.');
+  blocks.push(`  Each action names who takes it (${input.model.actor.var}' = ...): that guard is the authorization the sentence states.`);
   blocks.push('*)');
   body(input, blocks);
   const checked = properties(input, blocks);

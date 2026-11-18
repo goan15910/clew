@@ -42,6 +42,8 @@ TLC comes from `--jar` or `TLA2TOOLS_JAR`, as for `clew spec canon tlc`. Picture
 | `focus` | variables that depend on each other, without what they only read | no |
 | `lifecycle` | one variable | usually no |
 
+A variable some action writes and none reads is an *observer* (the canonical blocks module's `actor` is one): it records the step taken and decides none. It is listed under `observers`, joins no independent part, and heads no candidate, so writing it in every action does not glue unrelated parts together (D87).
+
 A view is *exact* when nothing it keeps waits on a hidden variable: cutting the hidden variables out of the model gives precisely the model's behaviour on the kept ones. A *lossy* view hides a guard, so some of its steps are possible rather than certain.
 
 `--out deps.svg` draws the dependency map: one box per variable, grouped by independent part, with an arrow from `a` to `b` when an action that writes `b` reads `a`.
@@ -182,6 +184,8 @@ These continue the numbering of [workflows.md](workflows.md) (D38 to D56). Each 
 **D78. The explorer walks one path; it is not a second model checker.** It shows what TLC found: the current state, its next actions, the walk, and shortest paths from the start. A possible step can be taken in the page even though some of the full states behind the current one cannot take it, and the page says so on the action. Revisit by walking the full graph underneath a projection, so the page can say when a walk stops being realisable.
 
 **D79. The explorer refuses more than 400 states by default.** Past that a laid-out graph stops being readable and the layout takes seconds. The way to a large model is a projection.
+
+**D87. A written, never-read variable couples nothing.** "Written together" normally joins two variables into one part, because a view that keeps one must know when the other moves. A variable no guard reads cannot make any step wait, so the analysis leaves it out of the parts and the dependency map's coupling. Found when the compiled `actor` variable ([canon.md](canon.md), D84) merged every independent part of a canonical model into one. A view may still keep an observer by naming it in `--keep`.
 
 ### Aligned with the revised workflows (D88 to D91)
 

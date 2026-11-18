@@ -411,7 +411,7 @@ function exportFiles(
   if (!spec.ok) return spec;
   const inputs = workflowInputs(loaded.value.state, command.workflow);
   if (inputs.length === 0) return { ok: false, outcome: invalid(name, 'session', command.workflow === undefined ? 'the session has no workflow' : `no live workflow "${command.workflow}"`) };
-  // The monitor instances the blocks module and names its actions (Blocks!<action>): the blocks module on disk must
+  // The monitor instances the blocks module and labels its steps by Blocks!<action>: the blocks module on disk must
   // be the one the spec compiles to now. The monitor is compiled here and only its TLA+ text is written.
   const tla = canonTlaFiles({ name: command.name, session: loaded.value.session, model: spec.spec.model });
   const blocksPath = files.join(command.dir, `${tla.blocks.module}.tla`);
@@ -521,7 +521,7 @@ export function verifyWorkflows(
           step: blocked.number,
           sentence: blocked.sentence,
           text: blocked.text,
-          cites: check.sentences.find((sentence) => sentence.id === blocked.sentence)?.cites ?? [],
+          asks: [...blocked.guards, ...blocked.effects].map((item) => ({ words: item.words, tla: item.tla })),
           reached,
         };
         view.message = `not possible: the spec takes steps 1 to ${String(reached)} but never step ${String(blocked.number)} ("${blocked.text}") after them`;

@@ -72,8 +72,13 @@ export interface ProjectionAnalysis {
   variables: VariableAccess[];
   actions: ActionAccess[];
   couplings: Coupling[];
-  /** Variable groups no action couples: the model is their product. */
+  /** Variable groups no action couples: the model is their product. Observers are in none of them. */
   components: string[][];
+  /**
+   * Variables some action writes and none reads, such as who took the last step. They record the step taken and
+   * guard nothing, so writing one together with another variable does not couple that variable to anything.
+   */
+  observers: string[];
   candidates: ProjectionCandidate[];
   notes: string[];
 }
@@ -288,6 +293,9 @@ export function analyzeProjection(text: string, options: { next?: string } = {})
     dependsOn: sorted(dependsOn.get(name) ?? [], order),
     cone: cone(name),
   }));
+  // An observer is written and never read: it follows the steps and decides none of them.
+  const observers = order.filter((name) => (writers.get(name)?.length ?? 0) > 0 && (readers.get(name)?.length ?? 0) === 0 && order.length > 1);
+  const observed = new Set(observers);
   // Components: variables no action couples, by a read or by writing both.
   const parent = new Map(order.map((name) => [name, name]));
   const find = (name: string): string => {
@@ -295,9 +303,13 @@ export function analyzeProjection(text: string, options: { next?: string } = {})
     while (parent.get(root) !== root) root = parent.get(root) ?? root;
     return root;
   };
-  for (const coupling of pairs.values()) parent.set(find(coupling.a), find(coupling.b));
+  for (const coupling of pairs.values()) {
+    if (observed.has(coupling.a) || observed.has(coupling.b)) continue;
+    parent.set(find(coupling.a), find(coupling.b));
+  }
   const groups = new Map<string, string[]>();
   for (const name of order) {
+    if (observed.has(name)) continue;
     const root = find(name);
     groups.set(root, [...(groups.get(root) ?? []), name]);
   }
@@ -320,7 +332,7 @@ export function analyzeProjection(text: string, options: { next?: string } = {})
       add('component', component, (evaluation) => `No action reads or writes these together with any other variable, so the model is this part times the rest. ${plural(evaluation.actions.length, 'action', 'actions')} move it.`);
     }
   }
-  const cones = variables.map((variable) => variable.cone).sort((a, b) => a.length - b.length);
+  const cones = variables.filter((variable) => !observed.has(variable.name)).map((variable) => variable.cone).sort((a, b) => a.length - b.length);
   for (const keep of cones) {
     const component = components.find((group) => group.includes(keep[0] ?? '')) ?? [];
     if (keep.length >= component.length) continue;
@@ -328,7 +340,7 @@ export function analyzeProjection(text: string, options: { next?: string } = {})
     add('cone', keep, () => `Everything ${heads.join(', ')} ${heads.length === 1 ? 'depends' : 'depend'} on, and nothing else: no step of this view waits on a hidden variable.`);
   }
   for (const variable of variables) {
-    if (variable.cone.length === 1 || variable.writers.length === 0) continue;
+    if (variable.cone.length === 1 || variable.writers.length === 0 || observed.has(variable.name)) continue;
     // A focus view keeps the variables that depend on each other and hides what they only read.
     const knot = variables.filter((other) => other.cone.includes(variable.name) && variable.cone.includes(other.name)).map((other) => other.name);
     add('focus', knot, (evaluation) => `${knot.length === 1 ? 'The lifecycle of this variable alone' : 'These variables depend on each other, kept without what they only read'}. ${lossy(evaluation)}`);
@@ -338,6 +350,7 @@ export function analyzeProjection(text: string, options: { next?: string } = {})
     add('lifecycle', [variable.name], (evaluation) => `The lifecycle of ${variable.name} alone. ${lossy(evaluation)}`);
   }
   const notes = [...walk.notes];
+  if (observers.length > 0) notes.push(`no action reads ${observers.join(', ')}: ${observers.length === 1 ? 'it records' : 'they record'} the step taken and ${observers.length === 1 ? 'couples' : 'couple'} no variables, so ${observers.length === 1 ? 'it is' : 'they are'} left out of the independent parts`);
   const unwritten = variables.filter((variable) => variable.writers.length === 0).map((variable) => variable.name);
   if (unwritten.length > 0) notes.push(`no action writes ${unwritten.join(', ')}: ${unwritten.length === 1 ? 'it keeps its' : 'they keep their'} first value`);
   return {
@@ -348,6 +361,7 @@ export function analyzeProjection(text: string, options: { next?: string } = {})
       actions,
       couplings: [...pairs.values()].sort((a, b) => b.together + b.aGuardsB + b.bGuardsA - (a.together + a.aGuardsB + a.bGuardsA)),
       components,
+      observers,
       candidates,
       notes,
     },
@@ -687,7 +701,10 @@ export function dependencyDot(analysis: ProjectionAnalysis, keep: readonly strin
     }
     lines.push('  }');
   });
+  const observed = new Set(analysis.observers);
   for (const coupling of analysis.couplings) {
+    // An observer follows every step: its arrows would cover the map and say nothing.
+    if (observed.has(coupling.a) || observed.has(coupling.b)) continue;
     if (coupling.aGuardsB > 0) lines.push(`  "${coupling.a}" -> "${coupling.b}" [label="${coupling.aGuardsB}"];`);
     if (coupling.bGuardsA > 0) lines.push(`  "${coupling.b}" -> "${coupling.a}" [label="${coupling.bGuardsA}"];`);
     if (coupling.aGuardsB === 0 && coupling.bGuardsA === 0 && coupling.together > 0) lines.push(`  "${coupling.a}" -> "${coupling.b}" [dir=none, style=dotted, label="${coupling.together}"];`);

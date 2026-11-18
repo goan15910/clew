@@ -61,7 +61,8 @@ A dangling sentence gets a draft rewrite: the retired wording first (`if`/`once`
 * A noun no sentence changes and no mark starts is an *abstract condition*: the `Environment` action changes it, one step at a time, unless the lexicon fixes it. `on`/`after` events are free booleans set the same way.
 * `with`/`to` slots are links: a variable from the object to the target's instances. `the same` and `no` compare links.
 * A counted noun (`each`, `some`, `one`, `no`, or `for each`) has two instances; every other noun has one. The lexicon overrides that.
-* A refusal compiles to an action property `[][Act => ~(guard)]_vars` over the actions with the same verb and object.
+* The actor is a guard. The variable `actor` records who took the last step (`Null` at the start and after an `Environment` step), and every action has `actor' = "<its actor>"`. This is the authorization: the step exists for that actor only, so "the manager reviews the order" and "the customer reviews the order" are different steps, and a property or a workflow can say who acted.
+* A refusal compiles to an action property `[][Act => ~(guard)]_vars` over the actions with the same verb and object that the refused actor takes.
 * `ends as` marks define `Done`. `NoStuck == (~ENABLED Actions) => Done` replaces TLC's deadlock check (`CHECK_DEADLOCK FALSE`), so a finished object is not a deadlock and a stuck one is.
 * Each action is named after its sentence (`ReviewOrder_s3_2` is branch 2 of `s3`), so `spec canon tlc` maps a violation, each trace step, and each coverage line back to a sentence.
 
@@ -69,7 +70,7 @@ A dangling sentence gets a draft rewrite: the retired wording first (`if`/`once`
 
 The condition compiler is shared with the workflow monitors of [workflows.md](workflows.md) (`conditionExpressions`), so a condition means the same in a spec sentence and in a workflow step.
 
-Compiler findings: `abstract-condition`, `unscoped-condition`, `owner-unknown`, `scope-not-compiled`, `copy-source`, `same-on-single`, `refusal-unmatched`, `many-starts`, `final-has-exit`, `no-source-state`, `state-never-set`, `no-final-states`, `same-step-two-results`, `no-states`.
+Compiler findings: `abstract-condition`, `unscoped-condition`, `owner-unknown`, `scope-not-compiled`, `copy-source`, `same-on-single`, `refusal-unmatched`, `many-starts`, `final-has-exit`, `no-source-state`, `state-never-set`, `no-final-states`, `same-step-two-results`, `no-states`, `no-actor`.
 
 ## Decisions
 
@@ -119,11 +120,17 @@ Each decision below was taken while building the prototype. The proposal or the 
 
 **D22. A step that sets an object without reading its state raises `no-source-state`.** Raised in review: "reviews the order as rejected when the total is large" compiled to an action guarded only by the total, so it could fire from any state, final ones included, and TLC still passed. The sentence is legal, so it is a warning, not a gate rule; the finding tells the author to name the source state.
 
+**D84. The actor is compiled, as a guard on a history variable.** (The numbering continues from [workflows.md](workflows.md), D80 to D83.) Each action carries `actor' = "<actor>"` and the blocks module declares `Actor` and `actor \in Actor \cup {Null}`. Rationale: the actor of a sentence is who is allowed to do the step, and a model that drops it cannot tell an authorized step from an unauthorized one. The action's name (verb and object) stays a label for people. The form is "who took this step" (primed), not "who is asking" (a pre-state variable the environment sets): with the pre-state form, `ENABLED` of every action would depend on who is asking, and `NoStuck` would report a deadlock whenever the wrong actor was at the door. Costs: the reachable states multiply by up to the number of actors plus one, and a blocks module from before this change is stale.
+
+**D85. A refusal is about its actor.** "The customer cannot cancel the order when shipped" now ranges over the cancel actions the customer takes, not over every cancel action. A refusal for an actor no matching action has is `refusal-unmatched`, as before.
+
+**D86. An action with no actor lets anyone take it** (`actor' \in Actor \cup {Null}`, finding `no-actor`, info). The gate already asks every block for a declared actor, so this is reached only by a caller that compiles statements it did not gate.
+
 ## Known limits
 
 * **The model's own dead ends are not checked.** `NoStuck` is an invariant of the blocks module. The check config proves that the model refines the blocks, which does not prove that the model can always take a next step: a model that drops an action still refines. Coverage (`Cover_X: 0`) shows a dropped action, but nothing fails.
 * **`accept` and `merge` are several writes with no rollback.** The sentence edit and `canon.json` are written one after the other, and `canon.json` has no lock of its own. A failure between them leaves the sentence changed and the canon history one entry short.
 * **Diagnostics are not stored.** They are recomputed by every command. Only the notes of an accepted draft are kept, in the sentence history and `canon.json`.
-* **`check` exits 1 only for dangling sentences.** No compiler finding is blocking yet, so warnings such as `no-source-state`, `unscoped-condition`, and `scope-not-compiled` do not fail it.
+* **`check` exits 1 only for dangling sentences.** No compiler finding is blocking yet, so warnings such as `no-source-state`, `no-actor`, `unscoped-condition`, and `scope-not-compiled` do not fail it.
 * **CI does not run TLC.** The TLC step of the end-to-end test runs only when `TLA2TOOLS_JAR` is set.
 * **Layering to tidy.** The canon store, lexicon source, and TLC runner ports live in `application/canon.ts` rather than `ports.ts`; `readTlcOutput` knows TLC's output format in the application layer; and the retired words are listed in the gate, the rules, and the parser adapter.

@@ -111,6 +111,16 @@ describe('projection analysis', () => {
     assert.ok(kinds.includes('lifecycle:order_status:false'));
   });
 
+  test('a variable every step writes and none reads does not join independent parts', () => {
+    const text = FULFIL.replace(/^VARIABLES? /m, (head) => `${head}who, `);
+    const withWho = text.replace(/^(\s*\/\\ )UNCHANGED /gm, `$1who' = "someone"\n$1UNCHANGED `);
+    const result = analyzeProjection(withWho);
+    if (!result.ok) return assert.fail(result.message);
+    assert.deepEqual(result.analysis.observers, ['who']);
+    assert.deepEqual(result.analysis.components, analysis().components);
+    assert.ok(result.analysis.notes.some((note) => note.includes('who')));
+  });
+
   test('a keep set says which actions wait on hidden variables', () => {
     const result = analysis();
     const kept = evaluateKeep(result, ['order_status', 'payment_status']);

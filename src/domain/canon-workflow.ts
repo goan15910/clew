@@ -8,21 +8,21 @@
 //   concepts    shared (lexicon, nouns, states, actors, events)
 //   sentences   s1, s2, ...                   w1.s1, w1.s2, ...  (own namespace per workflow)
 //   clauses     <sentence>/b1/c1              <step>/b1/c1
-//   frames      ReviewOrder_s3_1 (actions)    W1_Step2_ReviewOrder_s3_1 (step frames)
-//   may cite    its own                       its own, and the spec's
+//   frames      ReviewOrder_s3_1 (actions)    W1_Step2 (the step's own formula)
 //
-// References go one way. A step cites the spec actions (frames) it matches, the spec sentences they came from,
-// and the shared concepts it names. Nothing here is read by the spec's gate or compiler: a workflow cannot add a
-// concept, a state, or a step to the spec. A step that needs one the spec lacks raises a finding instead.
+// A workflow is a probe. A step states only what it observes: who acts, the conditions before the step, and the
+// state its object ends in. It compiles to a formula of its own over the spec's variables, and says nothing about
+// the rest. Clew does not match a step to a spec action: TLC decides whether the model can take such a step.
+// Nothing here is read by the spec's gate or compiler: a workflow cannot add a concept or a state to the spec.
 //
 // A workflow sentence is stored as its text and its parse (ParsedSentence): the deepest layer that names nothing
-// of the spec. Everything below the parse (the gate's rules, the concepts, the citations, the monitor) is computed
-// here on every run and never saved, because the spec it reads can change between versions.
+// of the spec. Everything below the parse (the gate's rules, the concepts, the monitor) is computed here on every
+// run and never saved, because the spec it reads can change between versions.
 //
-// Each workflow compiles to a scenario monitor: a step counter that advances only on the named spec actions. The
-// monitor declares the blocks module's variables itself and maps them one to one (Blocks == INSTANCE <Name>Blocks
-// WITH v <- v), so it reads them directly. TLC returns a witness for a possible workflow, or shows a refused
-// workflow going through.
+// Each workflow compiles to a scenario monitor: a step counter that advances when a step of the spec satisfies
+// the step's formula. The monitor declares the blocks module's variables itself and maps them one to one
+// (Blocks == INSTANCE <Name>Blocks WITH v <- v), so it reads them directly. TLC returns a witness for a possible
+// workflow, or shows a refused workflow going through.
 import {
   condPreds,
   nounOf,
@@ -44,12 +44,12 @@ import {
   conditionExpressions,
   ident,
   type AcceptedSentence,
-  type ActionModel,
   type CanonModel,
   type CondContext,
   type ConditionExpressions,
   type LinkModel,
   type NounModel,
+  NULL,
 } from './canon-compile.js';
 import { draftRewrite, type DraftRewrite, type GateContext, type GateResult, type ParseSentence } from './canon-gate.js';
 import type { FindingSeverity } from './spec.js';
@@ -119,6 +119,7 @@ export function blocksVariables(model: CanonModel): string[] {
   for (const noun of model.nouns) if (noun.statusVar !== undefined) vars.push(noun.statusVar);
   for (const link of model.links) vars.push(link.var);
   for (const condition of model.conditions) vars.push(condition.var);
+  vars.push(model.actor.var);
   return vars;
 }
 
@@ -134,14 +135,6 @@ export interface WorkflowFinding {
   words?: string;
 }
 
-/** A spec frame a step cites: the action, the spec sentence it came from, and that action's guards. */
-export interface StepCitation {
-  action: string;
-  sentence: string;
-  branch: number;
-  guards: string[];
-}
-
 export interface WorkflowSentenceView {
   id: string;
   text: string;
@@ -154,8 +147,6 @@ export interface WorkflowSentenceView {
   draft?: DraftRewrite;
   /** The shared concepts the sentence names: `actor:customer`, `noun:order`, `state:order/approved`, `event:REVIEW/order`. */
   concepts: string[];
-  /** The spec frames the step matches. Empty for a mark or a step that matches none. */
-  cites: StepCitation[];
 }
 
 export interface WorkflowCheck {
@@ -175,10 +166,10 @@ export interface MonitorStep {
   number: number;
   sentence: string;
   text: string;
-  /** One alternative per matched spec action: `Blocks!ReviewOrder_s3_1(wf_order)`, with its bound variables. */
-  alternatives: { action: string; sentence: string; call: string }[];
-  /** Conditions the step adds over the action's guards, read in the state before the step. */
+  /** What the step says of the state before it: its object's state, owner states, events, and conditions. */
   guards: { tla: string; words: string }[];
+  /** What the step says of the step itself: who takes it, and the state each object ends in. Read after `Next`. */
+  effects: { tla: string; words: string }[];
 }
 
 export interface WorkflowMonitor {
@@ -189,7 +180,7 @@ export interface WorkflowMonitor {
   ends: { tla: string; words: string; sentence: string }[];
   /** The workflow's instance variables: one per noun with instances that the workflow names without a quantifier. */
   bound: { variable: string; noun: string; set: string }[];
-  /** Loose mode: every spec action, so a step between the workflow's steps names its action in a TLC trace. */
+  /** Every spec action, so each step of a TLC trace names the spec action the model took. */
   others: { action: string; sentence: string; call: string }[];
 }
 
@@ -339,7 +330,7 @@ function stepPreds(block: Block): { pred: Pred; words: Span }[] {
   return out;
 }
 
-/** Gate, align, and match every workflow against the spec. The spec is read, never written. */
+/** Gate every workflow and align its concepts with the spec. The spec is read, never written. */
 export function checkWorkflows(spec: WorkflowSpec, workflows: readonly WorkflowInput[], parse: ParseSentence): WorkflowCheck[] {
   const { lexicon, model } = spec;
   const known = new Set(spec.gate.known);
@@ -389,7 +380,7 @@ export function checkWorkflows(spec: WorkflowSpec, workflows: readonly WorkflowI
         }
       }
       const role: WorkflowSentenceView['role'] = statement?.kind === 'mark' ? (statement.mark === 'starts' ? 'start' : 'end') : 'step';
-      const view: WorkflowSentenceView = { id: input.id, text: input.text, role, status: statement === null ? 'dangling' : 'accepted', diagnostics, concepts: [], cites: [] };
+      const view: WorkflowSentenceView = { id: input.id, text: input.text, role, status: statement === null ? 'dangling' : 'accepted', diagnostics, concepts: [] };
       if (role === 'step') {
         stepNumber += 1;
         view.step = stepNumber;
@@ -516,30 +507,6 @@ export function checkWorkflows(spec: WorkflowSpec, workflows: readonly WorkflowI
       }
     }
 
-    // ---- Match each step to the spec actions it names: the frames it cites. ----
-    for (const { view, sentence } of accepted) {
-      const statement = sentence.statement;
-      if (statement.kind !== 'block') continue;
-      const branch = statement.branches[0];
-      const first = branch?.clauses[0];
-      if (branch === undefined || first === undefined) continue;
-      const event = verbOf(first.verb.text);
-      const object = nounOf(first.object, lexicon);
-      const actor = actorOf(statement, first);
-      const wanted = branch.clauses.filter((clause) => clause.result !== null).map((clause) => ({ noun: nounOf(clause.object, lexicon), state: slug(clause.result?.state.text ?? '') }));
-      const sameEvent = model.actions.filter((action) => action.event === event && action.object === object);
-      const matched = sameEvent.filter((action) => (actor === '' || action.actor === '' || action.actor === actor) && wanted.every((want) => action.results.some((result) => result.noun === want.noun && result.state === want.state)));
-      if (matched.length === 0) {
-        const near = sameEvent.length === 0
-          ? 'no spec sentence states that step at all'
-          : `the spec states "${first.verb.text} ${first.object.noun.text}" as ${sameEvent.map((action) => `${action.name} (${action.actor || 'no actor'}${action.results.length > 0 ? `, as ${action.results.map((result) => result.state).join(' and ')}` : ''})`).join(', ')}`;
-        find('step-unmatched', 'blocking', `no spec action matches step ${view.step ?? ''}: ${near}. A workflow cannot add a step to the spec; add or fix the spec sentence, or the step`, sentence, first.span);
-        continue;
-      }
-      if (matched.length > 1) find('step-ambiguous', 'info', `step ${view.step ?? ''} matches ${matched.map((action) => action.name).join(', ')}; the monitor takes any of them`, sentence, first.span);
-      view.cites = matched.map((action) => ({ action: action.name, sentence: action.sentence, branch: action.branch, guards: action.guards.map((guard) => guard.tla) }));
-    }
-
     const blocked = findings.some((finding) => finding.severity === 'blocking');
     const check: WorkflowCheck = { id: workflow.id, title: workflow.title, expect: workflow.expect, mode: workflow.mode, sentences: views, findings, ready: !blocked };
     if (!blocked) check.monitor = buildMonitor(prefix, accepted, [...unquantified].sort(), spec, models, links, find);
@@ -569,9 +536,19 @@ function buildMonitor(
     quantPrefix: 'wfq_',
     warn: (ctx, code, message, span) => find(code, 'warning', message, ctx.sentence, span),
   });
+  // The same expressions read in the state after the step: `order_status'`.
+  const next: ConditionExpressions = conditionExpressions({
+    models,
+    links,
+    ownership: model.ownership,
+    lexicon,
+    variable: (name) => `${name}'`,
+    definition: (name) => `Blocks!${name}`,
+    quantPrefix: 'wfn_',
+    warn: () => undefined,
+  });
   const ctxOf = (sentence: AcceptedSentence, primary: string): CondContext => ({ sentence, bindings: new Map(bindings), params: [], primary, findings: [] });
   const say = (sentence: AcceptedSentence, span: Span): string => sentence.text.slice(span[0], span[1]);
-  const actionsByName = new Map<string, ActionModel>(model.actions.map((action) => [action.name, action]));
   const steps: MonitorStep[] = [];
   const starts: WorkflowMonitor['starts'] = [];
   const ends: WorkflowMonitor['ends'] = [];
@@ -587,7 +564,6 @@ function buildMonitor(
     const branch = statement.branches[0];
     const first = branch?.clauses[0];
     if (branch === undefined || first === undefined) continue;
-    const named = new Set(refsOf(statement).filter(({ ref, position }) => position !== 'event' && !QUANTS.has(quantifier(ref))).map(({ ref }) => nounOf(ref, lexicon)));
     const ctx = ctxOf(sentence, nounOf(first.object, lexicon));
     const guards: MonitorStep['guards'] = [];
     for (const { pred, words } of stepPreds(statement)) guards.push({ tla: expr.predTla(pred, ctx, 'object state'), words: say(sentence, words) });
@@ -600,22 +576,40 @@ function buildMonitor(
       }
     }
     if (branch.guard !== null) guards.push({ tla: expr.condTla(branch.guard, ctx, 'condition'), words: say(sentence, [branch.guard.type === 'pred' ? branch.guard.pred.span[0] : branch.guard.span[0], branch.span[1]]) });
-    const alternatives: MonitorStep['alternatives'] = [];
-    for (const cite of view.cites) {
-      const action = actionsByName.get(cite.action);
-      if (action === undefined) continue;
-      const free: string[] = [];
-      const args = action.params.map((param) => {
-        const variable = bindings.get(param.noun);
-        if (variable !== undefined && named.has(param.noun) && !param.name.endsWith('_src')) return variable;
-        const name = `wfx_${param.name}`;
-        free.push(`${name} \\in ${param.set === 'BOOLEAN' ? 'BOOLEAN' : `Blocks!${param.set}`}`);
-        return name;
-      });
-      const head = `Blocks!${action.name}${args.length === 0 ? '' : `(${args.join(', ')})`}`;
-      alternatives.push({ action: action.name, sentence: action.sentence, call: free.length === 0 ? head : `\\E ${free.join(', ')} : ${head}` });
+    // The step itself: who takes it, and where each object ends. A result is a change: the object was not in that
+    // state before the step, so a step that leaves it there does not count as taking it.
+    const effects: MonitorStep['effects'] = [];
+    const actorClause = branch.clauses.find((clause) => clause.actor !== null);
+    if (actorClause?.actor != null) {
+      effects.push({ tla: `${model.actor.var}' = ${JSON.stringify(slug(actorClause.actor.text))}`, words: say(sentence, actorClause.actor.span) });
     }
-    steps.push({ number: view.step ?? steps.length + 1, sentence: sentence.id, text: sentence.text, alternatives, guards });
+    let each = 0;
+    for (const clause of branch.clauses) {
+      if (clause.result === null) continue;
+      const id = nounOf(clause.object, lexicon);
+      const noun = models.get(id);
+      if (noun?.statusVar === undefined) continue;
+      const state = [slug(clause.result.state.text)];
+      const words = say(sentence, [clause.object.span[0], clause.result.span[1]]);
+      const qual = quantifier(clause.object);
+      const self = bindings.get(id);
+      if (noun.instanceSet === undefined || (self !== undefined && !QUANTS.has(qual))) {
+        const instance = noun.instanceSet === undefined ? undefined : self;
+        effects.push({ tla: `${expr.test(expr.status(id, instance), state, true)} /\\ ${next.test(next.status(id, instance), state, false)}`, words });
+        continue;
+      }
+      // A counted object: each of them ends there, or some instance does.
+      each += 1;
+      const variable = `wfe_${ident(id)}${each}`;
+      const set = `Blocks!${noun.instanceSet}`;
+      const from = clause.object.state === null ? undefined : expr.test(expr.status(id, variable), [slug(clause.object.state.text)], false);
+      if (qual === 'each') {
+        effects.push({ tla: `\\A ${variable} \\in ${set} : ${from === undefined ? `${expr.status(id, variable)} # Blocks!${NULL}` : from} => ${next.test(next.status(id, variable), state, false)}`, words });
+      } else {
+        effects.push({ tla: `\\E ${variable} \\in ${set} : ${from === undefined ? '' : `${from} /\\ `}${expr.test(expr.status(id, variable), state, true)} /\\ ${next.test(next.status(id, variable), state, false)}`, words });
+      }
+    }
+    steps.push({ number: view.step ?? steps.length + 1, sentence: sentence.id, text: sentence.text, guards, effects });
   }
   const others = model.actions.map((action) => {
     const free = action.params.map((param) => `wfx_${param.name} \\in ${param.set === 'BOOLEAN' ? 'BOOLEAN' : `Blocks!${param.set}`}`);
@@ -661,7 +655,7 @@ export function workflowConfig(module: string, prefix: string, invariant: string
   ].join('\n');
 }
 
-/** The scenario monitors of every ready workflow, as one module that extends the agent's model. */
+/** The scenario monitors of every ready workflow, as one module that instances the blocks module. */
 export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles {
   const module = `${input.name}Workflows`;
   const ready = input.workflows.filter((workflow): workflow is WorkflowCheck & { monitor: WorkflowMonitor } => workflow.monitor !== undefined);
@@ -678,11 +672,13 @@ export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles 
   lines.push('');
   lines.push(`  Scenario monitors for the workflows of Clew session "${comment(input.session)}", run on the spec's`);
   lines.push(`  blocks module ${input.name}Blocks. This module declares the blocks module's variables itself and maps`);
-  lines.push('  each to itself (Blocks == INSTANCE ... WITH v <- v), so a step\'s conditions read them directly.');
-  lines.push('  wf_pc counts the steps a behaviour has taken. A step advances it only when the spec takes the action');
-  lines.push('  the step names (Blocks!<action>), under the step\'s own conditions. Steps that are no spec action');
-  lines.push('  (the environment) may happen between steps; another spec action may not, unless the workflow is');
-  lines.push('  loose. A noun the workflow names without a quantifier is one instance (wf_<noun>) throughout.');
+  lines.push('  each to itself (Blocks == INSTANCE ... WITH v <- v), so a step reads them directly.');
+  lines.push('  wf_pc counts the steps a behaviour has taken. A step advances it when a step of the spec is what');
+  lines.push('  the workflow step says: its conditions hold before (<W>_Step<k>_Pre), and after it the named actor');
+  lines.push('  has acted and the object is in its new state (<W>_Step<k>_Post). The step says nothing about other');
+  lines.push('  variables. Each <W>_Step<k>_<action> names the spec action taken, so a trace reads back to a');
+  lines.push('  sentence; no step is tied to an action beforehand.');
+  lines.push('  A noun the workflow names without a quantifier is one instance (wf_<noun>) throughout.');
   lines.push('');
   lines.push('  <W>_NotDone is violated when the workflow completes: for a possible workflow that is the witness,');
   lines.push('  for a refused one it is the path that should not exist.');
@@ -722,19 +718,23 @@ export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles 
     lines.push('');
     const stepNames: string[] = [];
     monitor.steps.forEach((step, index) => {
-      step.alternatives.forEach((alternative) => {
-        const name = `${p}_Step${step.number}_${alternative.action}`;
+      const base = `${p}_Step${step.number}`;
+      lines.push(`\\* ${step.sentence} step ${step.number}: "${comment(step.text)}"`);
+      lines.push(`${base}_Pre ==`);
+      lines.push(`  /\\ wf_pc = ${index}`);
+      for (const guard of step.guards) lines.push(`  /\\ ${wrap(guard.tla)}   \\* "${comment(guard.words)}"`);
+      lines.push(`${base}_Post ==`);
+      for (const effect of step.effects) lines.push(`  /\\ ${wrap(effect.tla)}   \\* "${comment(effect.words)}"`);
+      lines.push(`  /\\ wf_pc' = ${index + 1}`);
+      if (extra.length > 0) lines.push(`  /\\ ${keep(extra)}`);
+      for (const other of monitor.others) {
+        const name = `${base}_${other.action}`;
         stepNames.push(name);
-        lines.push(`\\* ${step.sentence} step ${step.number} cites ${alternative.sentence} (${alternative.action}): "${comment(step.text)}"`);
-        lines.push(`${name} ==`);
-        lines.push(`  /\\ wf_pc = ${index}`);
-        for (const guard of step.guards) lines.push(`  /\\ ${wrap(guard.tla)}   \\* "${comment(guard.words)}"`);
-        lines.push('  /\\ Blocks!Next');
-        lines.push(`  /\\ ${wrap(alternative.call)}`);
-        lines.push(`  /\\ wf_pc' = ${index + 1}`);
-        if (extra.length > 0) lines.push(`  /\\ ${keep(extra)}`);
-        lines.push('');
-      });
+        lines.push(`${name} == ${base}_Pre /\\ Blocks!Next /\\ ${wrap(other.call)} /\\ ${base}_Post`);
+      }
+      stepNames.push(`${base}_${UNSTATED}`);
+      lines.push(`${base}_${UNSTATED} == ${base}_Pre /\\ Blocks!Next /\\ ~Blocks!Actions /\\ ${base}_Post   \\* a step of the spec that is no spec action`);
+      lines.push('');
     });
     const total = monitor.steps.length;
     const otherNames: string[] = [];
@@ -746,7 +746,7 @@ export function workflowModule(input: WorkflowModuleInput): WorkflowModuleFiles 
         lines.push(`${name} == Blocks!Next /\\ ${wrap(other.call)} /\\ ${keep(wfVars)}`);
       }
     } else {
-      lines.push('\\* exact: no spec action happens but the steps, in order.');
+      lines.push('\\* exact: every spec action the model takes is the next step of the workflow.');
     }
     lines.push('\\* A step of the spec that is no spec action: the environment.');
     lines.push(`${p}_Env == Blocks!Next /\\ ~Blocks!Actions /\\ ${keep(wfVars)}`);
@@ -784,11 +784,19 @@ function wrap(text: string): string {
   return text;
 }
 
-/** `W1_Step2_ReviewOrder_s3_1` → workflow `w1`, step 2, spec action `ReviewOrder_s3_1`. */
-export function stepOfName(name: string): { workflow: string; step: number; action: string } | undefined {
+/** The suffix of a workflow step that the model takes with no spec action. */
+const UNSTATED = 'Unstated';
+
+/**
+ * `W1_Step2_ReviewOrder_s3_1` → workflow `w1`, step 2, taken by spec action `ReviewOrder_s3_1`. The action is
+ * what the model did in the trace, not something the step named. `W1_Step2_Unstated` has no action.
+ */
+export function stepOfName(name: string): { workflow: string; step: number; action?: string } | undefined {
   const match = /^W([1-9][0-9]*)_Step([1-9][0-9]*)_(.+)$/.exec(name);
   if (match === null) return undefined;
-  return { workflow: `w${match[1] ?? ''}`, step: Number(match[2]), action: match[3] ?? '' };
+  const found: { workflow: string; step: number; action?: string } = { workflow: `w${match[1] ?? ''}`, step: Number(match[2]) };
+  if (match[3] !== undefined && match[3] !== UNSTATED) found.action = match[3];
+  return found;
 }
 
 /** A workflow heading: "Happy path (possible)", "Approve first (refused, exact)". */
