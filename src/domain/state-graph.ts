@@ -430,3 +430,62 @@ export function shortestPath(view: GraphView, goal: (state: ViewState) => boolea
   }
   return undefined;
 }
+
+export interface ExplorerState {
+  id: string;
+  /** Lines of the node label. */
+  label: string[];
+  /** Variable → short value. */
+  values: Record<string, string>;
+  initial: boolean;
+  terminal: boolean;
+  members: number;
+}
+
+export interface ExplorerEdge {
+  id: string;
+  from: string;
+  to: string;
+  action: string;
+  certain: boolean;
+  /** Possible from `sources` of the `of` states behind its source. */
+  sources: number;
+  of: number;
+}
+
+/** Everything the interactive explorer needs, as plain data: the page holds it and nothing else. */
+export interface ExplorerPayload {
+  title: string;
+  variables: string[];
+  states: ExplorerState[];
+  edges: ExplorerEdge[];
+  /** What each action says: the comment above its definition, when a module was given. */
+  actions: Record<string, string>;
+  /** Edge ids of the path to show first. */
+  path: string[];
+  fullStates: number;
+  fullEdges: number;
+  exactness: number;
+}
+
+export function explorerPayload(view: GraphView, options: { title: string; path?: readonly string[]; actions?: Readonly<Record<string, string>> }): ExplorerPayload {
+  const members = new Map(view.states.map((state) => [state.id, state.members]));
+  const used = new Set(view.edges.map((edge) => edge.action));
+  const actions: Record<string, string> = {};
+  for (const [name, text] of Object.entries(options.actions ?? {})) if (used.has(name)) actions[name] = text;
+  return {
+    title: options.title,
+    variables: view.variables,
+    states: view.states.map((state) => {
+      const values: Record<string, string> = {};
+      for (const name of view.variables) values[name] = shortValue(state.values[name] ?? '');
+      return { id: state.id, label: stateLabel(view, state), values, initial: state.initial, terminal: state.terminal, members: state.members };
+    }),
+    edges: view.edges.map((edge) => ({ id: `${edge.from}|${edge.action}|${edge.to}`, from: edge.from, to: edge.to, action: edge.action, certain: edge.certain, sources: edge.sources, of: members.get(edge.from) ?? 0 })),
+    actions,
+    path: [...(options.path ?? [])],
+    fullStates: view.fullStates,
+    fullEdges: view.fullEdges,
+    exactness: view.exactness,
+  };
+}
