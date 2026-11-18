@@ -318,7 +318,7 @@ export function checkProjection(command: CheckCommand, ports: ProjectionPorts): 
     const wrote = ports.projections.write(record.session, record.state);
     if (!wrote.ok) return invalid(name, 'unreadable', wrote.message);
     document.session = record.session;
-    document.projections = [recordView(record.entry)];
+    document.projections = [recordView(record.entry, ports)];
   }
   return { exit: tlc.status === 'pass' ? 'pass' : tlc.status === 'error' ? 'invalid' : 'fail', document };
 }
@@ -420,10 +420,21 @@ export function renderProjection(command: RenderCommand, ports: ProjectionPorts)
   return { exit: 'pass', document };
 }
 
-function recordView(record: ProjectionRecord): ProjectionRecordView {
+/**
+ * The record as a document shows it. Whether the stored check still describes the files is worked out here, on every
+ * read, and never stored: the check is current while the view and the model hash to what TLC was given.
+ */
+function recordView(record: ProjectionRecord, ports: ProjectionPorts): ProjectionRecordView {
   const view: ProjectionRecordView = { name: record.name, keep: record.keep, status: record.status, history: record.history };
   if (record.candidate !== undefined) view.candidate = record.candidate;
-  if (record.check !== undefined) view.check = record.check;
+  if (record.check !== undefined) {
+    const { check } = record;
+    const same = (file: string, hash: string): boolean => {
+      const read = ports.files.read(file);
+      return read.ok && ports.files.hash(read.text) === hash;
+    };
+    view.check = { ...check, current: same(check.view, check.viewHash) && same(check.model, check.modelHash) };
+  }
   return view;
 }
 
@@ -473,7 +484,7 @@ export function proposeProjection(command: ProposeCommand, ports: ProjectionPort
   entry.history.push({ at, who: command.by ?? DEFAULT_AUTHOR, reason: command.reason, action: 'propose', keep: command.keep });
   const wrote = ports.projections.write(loaded.session, loaded.state);
   if (!wrote.ok) return invalid(name, 'unreadable', wrote.message);
-  return { exit: 'pass', document: { command: name, ok: true, session: loaded.session, projections: [recordView(entry)], findings: [], issues: [] } };
+  return { exit: 'pass', document: { command: name, ok: true, session: loaded.session, projections: [recordView(entry, ports)], findings: [], issues: [] } };
 }
 
 export interface FinalizeCommand {
@@ -514,7 +525,7 @@ export function finalizeProjection(command: FinalizeCommand, ports: ProjectionPo
   }
   const wrote = ports.projections.write(found.session, found.state);
   if (!wrote.ok) return invalid(name, 'unreadable', wrote.message);
-  return { exit: 'pass', document: { command: name, ok: true, session: found.session, projections: [recordView(entry)], findings: [], issues: [] } };
+  return { exit: 'pass', document: { command: name, ok: true, session: found.session, projections: [recordView(entry, ports)], findings: [], issues: [] } };
 }
 
 /** Read-only: every projection of the session, with its history. */
@@ -522,7 +533,7 @@ export function listProjections(command: { sessionId?: string }, ports: Projecti
   const name: Doc['command'] = 'spec.projection.list';
   const loaded = loadState(name, command.sessionId, ports);
   if (!loaded.ok) return loaded.outcome;
-  return { exit: 'pass', document: { command: name, ok: true, session: loaded.session, projections: loaded.state.projections.map(recordView), findings: [], issues: [] } };
+  return { exit: 'pass', document: { command: name, ok: true, session: loaded.session, projections: loaded.state.projections.map((record) => recordView(record, ports)), findings: [], issues: [] } };
 }
 
 export type { ProjectionAnalysis };

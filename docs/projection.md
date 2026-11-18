@@ -100,7 +100,7 @@ There are two ways to a picture, and they answer different questions. `render <V
 
 ## The record
 
-`propose`, `check --name`, and `finalize` keep `projections.json` beside the session's sentences: each projection's name, kept variables, the candidate it came from, the last check (result, files, and their hashes), and a history of who did what and why. `finalize` refuses a view with no passing check, and a view or model edited since the check. `finalize --drop` records that a projection was given up. A milestone freezes the file with the others.
+`propose`, `check --name`, and `finalize` keep `projections.json` beside the session's sentences: each projection's name, kept variables, the candidate it came from, the last check (result, files, and their hashes), and a history of who did what and why. `finalize` refuses a view with no passing check, and a view or model edited since the check. `finalize --drop` records that a projection was given up. `list` says of each stored check whether the view and the model are still the files TLC checked (`current`); that is worked out on every read and never stored. A milestone does not freeze the record: milestones version the spec only (D92).
 
 ## Decisions
 
@@ -134,10 +134,22 @@ These continue the numbering of [workflows.md](workflows.md) (D38 to D56). Each 
 
 **D70. Pictures are refused above 150 states by default.** A larger graph is unreadable as an image; `.dot` output is not limited. Revisit when the interactive view exists.
 
-**D71. The record is its own file, `projections.json`, written without the session lock,** like `canon.json` and `workflows.json` (D36, D55). `check` reads the record again after TLC returns, so two long checks do not overwrite each other's result.
+**D71. The record is its own file, `projections.json`, written without the session lock,** like `canon.json` and `workflows.json` (D36, D55), and no milestone reads it (D92). `check` reads the record again after TLC returns, so two long checks do not overwrite each other's result.
 
 **D72. Finalizing needs a passing check of the files as they are now.** The record keeps a hash of the view and of the model at check time. A check after finalizing makes the projection a proposal again. Rationale: a final view that no longer matches its model is worse than none.
 
 **D73. Projection commands take files, not a session, except the record.** `analyze`, `draft`, `check`, `dump`, and `render` work on any TLA+ module in a directory; only `propose`, `finalize`, `list`, and `check --name` need a session. Rationale: the model is a file the agent edits, as with `clew spec canon tlc`.
 
 **D74. The TLC runner is shared with the canonical pipeline.** `TlcRequest` gained an optional dump path. The earlier rule that Clew runs TLC only when asked (D16) holds: every run here is a command the agent typed.
+
+### Aligned with the revised workflows (D88 to D91)
+
+Jeff asked for the projection work to follow the direction PR 76 and PR 77 took. These continue after D91 in [workflows.md](workflows.md).
+
+**D92. Milestones do not freeze `projections.json`.** (Follows Jeff's D88. It used to be in `SNAPSHOT_FILES`.) A projection is a way of looking at a TLA+ model that was exported from whatever spec is current, like a workflow is a probe of it; neither is part of the spec's versions. The record keeps its own history (who proposed, checked, finalized, or dropped, and why), `spec diff` does not compare it, and the dependency-cruiser rule `spec-never-cites-projections` keeps the spec's grammar, gate, compiler, export, store, and versioning from reading any projection module. Rationale: a milestone versions and releases the spec, and a spec change should never wait on, or be undone with, a change to a view.
+
+**D93. Nothing compiled from a projection is stored.** (Follows Jeff's D91.) The analysis, the candidates, the draft, the projected graph, and the explorer's payload are built in the domain from the model's text and TLC's dump on every run. The commands write only the files an agent asked for: the view module, the check module and its configs, a dump, a picture, a page. The record holds decisions and observations, not derived data: the name, the kept variables, the status, the history, and the last check.
+
+**D94. The stored check is an observation tied to file hashes, and its freshness is computed on every read.** (Follows D90: a stored layer that is silently rebuilt is a cache, not a layer.) A TLC run takes minutes, so its result is kept with the hashes of the view and the model it was given. `list`, `propose`, and `finalize` report `current: false` when either file changed, and `finalize` refuses (D72); nothing re-runs TLC silently, and one `check` clears it. `current` is not written to `projections.json`. Revisit if agents want `finalize` to run the check itself.
+
+**D95. The check module keeps extending the model.** The workflow monitor stopped extending the agent's model and dropped the `Get_` accessors so that the spec's output never changes for a workflow (D47). The projection check already had that property: `<View>Refines.tla` is a new Clew-owned file that extends the model and instances the view, the same shape as the canonical `<Name>Check` module, and neither the model nor the view gains a definition for it. So nothing changed here.

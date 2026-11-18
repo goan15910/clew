@@ -2,7 +2,7 @@
 // The model is synthetic (examples/projection/Fulfil.tla). TLC runs only when TLA2TOOLS_JAR names a jar.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -347,6 +347,16 @@ describe('clew spec projection', () => {
       assert.deepEqual(document.check.neverTaken, []);
       assert.equal(document.tlc.states.distinct, 92);
       assert.equal(clew(['spec', 'projection', 'finalize', '--name', 'FulfilOrder', '--reason', 'reviewed'], env).status, 0);
+      const current = (): boolean | undefined => (JSON.parse(clew(['spec', 'projection', 'list', '--json'], env).stdout) as { projections: { check?: { current: boolean } }[] }).projections[0]?.check?.current;
+      assert.equal(current(), true);
+
+      // A milestone versions the spec only: it does not freeze the projection record.
+      const closed = clew(['spec', 'milestone', 'close', '--title', 'First', '--goal', 'the sentence as read'], env);
+      assert.equal(closed.status, 0, closed.stderr);
+      const stored = readdirSync(dir, { recursive: true }).map(String);
+      assert.ok(stored.some((file) => /milestones.*sentences\.json$/.test(file)), stored.join(' '));
+      assert.ok(stored.some((file) => /projections\.json$/.test(file)));
+      assert.ok(!stored.some((file) => /milestones.*projections\.json$/.test(file)));
 
       // The exact view of a closed set has the graph the projection of the model's graph has.
       clew(['spec', 'projection', 'draft', model, '--name', 'FulfilNews', '--keep', 'newsletter_status'], env);
@@ -365,6 +375,11 @@ describe('clew spec projection', () => {
       assert.equal(violation.projections[0]?.status, 'proposed');
       const stale = clew(['spec', 'projection', 'finalize', '--name', 'FulfilOrder', '--reason', 'again'], env);
       assert.equal(stale.status, 2);
+      // Whether a stored check still describes the files is worked out on every read.
+      assert.equal(current(), true);
+      writeFileSync(view, `${readFileSync(view, 'utf8')}\n`);
+      assert.equal(current(), false);
+      assert.match(clew(['spec', 'projection', 'list'], env).stdout, /the files changed since: check again/);
 
       const dumped = clew(['spec', 'projection', 'dump', model, '--out', join(dir, 'fulfil.dot'), '--json'], env);
       assert.equal(dumped.status, 0, dumped.stdout);

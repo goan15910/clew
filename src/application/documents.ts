@@ -916,7 +916,7 @@ export interface ProjectionRecordView {
   keep: string[];
   candidate?: string;
   status: 'proposed' | 'final' | 'dropped';
-  check?: { at: string; status: 'implements' | 'violation' | 'error' | 'timeout'; view: string; model: string; viewHash: string; modelHash: string; states?: number; neverTaken?: string[] };
+  check?: { at: string; status: 'implements' | 'violation' | 'error' | 'timeout'; view: string; model: string; viewHash: string; modelHash: string; states?: number; neverTaken?: string[]; /** Whether the view and the model are still the files TLC checked. Worked out on every read, never stored. */ current: boolean };
   history: { at: string; who: string; reason: string; action: 'propose' | 'check' | 'finalize' | 'drop'; keep?: string[]; note?: string }[];
 }
 

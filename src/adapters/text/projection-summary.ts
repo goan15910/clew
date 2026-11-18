@@ -22,7 +22,7 @@ function recordLines(record: ProjectionRecordView, lines: string[]): void {
   lines.push(`  ${record.name}  ${record.status}  keeps ${record.keep.join(', ')}${record.candidate === undefined ? '' : `  (candidate ${record.candidate})`}`);
   if (record.check !== undefined) {
     const never = record.check.neverTaken === undefined || record.check.neverTaken.length === 0 ? '' : `; never taken: ${record.check.neverTaken.join(', ')}`;
-    lines.push(`    check ${record.check.at}: ${record.check.status}, ${record.check.view} against ${record.check.model}${record.check.states === undefined ? '' : `, ${record.check.states} states`}${never}`);
+    lines.push(`    check ${record.check.at}: ${record.check.status}, ${record.check.view} against ${record.check.model}${record.check.states === undefined ? '' : `, ${record.check.states} states`}${never}${record.check.current ? '' : '; the files changed since: check again'}`);
   }
   for (const entry of record.history) lines.push(`    ${entry.at} ${entry.who} ${entry.action}: ${entry.reason}${entry.note === undefined ? '' : ` (${entry.note})`}`);
 }
