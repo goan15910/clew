@@ -46,6 +46,13 @@ module.exports = {
       to: { path: '(^|/)(domain/canon-workflow|application/canon-workflows|adapters/canon/workflow-files)\\.ts$' },
     },
     {
+      name: 'spec-never-cites-projections',
+      severity: 'error',
+      comment: 'References go one way: a projection reads a TLA+ model and keeps its own record, but the spec\'s grammar, gate, compiler, TLA+ export, use cases, and versioning (milestones, diff) never read a projection.',
+      from: { path: '^src/(domain/(canon-(ast|compile|gate|rules|tla|workflow)|spec-versions)|application/(canon|canon-workflows|versions)|adapters/canon/(canon-files|chevrotain-parser|workflow-files)|adapters/spec-store/[^/]+)\\.ts$' },
+      to: { path: '(^|/)(domain/(projection|state-graph|tla-scan)|application/projection|adapters/projection/[^/]+)\\.ts$' },
+    },
+    {
       name: 'application-inward',
       severity: 'error',
       comment:

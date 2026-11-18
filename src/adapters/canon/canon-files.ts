@@ -128,6 +128,7 @@ export function javaTlcRunner(env: NodeJS.ProcessEnv = process.env): TlcRunner {
       const args = ['-XX:+UseParallelGC', '-cp', resolve(jar), 'tlc2.TLC', '-workers', String(request.workers), '-metadir', join(tmpdir(), `clew-tlc-${process.pid}-${Date.now()}`)];
       if (request.config !== undefined) args.push('-config', resolve(request.config));
       if (request.coverage) args.push('-coverage', '1');
+      if (request.dump !== undefined) args.push('-dump', 'dot,actionlabels', resolve(request.dump));
       args.push(basename(request.file));
       const result = spawnSync(java, args, {
         cwd: dirname(resolve(request.file)),

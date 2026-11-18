@@ -45,6 +45,14 @@
 // clew spec workflow parse [--workflow w1] [--session id] [--json]
 // clew spec workflow export --dir D --name Module [--workflow w1] [--session id] [--json]
 // clew spec workflow verify --dir D --name Module [--workflow w1] [--jar tla2tools.jar] [--timeout s] [--workers n] [--json]
+// clew spec projection analyze <model.tla> [--keep v]... [--graph file.dot|module.tla] [--out deps.svg] [--next Next] [--jar ...] [--json]
+// clew spec projection draft <model.tla> --name Module --keep v... [--dir D] [--dry-run] [--force] [--json]
+// clew spec projection check <view.tla> --against <model.tla> [--map "v <- expr"]... [--cover] [--name projection] [--jar ...] [--json]
+// clew spec projection dump <module.tla> --out graph.dot [--config file.cfg] [--jar ...] [--json]
+// clew spec projection render <graph.dot|module.tla> [--keep v]... [--out file.svg|.png|.dot] [--to v=value]... [--title text] [--json]
+// clew spec projection propose --name Module --keep v... --reason text [--candidate c1] [--by] [--session id] [--json]
+// clew spec projection finalize --name Module --reason text [--drop] [--by] [--session id] [--json]
+// clew spec projection list [--session id] [--json]
 // clew spec trace <id> [--session id] [--json]
 // clew spec status [--session id] [--json]
 // clew spec show sentences|tagged|tokens|spans|concepts|frames [--session id] [--json]
@@ -106,6 +114,9 @@ import { chevrotainCanonParser } from './adapters/canon/chevrotain-parser.js';
 import { acceptCanonDraft, checkCanon, exportCanon, mergeCanon, runCanonTlc, setCanonLexicon, type CanonPorts } from './application/canon.js';
 import { acceptWorkflowDraft, addWorkflows, checkWorkflowSet, editWorkflowSentence, exportWorkflows, parseWorkflowSet, setWorkflow, verifyWorkflows, type WorkflowPorts } from './application/canon-workflows.js';
 import { workflowFileStore } from './adapters/canon/workflow-files.js';
+import { graphvizImageWriter, projectionFileStore, projectionFiles } from './adapters/projection/projection-files.js';
+import { analyzeProjectionCase, checkProjection, draftProjection, dumpStateGraph, finalizeProjection, keepList, listProjections, proposeProjection, renderProjection, type ProjectionPorts } from './application/projection.js';
+import { PROJECTION_MODULE_PATTERN } from './domain/projection.js';
 import { CANON_WORKFLOW_ID_PATTERN, CANON_WORKFLOW_SENTENCE_ID_PATTERN } from './domain/canon-workflow.js';
 import { exportSpec } from './application/export-spec.js';
 import { isVersionRef, MILESTONE_ID_MESSAGE, MILESTONE_ID_PATTERN, VERSION_REF_MESSAGE } from './domain/spec-versions.js';
@@ -156,6 +167,7 @@ const comparePorts: ComparePorts = {
 const milestoneStore = jsonMilestoneStore();
 const canonPorts: CanonPorts = { store: jsonSpecStore, canon: canonFileStore(), parser: chevrotainCanonParser, milestones: milestoneStore };
 const milestonePorts: MilestonePorts = { store: jsonSpecStore, canon: canonPorts.canon, parser: chevrotainCanonParser, milestones: milestoneStore };
+const projectionPorts: ProjectionPorts = { files: projectionFiles, tlc: javaTlcRunner(), images: graphvizImageWriter, store: jsonSpecStore, projections: projectionFileStore(), now: () => new Date().toISOString() };
 const workflowPorts: WorkflowPorts = { store: jsonSpecStore, canon: canonPorts.canon, workflows: workflowFileStore(), parser: chevrotainCanonParser };
 const upgradePorts: UpgradePorts = {
   install: { locate: locateInstall },
@@ -372,6 +384,20 @@ const SpecCanonTlcFlags = z.object({
   workers: z.coerce.number().int().min(1).max(64).default(1),
   coverage: z.boolean().optional(),
 });
+const TlcFlags = {
+  jar: z.string().min(1).optional(),
+  timeout: z.coerce.number().int().min(1).max(86400).default(300),
+  workers: z.coerce.number().int().min(1).max(64).default(1),
+};
+const ModuleNameOption = z.string({ error: '--name is required' }).regex(PROJECTION_MODULE_PATTERN, '--name must be a TLA+ module name: letters, digits, and _');
+const KeepOption = z.array(z.string().min(1)).default([]);
+const SpecProjectionAnalyzeFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, keep: KeepOption, graph: z.string().min(1).optional(), out: z.string().min(1).optional(), config: z.string().min(1).optional(), next: z.string().min(1).optional() });
+const SpecProjectionDraftFlags = z.object({ json: z.boolean().optional(), name: ModuleNameOption, keep: KeepOption.refine((keep) => keep.length > 0, '--keep is required'), dir: z.string().min(1).optional(), dryRun: z.boolean().optional(), force: z.boolean().optional(), next: z.string().min(1).optional() });
+const SpecProjectionCheckFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, against: z.string({ error: '--against is required' }).min(1), map: z.array(z.string().min(1)).default([]), cover: z.boolean().optional(), name: ModuleNameOption.optional(), session: SessionOption, by: z.string().min(1).optional(), spec: z.string().min(1).optional(), next: z.string().min(1).optional() });
+const SpecProjectionDumpFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, out: z.string({ error: '--out is required' }).regex(/\.dot$/i, '--out must end in .dot'), config: z.string().min(1).optional() });
+const SpecProjectionRenderFlags = z.object({ json: z.boolean().optional(), ...TlcFlags, keep: KeepOption, out: z.string().min(1).optional(), title: z.string().min(1).optional(), to: z.array(z.string().min(1)).default([]), maxStates: z.coerce.number().int().min(1).max(100000).default(150), direction: z.enum(['LR', 'TB']).default('LR'), config: z.string().min(1).optional() });
+const SpecProjectionProposeFlags = z.object({ ...RevisionFlags, name: ModuleNameOption, keep: KeepOption.refine((keep) => keep.length > 0, '--keep is required'), candidate: z.string().min(1).optional() });
+const SpecProjectionFinalizeFlags = z.object({ ...RevisionFlags, name: ModuleNameOption, drop: z.boolean().optional() });
 const CanonWorkflowIdOption = z.string().regex(CANON_WORKFLOW_ID_PATTERN, 'workflow ids look like w1');
 const WorkflowSentenceIdOption = z.string({ error: '--id is required' }).regex(CANON_WORKFLOW_SENTENCE_ID_PATTERN, 'workflow sentence ids look like w1.s2');
 const SpecWorkflowAddFlags = z.object({ ...RevisionFlags, file: z.string({ error: '--file is required' }).min(1) });
@@ -1728,6 +1754,190 @@ setManual(workflow
   examples: ['clew spec workflow verify --dir tla --name Order --jar tla2tools.jar --json'],
   exitCodes: [{ code: 0, meaning: 'TLC agrees with every workflow' }, { code: 1, meaning: 'a possible workflow has no witness, a refused one goes through, or a workflow is not ready' }, { code: 2, meaning: 'no jar or Java, a stale export, or TLC could not run any monitor' }],
   notes: ['Each path step names the workflow step, the spec action, and the spec sentence it came from. A possible workflow with no witness names the first step the model never takes.', 'Clew does not ship TLC. Pass --jar or set TLA2TOOLS_JAR; Java must be on PATH (or set JAVA).', workflowNote, jsonNote, sessionNote],
+});
+
+const projection = spec.command('projection').description('Find the variables of a TLA+ model that belong together, write a projected view, check it with TLC, and draw it.').helpCommand(false);
+const projectionNote = 'A projected view keeps some variables of a model and hides the rest. It is a TLA+ module of its own, and the model must implement it: clew spec projection check asks TLC. See docs/projection.md.';
+const tlcNote = 'Clew does not ship TLC. Pass --jar or set TLA2TOOLS_JAR; Java must be on PATH (or set JAVA).';
+
+setManual(projection
+  .command('analyze')
+  .description('Report what each action reads and writes, which variables depend on which, and the views worth drawing (read-only).')
+  .argument('<model>', 'TLA+ module, such as the model clew spec canon export wrote')
+  .option('--keep <variables>', 'say what keeping these variables would cost; repeat it or separate with commas', collectFlow, [])
+  .option('--graph <file>', 'add what the reachable states say: a TLC dump (.dot), or a module (.tla) for TLC to dump')
+  .option('--config <file>', 'TLC config for --graph <module.tla>')
+  .option('--out <file>', 'draw the dependency map: .svg, .png, or .dot')
+  .option('--next <name>', 'the next-state definition (default Next)')
+  .option('--jar <file>', 'tla2tools.jar; defaults to $TLA2TOOLS_JAR')
+  .option('--timeout <seconds>', 'stop TLC after this many seconds (default 300)')
+  .option('--workers <n>', 'TLC worker threads (default 1)')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((model, opts) => {
+    const parsed = SpecProjectionAnalyzeFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.analyze', opts, parsed.error);
+    const flags = parsed.data;
+    emit(analyzeProjectionCase({ file: model, keep: keepList(flags.keep), graph: flags.graph, out: flags.out, config: flags.config, next: flags.next, jar: flags.jar, workers: flags.workers, timeoutSeconds: flags.timeout }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection analyze tla/Order.tla --json', 'clew spec projection analyze tla/Order.tla --keep order_status --graph tla/order.dot --json'],
+  exitCodes: [{ code: 0, meaning: 'the analysis was printed' }, { code: 2, meaning: 'the model is unreadable, has no Next or no variables, --keep names no variable of it, or TLC could not dump the graph' }],
+  notes: ['Each candidate says which variables it keeps, whether it is exact, and why. A component or a cone is exact: nothing it keeps waits on a hidden variable. A focus or lifecycle view hides guards, so some of its steps are possible, not certain.', 'With --graph, each candidate is also projected on the reachable states: its size and how many of its edges are certain. The pair table gives the correlation of two variables over the reachable states, how often they change in one step, and value pairs that never occur together.', '--out draws the dependency map: an arrow from a to b says an action that writes b reads a, and a box around variables marks an independent part.', 'The analysis recommends. Which view to build is your call: record it with clew spec projection propose.', projectionNote, jsonNote],
+});
+
+setManual(projection
+  .command('draft')
+  .description('Write a starter view: the model with the hidden variables cut out. The view is yours to edit.')
+  .argument('<model>', 'TLA+ module to project')
+  .option('--name <Module>', 'the module name of the view')
+  .option('--keep <variables>', 'variables the view keeps; repeat it or separate with commas', collectFlow, [])
+  .option('--dir <dir>', 'write the view here; defaults to the directory of the model')
+  .option('--dry-run', 'print the view in the document without writing a file')
+  .option('--force', 'replace an existing view with a fresh draft')
+  .option('--next <name>', 'the next-state definition (default Next)')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((model, opts) => {
+    const parsed = SpecProjectionDraftFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.draft', opts, parsed.error);
+    const flags = parsed.data;
+    emit(draftProjection({ file: model, name: flags.name, keep: keepList(flags.keep), dir: flags.dir, dryRun: flags.dryRun === true, force: flags.force === true, next: flags.next }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection draft tla/Order.tla --name OrderLifecycle --keep order_status --json'],
+  exitCodes: [{ code: 0, meaning: 'the view was written (or drafted)' }, { code: 1, meaning: 'the view was written, but a step needs a hidden value: finish the lines marked TODO' }, { code: 2, meaning: 'the model is unreadable, a kept variable is unknown, the name is not a module name, or the view exists and --force is absent' }],
+  notes: ['A guard on a hidden variable is dropped and listed under weakened: the view allows that step whenever the kept variables do. An action that writes no kept variable is removed. A definition that reads a hidden variable is omitted.', 'The draft is a start. Rename, merge, and simplify it; clew spec projection check tells you whether the model still implements it.', projectionNote, jsonNote],
+});
+
+setManual(projection
+  .command('check')
+  .description('Ask TLC whether the model implements the view: every behaviour of the model, with the hidden variables dropped, is a behaviour of the view.')
+  .argument('<view>', 'the view module')
+  .option('--against <model>', 'the model, or a larger view already checked against it')
+  .option('--map <mapping>', 'a view variable the model does not have: "phase <- IF order_status = \\"draft\\" THEN \\"open\\" ELSE \\"closed\\""; repeat it', collectFlow, [])
+  .option('--cover', 'also count how often the model takes each step of the view (-coverage 1)')
+  .option('--name <projection>', 'record the result on this projection of the session')
+  .option('--spec <name>', 'the specification definition in both modules (default Spec)')
+  .option('--next <name>', 'the next-state definition in both modules (default Next)')
+  .option('--jar <file>', 'tla2tools.jar; defaults to $TLA2TOOLS_JAR')
+  .option('--timeout <seconds>', 'stop TLC after this many seconds (default 300)')
+  .option('--workers <n>', 'TLC worker threads (default 1)')
+  .option('--by <name>', 'who checks; defaults to agent')
+  .option('--session <id>', 'session for --name; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((view, opts) => {
+    const parsed = SpecProjectionCheckFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.check', opts, parsed.error);
+    const flags = parsed.data;
+    emit(checkProjection({ view, against: flags.against, map: flags.map, cover: flags.cover === true, name: flags.name, sessionId: flags.session, by: flags.by, spec: flags.spec, next: flags.next, jar: flags.jar, workers: flags.workers, timeoutSeconds: flags.timeout }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection check tla/OrderLifecycle.tla --against tla/Order.tla --jar tla2tools.jar --json', 'clew spec projection check tla/OrderLifecycle.tla --against tla/Order.tla --cover --name OrderLifecycle --json'],
+  exitCodes: [{ code: 0, meaning: 'the model implements the view' }, { code: 1, meaning: 'TLC found a behaviour of the model the view does not allow, or timed out' }, { code: 2, meaning: 'no jar or Java, a file is missing, a view variable has no mapping, or TLC could not parse a module' }],
+  notes: ['Clew writes <View>Refines.tla with View == INSTANCE <View> WITH ..., and asks TLC for the property View!Spec on the model. A violation prints the model steps that lead to a step the view forbids.', 'Implementing is transitive. Check a large exact view against the full model once, then check small views against that view: the runs are short, and the result still holds for the full model.', '--cover lists the steps of the view the model never takes: there the view is looser than the model, or the model has a dead action.', tlcNote, projectionNote, jsonNote],
+});
+
+setManual(projection
+  .command('dump')
+  .description('Run TLC on a module and keep its reachable state graph as Graphviz text.')
+  .argument('<module>', 'TLA+ module; its .cfg beside it is used unless --config')
+  .option('--out <file.dot>', 'where to write the state graph')
+  .option('--config <file>', 'TLC config file')
+  .option('--jar <file>', 'tla2tools.jar; defaults to $TLA2TOOLS_JAR')
+  .option('--timeout <seconds>', 'stop TLC after this many seconds (default 300)')
+  .option('--workers <n>', 'TLC worker threads (default 1)')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((module, opts) => {
+    const parsed = SpecProjectionDumpFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.dump', opts, parsed.error);
+    const flags = parsed.data;
+    emit(dumpStateGraph({ file: module, out: flags.out, config: flags.config, jar: flags.jar, workers: flags.workers, timeoutSeconds: flags.timeout }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection dump tla/OrderLifecycle.tla --out tla/order-lifecycle.dot --jar tla2tools.jar --json'],
+  exitCodes: [{ code: 0, meaning: 'the state graph was written' }, { code: 1, meaning: 'the graph was written, and TLC found a violation on the way' }, { code: 2, meaning: 'no jar or Java, the file is missing, TLC could not parse the module, or it timed out' }],
+  notes: ['The file is TLC\'s own -dump dot,actionlabels output: any Graphviz tool reads it. A dump grows by about 2 KB per state, so dump a view, not a model with millions of states.', tlcNote, jsonNote],
+});
+
+setManual(projection
+  .command('render')
+  .description('Draw a state graph, whole or projected onto some variables, as SVG, PNG, or Graphviz text.')
+  .argument('<graph>', 'a TLC dump (.dot), or a module (.tla) for TLC to dump')
+  .option('--keep <variables>', 'project onto these variables; a part such as l2_status[l21] is one instance; repeat it or separate with commas', collectFlow, [])
+  .option('--out <file>', 'the picture: .svg, .png, or .dot; without it, only the numbers are printed')
+  .option('--title <text>', 'a title above the graph')
+  .option('--to <variable=value>', 'highlight a shortest path to a state with this value; repeat it', collectFlow, [])
+  .option('--max-states <n>', 'refuse a picture with more states than this (default 150)')
+  .option('--direction <LR|TB>', 'left to right (default) or top to bottom')
+  .option('--config <file>', 'TLC config for a module')
+  .option('--jar <file>', 'tla2tools.jar; defaults to $TLA2TOOLS_JAR')
+  .option('--timeout <seconds>', 'stop TLC after this many seconds (default 300)')
+  .option('--workers <n>', 'TLC worker threads (default 1)')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((graph, opts) => {
+    const parsed = SpecProjectionRenderFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.render', opts, parsed.error);
+    const flags = parsed.data;
+    emit(renderProjection({ file: graph, keep: keepList(flags.keep), out: flags.out, title: flags.title, to: flags.to, maxStates: flags.maxStates, direction: flags.direction, config: flags.config, jar: flags.jar, workers: flags.workers, timeoutSeconds: flags.timeout }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection render tla/OrderLifecycle.tla --out order-lifecycle.svg --jar tla2tools.jar', 'clew spec projection render tla/order.dot --keep order_status --to order_status=shipped --out order.png --json'],
+  exitCodes: [{ code: 0, meaning: 'the view was computed, and drawn when --out was given' }, { code: 2, meaning: 'the graph is unreadable, a kept variable is unknown, no state matches --to, the view is too large for a picture, or Graphviz is missing' }],
+  notes: ['A solid arrow is a step every state behind its source can take. A dashed arrow is possible from some of them only: it waits on a hidden variable. A double border marks a state no step leaves. The dot on the left marks where the model starts.', 'The numbers say how many states and steps the view has, how many of the full graph they stand for, and which steps are only possible.', 'Pictures need Graphviz (dot) on PATH; .dot output does not.', tlcNote, jsonNote],
+});
+
+setManual(projection
+  .command('propose')
+  .description('Record a view you mean to build: its name, the variables it keeps, and why.')
+  .option('--name <Module>', 'the module name of the view')
+  .option('--keep <variables>', 'variables the view keeps; repeat it or separate with commas', collectFlow, [])
+  .option('--candidate <id>', 'the analysis candidate it follows, such as c2')
+  .option('--reason <text>', 'why this view')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecProjectionProposeFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.propose', opts, parsed.error);
+    const flags = parsed.data;
+    emit(proposeProjection({ sessionId: flags.session, name: flags.name, keep: keepList(flags.keep), candidate: flags.candidate, reason: flags.reason, by: flags.by }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection propose --name OrderLifecycle --keep order_status --candidate c2 --reason "the order alone is what the reviewer asked about" --json'],
+  exitCodes: [{ code: 0, meaning: 'the projection was recorded' }, { code: 2, meaning: 'the name is not a module name, nothing is kept, or there is no spec session' }],
+  notes: ['Proposing a name again changes what it keeps and clears its check.', projectionNote, jsonNote, sessionNote],
+});
+
+setManual(projection
+  .command('finalize')
+  .description('Mark a projection final once TLC says the model implements its view, or drop it with a reason.')
+  .option('--name <Module>', 'the projection')
+  .option('--drop', 'record that the projection was given up instead')
+  .option('--reason <text>', 'why it is final, or why it is dropped')
+  .option('--finding <id>', 'finding this write answers')
+  .option('--comment <text>', 'free-text note kept in history')
+  .option('--by <name>', 'who writes it; defaults to agent')
+  .option('--session <id>', 'session to edit; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecProjectionFinalizeFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.finalize', opts, parsed.error);
+    const flags = parsed.data;
+    emit(finalizeProjection({ sessionId: flags.session, name: flags.name, reason: flags.reason, by: flags.by, drop: flags.drop === true }, projectionPorts), flags.json === true);
+  }), {
+  examples: ['clew spec projection finalize --name OrderLifecycle --reason "reviewed with the order owner" --json', 'clew spec projection finalize --name OrderTotals --drop --reason "the totals never change" --json'],
+  exitCodes: [{ code: 0, meaning: 'the projection is final, or dropped' }, { code: 2, meaning: 'no such projection, no passing check, the view or the model changed since the check, or there is no spec session' }],
+  notes: ['Finalize refuses a view whose last check did not pass, and a view or model edited since: check again with --name.', projectionNote, jsonNote, sessionNote],
+});
+
+setManual(projection
+  .command('list')
+  .description('List the projections of the session, with their checks and history (read-only).')
+  .option('--session <id>', 'session to read; defaults to the only open session')
+  .option('--json', 'print the result document as JSON on stdout')
+  .action((opts) => {
+    const parsed = SpecSessionFlags.safeParse(opts);
+    if (!parsed.success) usage('spec.projection.list', opts, parsed.error);
+    emit(listProjections({ sessionId: parsed.data.session }, projectionPorts), parsed.data.json === true);
+  }), {
+  examples: ['clew spec projection list --json'],
+  exitCodes: [{ code: 0, meaning: 'the projections were printed' }, { code: 2, meaning: 'there is no spec session, or projections.json is unreadable' }],
+  notes: [projectionNote, jsonNote, sessionNote],
 });
 
 setManual(spec
