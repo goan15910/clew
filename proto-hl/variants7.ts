@@ -2,7 +2,7 @@
 //   npx tsx proto-hl/variants7.ts <out.html>
 import { readFileSync, writeFileSync } from 'node:fs';
 import { chevrotainCanonParser } from '../src/adapters/canon/chevrotain-parser.js';
-import { CNL_HIGHLIGHT_CSS } from '../src/adapters/canon/highlight-css.js';
+import { CNL_HIGHLIGHT_CSS_FULL as CNL_HIGHLIGHT_CSS } from '../src/adapters/canon/highlight-css-full.js';
 import { renderSentenceHtml } from '../src/adapters/canon/highlight-html.js';
 import type { CanonLexicon } from '../src/domain/canon-ast.js';
 import { highlightSentence } from '../src/domain/canon-highlight.js';

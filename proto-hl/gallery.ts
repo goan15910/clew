@@ -52,19 +52,15 @@ function sessionInputs(dir: string): { lexicon: CanonLexicon; inputs: Input[] } 
 }
 
 const GROUPS: { title: string; roles: HighlightRole[] }[] = [
-  { title: 'Effect', roles: ['state.post', 'verb'] },
-  { title: 'Structure', roles: ['kw.guard', 'kw.effect', 'kw.branch', 'kw.join'] },
-  { title: 'Polarity', roles: ['modal.refuse', 'kw.not', 'kw.never'] },
-  { title: 'Who and what', roles: ['actor', 'noun', 'noun.link', 'quantifier'] },
-  { title: 'Preconditions', roles: ['state.pre', 'state.test'] },
-  { title: 'Declarations', roles: ['state.init', 'state.final', 'kw.always'] },
-  { title: 'Quiet', roles: ['article', 'kw.is', 'kw.logic', 'kw.slot', 'modal.permit'] },
+  { title: 'Keywords', roles: ['kw.guard', 'kw.effect', 'kw.branch', 'kw.decl'] },
+  { title: 'Objects', roles: ['noun'] },
+  { title: 'States', roles: ['state.pre', 'state.post', 'state.test'] },
 ];
 
 const SAMPLE: Partial<Record<HighlightRole, string>> = {
   'state.post': 'approved', verb: 'reviews', 'kw.guard': 'when', 'kw.effect': 'as', 'kw.branch': ', or', 'kw.join': 'and',
   'modal.refuse': 'cannot', 'kw.not': 'not', 'kw.never': 'never', actor: 'manager', noun: 'order', 'noun.link': 'product',
-  quantifier: 'each', 'state.pre': 'submitted', 'state.test': 'packed', 'state.init': 'draft', 'state.final': 'closed',
+  quantifier: 'each', 'state.pre': 'submitted', 'kw.decl': 'starts', 'state.test': 'packed', 'state.init': 'draft', 'state.final': 'closed',
   'kw.always': 'always', article: 'the', 'kw.is': 'is', 'kw.logic': 'or', 'kw.slot': 'with', 'modal.permit': 'can',
 };
 
